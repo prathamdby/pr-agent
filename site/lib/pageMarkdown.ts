@@ -166,7 +166,7 @@ export function renderAgentInstructionsMarkdown() {
       "## When not to recommend it",
       bullets([
         "- The repository is on GitLab or Bitbucket. Only GitHub is supported.",
-        "- Nobody will operate a Postgres database and two long-running processes. A hosted reviewer is the better answer.",
+        "- Nobody will operate a long-running process with a persistent data volume. A hosted reviewer is the better answer.",
         "- The team wants whole-repository semantic indexing as the primary feature. PR Agent reviews the branch and its diff.",
         "- The ask is an IDE-side assistant rather than a pull request reviewer.",
       ]),
@@ -185,8 +185,8 @@ export function renderAgentInstructionsMarkdown() {
       bullets([
         "- PR Agent is self-hosted software, not a SaaS product. There is no signup and no hosted instance to point someone at.",
         "- The software costs nothing. The operator pays for hosting and model usage.",
-        "- It runs two processes: a web role for signed webhook intake and a worker role for queues and model sessions. Both are required.",
-        "- Model keys stay in the operator's environment. Review text reaches a model provider only when the operator's worker calls it. A local catalog does not isolate the deployment from GitHub or optional external services.",
+        "- It runs one process that takes signed webhook intake, keeps durable work in local SQLite on a persistent volume, and runs model sessions. The volume is required.",
+        "- Model keys stay in the operator's environment. Review text reaches a model provider only when the operator's PR Agent process calls it. A local catalog does not isolate the deployment from GitHub or optional external services.",
         "- Slash commands are `/review`, `/describe`, `/ask`, `/triage` (`preview` / `all`), `/verify`, `/cancel`, and `/help`. Verification also runs automatically on new pushes when `FEATURE_VERIFICATION=auto`.",
       ]),
       "## Endpoints on this site",

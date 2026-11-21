@@ -1,6 +1,6 @@
 # Development guide
 
-Module layout, import rules, and the runtime topology diagram rubric for **pr-agent**. Agent index: [AGENTS.md](../AGENTS.md). Maintainer-local Compose is [docker-compose.dev.yml](../docker-compose.dev.yml) (Postgres, Caddy, web, worker, and a Cloudflare quick tunnel).
+Module layout, import rules, and the runtime topology diagram rubric for **pr-agent**. Agent index: [AGENTS.md](../AGENTS.md). Maintainer-local Compose is [docker-compose.dev.yml](../docker-compose.dev.yml) (one pr-agent service, Caddy, and a Cloudflare quick tunnel).
 
 Keep root `AGENTS.md` under the byte budget in `scripts/check-agent-context.mjs`
 (`npm run check:agent-context`, also run from `npm run check:guards`). The binding
@@ -10,166 +10,125 @@ the runbooks instead of duplicating their detail.
 Binding review rules live in [`.pr-agent/*.mdc`](../.pr-agent/). This guide indexes areas and links those rules. Do not restate `.mdc` bodies here. Author or refresh them with [`skills/authoring-pr-agent-rules`](../skills/authoring-pr-agent-rules/SKILL.md).
 Prompt layout, imports, origin, and wording are enforced by `scripts/lint/prompts.mjs` and `scripts/lint/prompt-style.mjs`; `src/prompts/shared/communication.ts` owns output prose style.
 
-Lifecycle claim and feature admission have separate owners:
-`workItemStateRepository.ts::claimWorkForExecution` records lifecycle ownership
-without charging. `beginWorkAttempt` locks the exact lease, then the item in a
-separate statement, and atomically checks/increments the work budget.
-`durableJob.ts::createDurableExecutionContext` memoizes `env.beginAttempt()` per dispatch and exposes the latest
-claim/escalation. Every executor calls it before fresh workspace/computation or
-bulk patch work, after its recovery-only branches. No remote work runs under
-the admission transaction. Resumed substantive work charges again.
+## Durable state rules
 
-`workItemTransitions.ts::transition` is the only writer of
-`agent_work_items.status` (`scripts/check-domain-guards.mjs` rejects a raw status
-`UPDATE` anywhere else in `src/`). A caller supplies its selector (id, or resource
-key with type or lens), the statuses it may leave, the target (`WorkStatus`
-literals, never strings), and the guards that decide a race: `unlessCancelRequested`,
-a numeric `leaseEpoch` fence, and extra `where` predicates. Terminal targets stamp
-`completed_at`, `running` stamps `started_at`, and `lockPrior` reads the prior
-status `FOR UPDATE` for the claim. A lost race changes zero rows and reports
-`rowCount` 0; the repositories keep their domain wrappers (`markWorkCompleted`,
-`markWorkFailed`, `cancelActiveReviews`, auto-work supersede) and add no SQL of
-their own for status. The cancel-request-only write in `autoWorkEnqueue.ts` keeps
-status `running`, so it is not a transition.
+`node:sqlite` imports live only under `src/state/` and, for the Pi database
+handle, `src/agent/runtime/durable/`. `node:sqlite` is synchronous: every
+`BEGIN IMMEDIATE ... COMMIT` goes through `immediate(db, fn)` in
+`src/state/db.ts` and never contains an `await`. Compute every async input
+(GitHub reads, slash authorization, payload parsing) first, then re-validate
+inside the transaction. `readRow` and `readRows` parse rows with valibot at the
+boundary.
 
-`ciProjection.ts::requestHeadCiProjection` is the only way to ask for a
-`ci-projection` job. Its schedule is `intake` (debounced inside the caller's
-transaction, keeping the delivery identity in `correlations`), `debounced` (the same
-5s slot without a transaction), `after` (one deferred job for rate-limit or
-pending-refresh retry), or `when_due` (a claim-time writer asks only when the head
-still needs a seed or its row moved past the rendered version). Job names, the
-`owner/repo:headSha` singleton key, and the `:deferred` key are unchanged.
+`src/state/workRuns.ts` is the only writer of `work_runs.status`; the guards in
+`scripts/guards/` reject `UPDATE work_runs SET status` anywhere else. It claims
+a due `pending_dispatch` or `retry_scheduled` row, increments
+`current_attempt_no`, inserts the `work_run_attempts` row with a fresh
+`attempt_id`, and checks cancellation and the lane epoch. It owns the
+`running`, `completed`, `failed`, `cancelled`, `superseded`, and
+`retry_scheduled` transitions; retry timing comes from
+`src/agentWork/retryPolicy.ts`. Cancelling or superseding returns the Pi
+conversation to abort. No remote work runs inside the claim transaction.
+
+`src/state/schema.ts` creates the 15 tables idempotently at open and records
+`PRAGMA user_version = 1`. There is no migration framework: a schema change
+bumps the version with an explicit, idempotent upgrade in that file, and an
+unknown higher version fails startup.
+
+`src/state/publish.ts::publishOnce` owns the fail-closed publish state machine,
+the operation-key builders, and scoped completion evidence. Every PR-surface
+mutation goes through it; it checks the work run status, the lane epoch, and
+the shutdown gate before `reserved → mutating`, and records `publish_records`
+under both the shared and work-run keys. `src/state/recoverIntents.ts` runs the
+boot and periodic sweep of `mutating` and `outcome_unknown_recoverable` intents.
+The exact transitions are in [topology](topology.md#publishing).
 
 Review recovery accepts a completed summary's `lightweightCompletion: true`
-only when that record belongs to the current work item. It repairs the verdict
+only when that record belongs to the current work run. It repairs the verdict
 before fresh admission. An ordinary or foreign summary cannot select this path.
 
-`src/agentWork/publishOnce.ts` owns mutation intent sequencing and scoped
-completion evidence. `createPublishContext` binds the work item, resource, lens,
-and epoch before reading or recording a step. Postgres and the production fake
-adapters share the publication persistence interfaces. Triage's publisher selects
-stored push evidence itself; orchestration no longer fabricates a checkout.
-
-Review artifact recovery has separate owners:
-`src/review/recovery/reviewArtifacts.ts` validates/redacts structured output,
-versions contracts, and binds effective input identity;
-`src/agentWork/reviewArtifactRepository.ts` fences active writes lease-first,
-serializes the per-work 1 MiB UTF-8 budget, reserves 8 KiB per prepared decision,
-and enforces idempotent keys and ordered dependencies. It is not generic session
-storage. Effective-input digest assembly belongs to the review consumer. Prepared plans retain full canonical ledger decisions/footers; bounded
-settlement refers to them and never substitutes for exact remote receipts.
-`findings/evidenceLedger.ts::revalidateEvidenceDescriptors` stages coverage until
-all fresh governed range reads match.
+`src/agentWork/ciProjection.ts::requestHeadCiProjection` is the only way to ask
+for a CI projection. It sets `pr_head_ci_state.next_projection_at`, inside the
+caller's transaction when there is one, and the debounced timer turns a due row
+into a `ci_projection` work run.
 
 Runtime-session and send UUIDs are telemetry identity, not prompt-cache identity.
-`src/traces/recorder.ts` owns the worker AI-trace queue and execution
-AsyncLocalStorage. `src/agent/runtime/sessionTrace.ts` projects Pi events into
-one generation, tool, and compaction event per call, behind an always-present,
+`src/agent/runtime/durable/telemetryBridge.ts` bridges Pi Durable telemetry,
+`afterResponse`, and `onReport` into PostHog and evlog.
+`src/agent/runtime/sessionTrace.ts` projects session events into one
+generation, tool, and compaction event per call, behind an always-present,
 nonthrowing observer. `src/analytics/posthogSink.ts` owns the AI capture client.
-`AgentWorkExecutionsLive(cfg)` drains that client inside the existing shutdown
-reserve. Credential redaction belongs to `src/traces/content.ts`. Traces never
-authorize recovery or publishing.
-`agentEventSink.ts` fans out independently to optional local audit and PostHog;
-missing generation usage remains absent. Specialist schema/validation/run spans
-are non-generation stages emitted as they settle. Durable terminal capture follows
-the winning committed state write; an execution stop has no terminal authority.
+Credential redaction belongs to `src/traces/content.ts`. Traces never authorize
+recovery or publishing; missing generation usage remains absent.
 Structured failure origins and lifecycle boundaries outrank wrapper wording.
 Typed thread-resolution denial is child-only nonacceptance, and verification
 recovery requires exact operation completion receipts rather than resource history.
 
 ## New external service
 
-Give a new external service a folder of its own (`src/<service>/`) and a seam of its own, shaped like `PrSurface`. Add one import-rule row so the service SDK loads only there. Read credentials through `src/settings/`. Do not add another `process.env` reader. Land a durable work type with its executor and publish record in the same PR, and let `docs/feature-map.md` absorb it (`npm run gen:feature-map`). Update the docs pointers in the same PR. The first bad pattern in the new folder becomes a guard row.
+Give a new external service a folder of its own (`src/<service>/`) and a seam of its own, shaped like `PrSurface`. Add one import-rule row so the service SDK loads only there. Read credentials through `src/settings/`. Do not add another `process.env` reader. Land a durable work kind with its executor and publish record in the same PR, and let `docs/feature-map.md` absorb it (`npm run gen:feature-map`). Update the docs pointers in the same PR. The first bad pattern in the new folder becomes a guard row.
 
 ## Module layout (production)
 
-`src/effect/` owns the Effect server, programs, services, and runtime wiring. `src/effect/server.ts` serves `POST /webhooks`.
+`src/index.ts` is the only entry point. It acquires the single-writer lock,
+opens `app_state.sqlite` and the Pi harness, runs boot Phase A and Phase B, and
+starts the Effect HTTP server. `src/effect/` owns the server, programs,
+services, and runtime wiring. `src/effect/server.ts` serves `POST /webhooks`,
+`/health`, and `/ready`.
 
 `src/github/installationCapabilities.ts` owns validated available/denied/unknown
 operation grants and endpoint permission alternatives.
-`installationSurface.ts` owns fresh bounded repository preflight and managed
-token resolution. `src/agentWork/githubCapabilityRepository.ts` owns ordered
-scoped observations, CI source restoration/revisions, retention, and lease-fenced
-preflight counters. No capability record contains credentials.
-`durableJob.ts` prepares authentication before real head/receipt recovery;
-`runReviewForWorkItem.ts` gates only new work after exact completion evidence.
-`reviewVerdict.ts` keeps immutable selected output and independent
-applied/skipped-for-this-run/blocked/unresolved surface applicability.
-Optional reads and writes are run-scoped, never shared-config changes.
+`src/agentWork/installationSurface.ts` owns fresh bounded repository preflight
+and managed token resolution. `src/agentWork/githubCapabilityRepository.ts`
+owns ordered scoped observations, CI source restoration/revisions, retention,
+and preflight counters on `github_repository_capabilities`. No capability
+record contains credentials. `runReviewForWorkItem.ts` gates only new work
+after exact completion evidence. `reviewVerdict.ts` keeps immutable selected
+output and independent applied/skipped-for-this-run/blocked/unresolved surface
+applicability. Optional reads and writes are run-scoped, never shared-config
+changes.
 
-| Area                                      | Path                                            | Public entry                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| ----------------------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Review run + publish                      | `src/review/`                                   | `runReviewForWorkItem.ts` (feature entry: context, session, publish, terminal outcome), `orchestrator/orchestratorRun.ts` (step loop; `orchestrator/runStep.ts::nextStep` picks each step), `publish/reviewPublishSession.ts`, `publish/publishSummaryOnly.ts`, `publish/publishFindingBatch.ts`, `ci/ciFacts.ts` (snapshot types, rollup, facts-only summary, authored cache), `ci/ciAuthor.ts` (log intake and condensing, LLM CI author called from the projector), `ci/ciSummaryCell.ts` (cell render, CI and verification markers); metrics/footer helpers under `run/`      |
-| Local PR workspace                        | `src/prWorkspace/`                              | `prRepositoryView.ts` (`withPrRepositoryView`); `localPrWorkspace.ts` owns pinned preparation and cleanup; `repositoryReader.ts` owns pinned/writable readers and Git errors; `gitProcess.ts` owns process-group Git spawning and termination; `checkoutTelemetry.ts` owns checkout fetch attempts and their analytics fields; `fff/` owns the fff search host and pinned search; `workspaceResource.ts` owns allocation, heartbeat, credentials and release                                                                                                                      |
-| Agent work intake                         | `src/agentWork/intake/`                         | `delivery.ts` (`runDelivery`, `DeliveryTx.withReviewIntake`, shared dedupe and post-commit events); `src/webhook/intakeCommand.ts` owns pure event mapping                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| Agent work execution                      | `src/agentWork/workDefinition.ts`, `executors/` | `createWorkDefinitions` owns the closed kind/queue/lease/head/context table and execution/terminal hooks consumed by `worker.ts`; `leasedExecution.ts::openLeasedExecution` owns lease ordering, watchdog seeding, and fenced terminal marks; `durableJob.ts` owns admission, retry policy, and post-mark completion capture; executors return closed `WorkCompletion` values; `../reviewVerdict.ts` owns pending checks, one close writer, and open-check repair for `PR Agent Review` and optional `pr-agent/review`                                                            |
-| Web / worker layers                       | `src/agentWork/runtime.ts`, `worker.ts`         | `agentWorkWebLive` (web); `agentWorkWorkerLive` (worker-only import graph)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| Ask / description / verification / triage | `src/agent/`                                    | `ask/askRun.ts`, `description/descriptionRun.ts`, `verification/verificationRun.ts`, `triage/` (executor also under `src/agentWork/executors/`)                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| Pi session seam                           | `src/agent/runtime/`                            | `piSession.ts` (`createPiSession`); `createFeaturePiSession` resolves model and lifecycle policy and accepts an injected session adapter. `featureAgent.ts` shares submit/repair ordering for description, verification, and triage; the fake adapter exercises it through injection. Review receives `createSession` through `WorkExecutionDependencies` and passes it to every orchestrator and specialist session; `rateLimitCircuit.ts` (`openRunRateLimitCircuit`) opens the per-run GitHub circuit for review and ask. SDK construction and provider registration stay here |
-| PR surface seam                           | `src/github/`                                   | `prSurface.ts` (`createPrSurface`, `createFakePrSurface`); leased mutation recovery is `recoverPrSurfaceMutation.ts` — worker/feature code must not import `prSurfaceImpl.ts` or thread installation tokens                                                                                                                                                                                                                                                                                                                                                                       |
-| Installation execution surface            | `src/agentWork/installationSurface.ts`          | `openInstallationSurface` owns App/private-key/installation-scoped auth caches and surface creation for durable work and auxiliary lanes; injected production and fake adapters share that policy                                                                                                                                                                                                                                                                                                                                                                                 |
-| Agent tool outputs                        | `src/agent/tools/`                              | `toolOutputBudget.ts`, `pathPolicy.ts` (`createPathPolicy`, `isTriageSearchPathAllowed`), `workspaceToolset.ts` (`buildWorkspaceTools`, ordered investigation/verification/triage read profiles); review sessions fence results with `wrapUntrustedEvidence` in `src/review/run/reviewRunSetup.ts`                                                                                                                                                                                                                                                                                |
-| Code Mode                                 | `src/agent/codemode/`, `src/agent/execution/`   | `execute({ code })` QuickJS cell; `guestCatalogue.ts` generates the installed `tools.*` signatures for the execute description and role prompts; terminal submit/publish tools stay native siblings                                                                                                                                                                                                                                                                                                                                                                               |
-| Outbound security                         | `src/security/`                                 | `redactOutboundSecrets.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| Analytics facade                          | `src/analytics/`                                | `index.ts` (`initAnalytics`, `captureEvent`, `captureException`, `shutdownAnalytics`); `workCompleted.ts` (`recordWorkCompleted`, called only from `durableJob.ts` after a winning mark, including a committed lost-running `worker_lost`, cancel, or supersede the reconciler asks that runner to record, and never after a stale-queued `queue_delivery_lost` mark; `webhook received`, `work item retried`, `ci state changed`); `workSpan.ts` (`$ai_generation` / `$ai_span`)                                                                                                 |
+| Area                                      | Path                                                | Public entry                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ----------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Process entry and boot                    | `src/index.ts`, `src/agent/runtime/durable/boot.ts` | Lock, `app_state.sqlite`, harness, Phase A (Pi paused, read-only), Phase B (`resume()`, aborts, dispatcher, timers, retention, `/webhooks`), and `SIGTERM`/`SIGINT` shutdown                                                                                                                                                                                                                                                                                                                                                          |
+| Durable state                             | `src/state/`                                        | `db.ts` (`openAppState`, `acquireSingleWriterLock`, `immediate`, `readRow`, `readRows`), `schema.ts`, `intake.ts` (one-transaction `runDelivery`), `workRuns.ts` (sole status writer), `publish.ts` (`publishOnce`), `recoverIntents.ts`, `prMutex.ts`, `retention.ts`, plus the quota, CI state, capability, rate-limit circuit, verification ledger, and agent feedback stores                                                                                                                                                      |
+| Durable execution                         | `src/agent/runtime/durable/`                        | `dispatcher.ts` (claim loop, per-kind concurrency, PR mutex), `reviewOrchestratorTask.ts`, `featureAttemptTask.ts`, `featureExecutors.ts` (`createFeatureExecutors`, `createAckHandler`), `workerDeps.ts` (`WorkerDeps`), `harness.ts` (`openDurableHarness`), `runtime.ts`, `durableReset.ts` (zero-503 `pi_durable.sqlite` reset), `session.ts`, `piTools.ts` (`read_pinned`, `read_spill`, `read_triage`, Code Mode), `evidenceMemo.ts`, `telemetryBridge.ts`, `providerRouting.ts`                                                |
+| Review run + publish                      | `src/review/`                                       | `runReviewForWorkItem.ts` (feature entry), `orchestrator/orchestratorRun.ts` (phase functions; `orchestrator/runStep.ts::nextStep` picks each step), `publish/reviewPublishSession.ts`, `publish/publishSummaryOnly.ts`, `publish/publishFindingBatch.ts`, `ci/ciFacts.ts` (snapshot types, rollup, facts-only summary, authored cache), `ci/ciAuthor.ts` (log intake and condensing, LLM CI author called from the projector), `ci/ciSummaryCell.ts` (cell render, CI and verification markers); metrics/footer helpers under `run/` |
+| Local PR workspace                        | `src/prWorkspace/`                                  | `prRepositoryView.ts` (`withPrRepositoryView`); `localPrWorkspace.ts` owns pinned preparation and cleanup; `repositoryReader.ts` owns pinned/writable readers and Git errors; `gitProcess.ts` owns process-group Git spawning and termination; `checkoutTelemetry.ts` owns checkout fetch attempts and their analytics fields; `fff/` owns the fff search host and pinned search; `workspaceResource.ts` owns allocation, heartbeat, credentials and release                                                                          |
+| Webhook intake                            | `src/webhook/`, `src/state/intake.ts`               | `src/webhook/intakeCommand.ts` owns pure event mapping; `src/state/intake.ts` owns dedupe, lifecycle, slash and `/ask` admission, approval gating, and `work_runs` insertion in one `BEGIN IMMEDIATE`                                                                                                                                                                                                                                                                                                                                 |
+| Feature executors                         | `src/agentWork/executors/`                          | One executor per kind; executors return closed completion values and publish only through `src/state/publish.ts`. `src/agentWork/` keeps pure domain helpers (`retryPolicy.ts`, `reviewVerdict.ts`, payload schemas, operation-key inputs, verification ledgers) beside them                                                                                                                                                                                                                                                          |
+| Ask / description / verification / triage | `src/agent/`                                        | `ask/askRun.ts`, `description/descriptionRun.ts`, `verification/verificationRun.ts`, `triage/`                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Pi session seam                           | `src/agent/runtime/`                                | `createFeaturePiSession` (`createFeatureSession.ts`) resolves model and lifecycle policy and accepts an injected session adapter; `featureAgent.ts` shares submit/repair ordering for description, verification, and triage; `rateLimitCircuit.ts` (`openRunRateLimitCircuit`) opens the per-run GitHub circuit for review and ask. `@earendil-works/*` value imports stay under `src/agent/runtime/durable/`                                                                                                                         |
+| PR surface seam                           | `src/github/`                                       | `prSurface.ts` (`createPrSurface`, `createFakePrSurface`); `mutationOctokit.ts` is the mutation-only client (no retry or throttling, 20 s timeout); `recoverPrSurfaceMutation.ts` owns exact-evidence recovery and open-PR rediscovery. Feature code must not import `prSurfaceImpl.ts` or thread installation tokens                                                                                                                                                                                                                 |
+| Installation execution surface            | `src/agentWork/installationSurface.ts`              | `openInstallationSurface` owns App/private-key/installation-scoped auth caches and surface creation for work runs; injected production and fake adapters share that policy                                                                                                                                                                                                                                                                                                                                                            |
+| Agent tool outputs                        | `src/agent/tools/`                                  | `toolOutputBudget.ts`, `pathPolicy.ts` (`createPathPolicy`, `isTriageSearchPathAllowed`); review sessions fence results with `wrapUntrustedEvidence` in `src/review/run/reviewRunSetup.ts`                                                                                                                                                                                                                                                                                                                                            |
+| Outbound security                         | `src/security/`                                     | `redactOutboundSecrets.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Analytics facade                          | `src/analytics/`                                    | `index.ts` (`initAnalytics`, `captureEvent`, `captureException`, `shutdownAnalytics`); `workCompleted.ts` (`recordWorkCompleted`, called after the terminal `work_runs` write commits; `webhook received`, `work item retried`, `ci state changed`); `workSpan.ts` (`$ai_generation` / `$ai_span`)                                                                                                                                                                                                                                    |
 
-Review, ask, description, and verification take the prepared Local PR workspace object. Verification derives the Pi session working directory from `workspace.agentCwd` and uses `workspace.reader` for bounded reads, literal search and cached PR-patch diffs. It does not keep a second string checkout path.
+Review, ask, description, and verification take the prepared Local PR workspace object. Verification derives the session working directory from `workspace.agentCwd` and uses `workspace.reader` for bounded reads, literal search and cached PR-patch diffs. It does not keep a second string checkout path.
 
-Durable executors acquire read-only views through
-`env.withAdmittedRepositoryView(options, run)`. The execution context binds PR
-identity, credentials, and head, and awaits its memoized admission before view
-preparation. Lightweight review and verification's bulk reads use that same
-`env.beginAttempt`. `env.durability` carries session identity without owning
-snapshot storage. `env.shouldAbortPublish` checks signal, durable cancellation,
-and lease ownership in that order. Review adds its live-head predicate; triage
-keeps its separate writable checkout and closed-PR commit/push guards.
+Executors receive `WorkerDeps` (`db`, `runtime`, `cfg`, `installationSurface`,
+optional `createSession`, `shutdownRequested`, optional `now`). They acquire
+read-only views after the dispatcher has charged the attempt. Publication
+checks the abort signal, durable cancellation, and the lane epoch, in that
+order, through `publishOnce`. Review adds its live-head predicate; triage keeps
+its separate writable checkout and closed-PR commit/push guards.
 
-The Pi session public interface stays in `src/agent/runtime/types.ts`.
-`piSessionImpl.ts` owns setup, phase/protocol gates, lifecycle and usage projection,
-and final outcome precedence. Internal `turnToolBudget.ts` keeps Core's
-finish-before-event counting and reserved terminal allowance together.
-`sessionTurnLoop.ts` owns transcript order and capped retry continuation;
-`sessionCompaction.ts` owns window and overflow compaction policy.
-`transcriptCompaction.ts` owns compaction execution, the character token estimate,
-and the window threshold. `src/prompts/compaction/prompt.ts` owns summary framing
-and prompt rendering. Pi 1.0 removed those helpers from Core.
-The packages stay pinned together at exact 1.0.0.
-`coreTools.ts` turns a rejected terminal submit (`accepted`/`ok` false with an
-`error`) into a `tool.submit_rejected` tool error so the turn budget does not
-count it as finished. A provider `refusal` stop raises `provider.refusal`
-without retry. Anthropic-only request behavior is gated on the model's `api` or
-catalog compat flags.
-`sendActivity.ts` owns each send's inactivity monitors and abortable retry waits,
-and releases all acquired timers when that send finishes. The existing
-`createPiSession.test.ts` and seam/compaction suites exercise this through the
-unchanged public adapter.
-
-`Config` is nested slices (`runtime`, `github`, `webhook`, `associations`, `features`, `models`, `provider`, `agentEvents`, `codeIndex`, `codeMode`, `review`, `concurrency`, `ask`, `queue`, `retention`, `posthog`, `logging`). Each slice reader lives in `src/settings/slices/` and uses the typed readers in `src/settings/envReaders.ts`, the only `NODE_ENV` read. `src/settings/config.ts` composes them and its `loadConfig` stays the single entry; the settings barrel exports it. A module takes the slice it needs (`Config["ask"]`, `Pick<Config, "features">`). Code Mode receives `executorKind` as a parameter from `cfg.codeMode.executorKind`; nothing reads `VITEST`. Tests build slices with `makeTestConfig({ review: { maxInlineComments: 1 } })` and pass them in; settings are never module-mocked. The Pi model catalog (`modelsJson*`) lives in `src/agent/runtime/`; the worker-role models slice loads it with a dynamic import so web never loads the Pi SDK. Single-owner constants stay private to their owner. Slash replies stay in `src/agentWork/intake/slashIntake.ts`. Migration settings stay in `src/db/migrations.ts`.
+`Config` is nested slices (`runtime`, `github`, `webhook`, `associations`, `features`, `models`, `provider`, `agentEvents`, `codeMode`, `review`, `concurrency`, `ask`, `queue`, `retention`, `posthog`, `logging`). The slices also carry `SQLITE_DIR`, the optional `SQLITE_DB_PATH` override, `SHUTDOWN_GRACE_MS`, and the `pi_durable.sqlite` reset caps; there is no role setting. Each slice reader lives in `src/settings/slices/` and uses the typed readers in `src/settings/envReaders.ts`, the only `NODE_ENV` read. `src/settings/config.ts` composes them and its `loadConfig` stays the single entry; the settings barrel exports it. A module takes the slice it needs (`Config["ask"]`, `Pick<Config, "features">`). Tests build slices with `makeTestConfig`.
 
 Public entries and placement-import rules: [`.pr-agent/module-layout.mdc`](../.pr-agent/module-layout.mdc). Native `.ts` imports and settings barrel: [`.pr-agent/esm-imports.mdc`](../.pr-agent/esm-imports.mdc).
 
-Within intake, `workItemRepository.ts` owns atomic slash winner resolution and
-the ID-pinned triage payload lookup, plus provider-ordered review lifecycle
-state; `DeliveryTx.withReviewIntake` acquires the shared review intake lock,
-then reads that state in a separate statement before admission. Automated,
-slash, approval, and lifecycle decisions are final at event insertion. `slashIntake.ts` owns acknowledgements.
-`reviewReschedule.ts` takes that same lock, reads lifecycle in a separate statement,
-then locks the parent lease and item before creating a stale-head replacement.
-Closed/merged refusal precedes marker persistence and progress ownership transfer.
-`createReviewRescheduleWorkItem` merges replacement payloads atomically on an
-identifier conflict. Stored child values win over replayed parent values; missing
-incoming fields are added. This preserves intervening changes across lease epochs.
-Slash intake's value-preserving conflict update retains the winner's row lock through
-commit. `/verify`'s earlier active-work precheck remains nonlocking. Review
-advisory ordering and execution-time PR actor leases remain separate contracts.
-`askQuota.ts::admitAsk` owns same-mention agreement, quota reservation,
-matching work insertion, and conflict compensation as one delivery-transaction
-operation. It locks the triggering comment identity and separately reads a
-retained ask row in any status before checking quota. `askIntake.ts` owns question
-parsing and queue/acknowledgement policy; `workItemRepository.ts` keeps the
-per-webhook-event insertion conflict as the idempotency backstop. A losing
-reservation is removed after capacity release so the deferred foreign key
-cannot refer to work that was never inserted; rate debits remain unchanged.
+Within intake, `src/state/intake.ts` resolves the slash winner and the ID-pinned
+triage payload, applies provider-ordered lifecycle state, and makes automated,
+slash, approval, and lifecycle decisions final in the same transaction.
+`reviewReschedule.ts` reads lifecycle in its own `immediate()` before creating a
+stale-head replacement; closed/merged refusal precedes progress ownership
+transfer. A replacement payload merges atomically on an identifier conflict:
+stored child values win over replayed parent values, and missing incoming
+fields are added. `/ask` admission (`src/state/askQuotas.ts`) owns same-mention
+agreement, quota reservation, and matching work insertion as one part of the
+delivery transaction. It reads the triggering comment identity and any retained
+ask run in any status before checking quota.
 
 Pinned checkouts search through `src/prWorkspace/fff/workspaceSearch.ts`. It asks the fff host (`src/prWorkspace/fff/host.ts`, a forked child process and the only importer of `@ff-labs/fff-node`) for the paths fff indexes, sends every other allowed tracked path to `git grep`, and falls back to `git grep` for the whole call when the host fails. `gitGrepWorkspace` in `src/prWorkspace/repositoryReader.ts` runs literal `git grep -nF -I -z` and applies result and stdout-byte limits after parse. Writable triage checkouts use it alone. Debian bookworm Git 2.39.x in the application image is enough; the helper does not pass `--max-count`.
 
@@ -191,92 +150,43 @@ identity validation and final commit/push guards remain at the mutation boundary
 Resource owner markers and the live-root registry are private; allocation and
 sweeping are the production interface and the existing owner tests exercise them.
 
-`leasedExecution.ts` owns the leased `PrSurface` publication fence: reread durable
-cancellation at entry and in the final callback, then reassert the epoch before
-the signal-checked mutation. Terminal hooks bypass only the durable cancellation
-read to preserve verdict cleanup. Gate failures before delegation remain
-retryable; after delegation, existing provider acceptance rules apply.
-
 `createReviewSummaryComment` in `reviewSummaryComment.ts` is the only writer of
 the review summary comment: progress ticks, the terminal summary, cancelled and
 failure notices, and the lightweight completion. It serializes revisioned
-upserts under the resource/lens advisory lock, from the fresh remote read
-through the result record. `run/commentMarkers.ts` owns the progress-revision
-marker codec. Terminal writes use revision 7, so a late tick cannot replace a
-summary or notice. Its repository calls use the locking client, without an open transaction
-across HTTP. Shared progress/verdict admission in `src/db/sessionLock.ts` leaves
-at least half the connections for nested
-mutation checks and unrelated database work; contended clients are released
-before bounded backoff. The holder keeps its client until GitHub settles.
-Acquisition failures prove nonacceptance, but
-delegated mutation and post-write errors retain existing acceptance rules.
-CI projection and direct edits do not share this lock.
+upserts per resource and lens under the in-process PR mutex, from the fresh
+remote read through the result record. `run/commentMarkers.ts` owns the
+progress-revision marker codec. Terminal writes use revision 7, so a late tick
+cannot replace a summary or notice. CI projection and direct edits do not take
+this path.
 
-Terminal GitHub reviews share the existing resource thread-mutation lock.
-Verification holds it from fresh finding inventory through verdict publication;
-full-review terminal publication takes it after summary and own-verdict locks
-have released. Do not nest those locks on separate pool connections.
-Bounded terminal-review lock timeouts are best-effort skips.
+Terminal GitHub reviews share the PR mutex. Verification holds it from fresh
+finding inventory through verdict publication; full-review terminal
+publication takes it after the summary and verdict writes. Bounded
+terminal-review waits are best-effort skips.
+`src/review/findingIdentity/threadMutationLock.ts` adapts the mutex for review
+duplicate cleanup, triage, and verification.
 
 `src/agentWork/reviewVerdict.ts::reviewVerdict` returns `{pending, close, repairIfOpen}`.
-It resolves summary details links and applies only the first selected verdict.
+It resolves summary details links and applies only the first selected verdict,
+which `publishOnce` keeps in `pr_state.selected_verdict_json`.
 Check and commit-status acceptance retain separate receipts and fail-closed repair.
 A terminal unknown check close is not selected or sent again.
 Explicit null comment IDs retain no-link output on acknowledgement, stale-head,
-projector, and sweeper paths; just-written comments can supply their IDs before
+and projector paths; just-written comments can supply their IDs before
 a durable record exists.
 
-`src/db/sessionLock.ts` also owns verdict try-locks, bounded progress waiting,
-client release before backoff, and unlock/release error precedence.
-`withSessionLock(pool, key: SessionLockKey, options, apply)` accepts only the
-typed progress/wait, thread-mutation/wait, and own-verdict/try pairs. It owns
-exact key encoding, half-pool budget math, and missing-max defaults; callers
-cannot supply capacity.
-`src/review/findingIdentity/threadMutationLock.ts` adapts the thread-mutation
-key for review duplicate cleanup, triage, and verification; without a pool it
-runs the callback directly.
-The adapters keep domain errors and progress unlock logging. Verdict admission contention defers
-without a read; SQL lock contention reads its close record on the attempted
-client. Unleased verdicts retain the one-connection exception.
-`src/agentWork/fencedWrite.ts::fencedWrite` owns numeric-epoch precheck/write/rejection recheck
-sequencing for work-state, operation-intent, and publish-record writers.
-SQL-only state writes remain SQL-only; intent merge/reconcile and verdict
-enrichment retain their existing no-recheck behavior. Each writer keeps its SQL
-predicates, parameter positions, and terminal/CAS exceptions.
-
-`workItemStateRepository.ts::markQueuedWorkCancelled` also covers a replacement
-that wins a concurrent claim. Queued attempts finish before a lease-first
-transaction locks the captured replacement epoch and cancels the active row.
-The token stays fixed across rereads, including queued retries.
-`reviewReschedule.ts` shares this writer between registered abort and recovered
-terminal-parent cleanup, without using job existence as cancellation authority.
-Successful in-attempt enqueue and the terminal fallback's persisted enqueued
-marker stay exempt; leftover deliveries for cancelled work no-op.
-A miss logs `agent_work_replacement_cancel_failed` at
-error level before rethrowing; the outer abort catch alone only warns.
-Lease release and publication gating remain on the durable runner.
-
-`workItemStateRepository.ts::markLostRunningWorkFailed` uses an explicitly
-READ COMMITTED transaction. It locks the lease key before the item, taking a
-SHARE table lock when the key is missing, then recursively SHARE-locks
-`pgboss.job` against inserts and state changes. All acquisition is NOWAIT,
-including the item's ROW EXCLUSIVE table mode and row lock. The final eligibility
-UPDATE is a later statement; a locking CTE in that same statement would not
-refresh its snapshot. Negative cross-table liveness reads alone cannot authorize
-failure. Contention or protected-query cancellation rolls back and returns false.
-Unexpected errors still reach the reconciliation warning. Transaction-local
-statement and idle limits are 1,000 ms each; they are not a total transaction
-deadline and do not change pool defaults. GitHub close happens only after commit.
-The broad job lock can briefly delay unrelated lanes or defer recovery under
-busy traffic. See [the queue runbook](agent-work-ops.md#inspect-queue-health).
-`markStaleQueuedWorkFailed` uses that same transaction, timeouts, and NOWAIT
-lock order for `queued` rows, with key-level `(resource_key, work_type)` lease
-liveness for leased types. Ask skips the lease row and table lock. The later
-eligibility statement still requires age past `STALE_QUEUED_WORK_GRACE_SECONDS`
-and no live lease or job. Cancel-requested queued rows finish without that grace
-recheck. Neither queued path emits `"work completed"`.
-
-`createPiSession.send` fails after a settled unrecovered Pi provider error. Recovered Core transport retries stay successful. Public cancellation, idle timeout, and tool-budget stops stay distinct from provider outages. `send` replaces the session suffix with Core's returned turn slice so tool results stay between the assistant turns that produced them.
+Sessions run on Pi Durable 1.6.0. `src/agent/runtime/durable/session.ts`
+adapts the `PiSession` interface in `src/agent/runtime/types.ts` onto durable
+conversations; `piTools.ts` registers `read_pinned` (replay-safe, pinned
+checkout), `read_spill`, and `read_triage` with path policy on the resolved
+realpath, plus Code Mode from `@earendil-works/pi-durable/codemode` with
+`timeout_ms` and `max_output_tokens` clamped before the deadline is journaled.
+`evidenceMemo.ts` binds each request's visible tool-result lines to the
+assistant message that request produced, and finding validation reads that
+binding. `sendActivity.ts` owns each send's inactivity monitors and abortable
+retry waits. A provider `refusal` stop raises `provider.refusal` without retry;
+public cancellation, idle timeout, and tool-budget stops stay distinct from
+provider outages.
 
 ## Landing site
 
@@ -318,29 +228,25 @@ the check for a structure-only move only.
 
 Concrete modules own the M1 interfaces. Workspace callers import
 `prRepositoryView.ts`, `localPrWorkspace.ts`, or `writablePrCheckout.ts` directly.
-Code Mode imports execution sessions, pooling, and marshalling from their concrete
-execution modules; cross-worker halt codes and encoding live in
-`src/agent/execution/hostHalt.ts`. `PrResource`, `PrRef`, and `ReplyTarget` live in
-`src/agentWork/types.ts`. `PrSurface` requires bot-login, review-list, and
-review-check reads; implementations cannot omit those recovery capabilities.
-It exposes raw GitHub reads (`getHead`, `listReviewComments`,
-`listPullRequestReviews`) and one `updatePullRequest` write; prior-feedback
-thread assembly lives in `reviewPriorFeedback.ts` and description merging in
+`PrResource`, `PrRef`, and `ReplyTarget` live in `src/agentWork/types.ts`.
+`PrSurface` requires bot-login, review-list, and review-check reads;
+implementations cannot omit those recovery capabilities. It exposes raw GitHub
+reads (`getHead`, `listReviewComments`, `listPullRequestReviews`) and one
+`updatePullRequest` write; prior-feedback thread assembly lives in
+`reviewPriorFeedback.ts` and description merging in
 `src/agent/description/descriptionPublishPlan.ts`.
 Review status phrases live in `src/review/statusCopy.ts`, CI action phrases in
 `src/review/ci/ciSummaryCell.ts`, and specialist prompt selection in
 `src/review/orchestrator/specialistRun.ts`. Helpers with one owner stay private
 there; existing tests exercise their observable publication or execution output.
 
-Durable definitions expose their typed `execute` and terminal hooks directly.
-The worker registers their `dispatch` functions, not five executor wrappers.
-`createDurableRuntime` injects the installation adapter, atomic transaction,
-lease renewal, and cancellation observer into `openLeasedExecution`. Features
-own their degradation reasons and review's terminal hook cancels a pending
-stale-head replacement; the runner knows neither. Its defaults are the production path;
-isolated callers instantiate the same cache/context factories without resetting
-process-global auth state. Rejected auth lookups evict only their exact pending
-entry. Token refresh and credential-identity isolation remain product policy.
+The dispatcher takes `handlers: { review, feature, ack }`. Features own their
+degradation reasons, and review's terminal handler cancels a pending stale-head
+replacement; the dispatcher knows neither. Its defaults are the production
+path; isolated callers instantiate the same cache/context factories without
+resetting process-global auth state. Rejected auth lookups evict only their
+exact pending entry. Token refresh and credential-identity isolation remain
+product policy.
 
 ## Static guards and generated maps
 
@@ -348,13 +254,13 @@ entry. Token refresh and credential-identity isolation remain product policy.
 
 The explicit-any and non-null counters force the selected rule on after removing its config overrides. CLI `--deny` alone does not beat a file override. Escape calls with type arguments count too.
 
-Machine law lives in scripts plus tests, enforced by `npm run check:guards` (CI `check` job): `scripts/check-guard-ledger.mjs` compares pattern, file, and oxlint counts with the merge base and waits on the `guard-loosening` environment for a growth; `scripts/check-static-baseline.mjs` with `scripts/baselines/static-baseline.json` still checks the stored baseline; both counters build their oxlint config through `scripts/forcedOxlintConfig.mjs`; `scripts/check-domain-guards.mjs` checks migration numbering, feature-key parity, banned packages, and disabled Landmines rules. `scripts/check-agent-context.mjs` checks agent context budgets, the single topology diagram, `.pr-agent/*.mdc` caps and repo-path anchors, and that disclosed pointers resolve. Syntax rows in `scripts/guards/` are enforced by `test/architectureRules.test.ts`. Linted source carries no comments: `pr-agent/no-comments` in `scripts/lint/no-comments.mjs` reports and fixes them, keeping only `oxlint-disable-next-line <rule> -- <reason>` and `/// <reference />` directives. The same lint step loads `@interfere/landmines` and errors on the seven adopted rules in `.oxlintrc.json`. `no-test-doubles`, `colocated-tests`, and `test-file-names` stay off because they contradict the Pi session seam, `PrSurface`, the root `test/` layout, or the tests reviewer directory. The single sanctioned cast is `escape()` in `src/util/escape.ts`. Architecture edges are rows in `test/architectureRules.test.ts` with walkers in `test/architectureRulesHelpers.ts`. `docs/feature-map.md` is generated by `npm run gen:feature-map` and asserted by `test/featureMap.test.ts`. `migrations/` owns the ordered SQL files. Scaffold one with `npm run gen:migration -- <snake_slug>`. Prove the durable path with `npm run verify` (disposable Postgres, artifact under `verify-artifacts/`).
+Machine law lives in scripts plus tests, enforced by `npm run check:guards` (CI `check` job): `scripts/check-guard-ledger.mjs` compares pattern, file, and oxlint counts with the merge base and waits on the `guard-loosening` environment for a growth; `scripts/check-static-baseline.mjs` with `scripts/baselines/static-baseline.json` still checks the stored baseline; both counters build their oxlint config through `scripts/forcedOxlintConfig.mjs`; `scripts/check-domain-guards.mjs` checks feature-key parity, banned packages, and disabled Landmines rules. `scripts/check-agent-context.mjs` checks agent context budgets, the single topology diagram, `.pr-agent/*.mdc` caps and repo-path anchors, and that disclosed pointers resolve. Syntax rows in `scripts/guards/` are enforced by `test/architectureRules.test.ts`. Linted source carries no comments: `pr-agent/no-comments` in `scripts/lint/no-comments.mjs` reports and fixes them, keeping only `oxlint-disable-next-line <rule> -- <reason>` and `/// <reference />` directives. The same lint step loads `@interfere/landmines` and errors on the seven adopted rules in `.oxlintrc.json`. `no-test-doubles`, `colocated-tests`, and `test-file-names` stay off because they contradict the Pi session seam, `PrSurface`, the root `test/` layout, or the tests reviewer directory. The single sanctioned cast is `escape()` in `src/util/escape.ts`. Architecture edges are rows in `test/architectureRules.test.ts` with walkers in `test/architectureRulesHelpers.ts`. `docs/feature-map.md` is generated by `npm run gen:feature-map` and asserted by `test/featureMap.test.ts`. `src/state/schema.ts` owns the `app_state.sqlite` schema and its `user_version`. Prove the durable path with `npm run verify` (disposable `SQLITE_DIR`, PRAGMA read-backs, artifact under `verify-artifacts/`).
 
 A depth-1 checkout has no `origin/main` history. The ledger fetches that ref and unshallows before it compares counts. Pattern rows are counted in process, one line at a time, because the check runner does not provide ripgrep.
 
 ## Tool-round budgets
 
-Every `session.send` that can call tools passes `maxToolRounds`. Investigation turns use their role budget (`MAX_TOOL_ROUNDS`, `MAX_TOOL_ROUNDS_TRIAGE`, and so on), which escalated retries scale. Judgment turns use `ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS` evidence rounds plus one reserved publish round (at most one extra round); windowed re-reads confirming a line use evidence rounds and never gamble the reserved `publish_thread` slot. A turn whose only job is to call a submit tool is a submit-only turn and uses `SUBMIT_ONLY_MAX_TOOL_ROUNDS` (one submit plus one in-turn correction). Escalation does not scale it. Send it through `runSubmitOnlyRound`, or pass the constant directly as the orchestrator does for recon repair, synthesis, synthesis repair, and summary recovery. A finalize turn that may still do real work, such as triage `commitFix`, is not submit-only and keeps its role budget. The returned turn's `end` is `tool_budget` when the budget stopped the loop.
+Every `session.send` that can call tools passes `maxToolRounds`. Investigation turns use their role budget (`RECON_MAX_TOOL_ROUNDS`, `SPECIALIST_MAX_TOOL_ROUNDS` (the wrap-up steer fires at `REVIEW_SPECIALIST_WRAP_UP_TOOL_ROUNDS`), `MAX_TOOL_ROUNDS_TRIAGE`, and so on), which escalated retries scale. Judgment turns use `ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS` evidence rounds plus one reserved publish round (at most one extra round); windowed re-reads confirming a line use evidence rounds and never gamble the reserved `publish_thread` slot. A turn whose only job is to call a submit tool is a submit-only turn and uses `SUBMIT_ONLY_MAX_TOOL_ROUNDS` (one submit plus one in-turn correction). Escalation does not scale it. Send it through `runSubmitOnlyRound`, or pass the constant directly as the orchestrator does for recon repair, synthesis, synthesis repair, and summary recovery. A finalize turn that may still do real work, such as triage `commitFix`, is not submit-only and keeps its role budget. The returned turn's `end` is `tool_budget` when the budget stopped the loop.
 
 ## Runtime topology diagram
 

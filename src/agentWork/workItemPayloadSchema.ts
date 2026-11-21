@@ -94,6 +94,7 @@ const AckTargetSchema = v.variant("kind", [
 const ReviewWorkPayloadFieldsSchema = v.looseObject({
   mode: ReviewModeSchema,
   source: WorkSourceSchema,
+  webhookReceivedAt: v.optional(v.number()),
   repositorySizeKb: v.optional(v.number()),
   userSupplement: v.optional(v.string()),
   commenterId: v.optional(v.pipe(v.number(), v.integer())),

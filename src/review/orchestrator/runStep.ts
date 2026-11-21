@@ -1,129 +1,33 @@
-export type ReviewStep =
-  | { readonly kind: "recon" }
-  | { readonly kind: "repair_brief" }
-  | { readonly kind: "stop_on_host_abort" }
-  | { readonly kind: "dispatch_specialists" }
-  | { readonly kind: "terminal_tick" }
-  | { readonly kind: "finalize_deadline" }
-  | { readonly kind: "failure_notice" }
-  | { readonly kind: "synthesis" }
-  | { readonly kind: "repair_summary" }
-  | { readonly kind: "recover_summary" }
-  | { readonly kind: "settle_summary" }
-  | { readonly kind: "deterministic_summary" }
-  | { readonly kind: "done" };
+export type SynthesisStep =
+  | "judge"
+  | "unjudged"
+  | "synthesis"
+  | "repair_summary"
+  | "recover_summary"
+  | "publish";
 
-export type ReviewStepKind = ReviewStep["kind"];
-
-export type ReviewStepFacts = {
-  readonly hasSession: boolean;
-  readonly sessionRetired: boolean;
-  readonly briefSubmitted: boolean;
-  readonly hostAborted: boolean;
-  readonly lifecycle: "running" | "stopped" | "finalizing" | "complete";
-  readonly failedSpecialists: number;
-  readonly specialistCount: number;
+export type SynthesisStepFacts = {
+  readonly pendingJudgment: boolean;
+  readonly orchestratorAvailable: boolean;
   readonly summaryPublished: boolean;
-  readonly recoveryRoundsRun: number;
-  readonly recoveryRoundLimit: number;
+  readonly synthesisSent: boolean;
+  readonly repairsUsed: number;
+  readonly repairLimit: number;
+  readonly recoveriesUsed: number;
+  readonly recoveryLimit: number;
 };
 
-const STEPS = {
-  recon: { kind: "recon" },
-  repair_brief: { kind: "repair_brief" },
-  stop_on_host_abort: { kind: "stop_on_host_abort" },
-  dispatch_specialists: { kind: "dispatch_specialists" },
-  terminal_tick: { kind: "terminal_tick" },
-  finalize_deadline: { kind: "finalize_deadline" },
-  failure_notice: { kind: "failure_notice" },
-  synthesis: { kind: "synthesis" },
-  repair_summary: { kind: "repair_summary" },
-  recover_summary: { kind: "recover_summary" },
-  settle_summary: { kind: "settle_summary" },
-  deterministic_summary: { kind: "deterministic_summary" },
-  done: { kind: "done" },
-} as const satisfies { readonly [K in ReviewStepKind]: Extract<ReviewStep, { kind: K }> };
-
-const step = <K extends ReviewStepKind>(kind: K) => STEPS[kind];
-
-function afterAbortCheck(facts: ReviewStepFacts) {
-  return ((pinnedReturn: ReviewStep) => pinnedReturn)(
-    facts.lifecycle !== "stopped" ? step("dispatch_specialists") : finish(facts),
-  );
-}
-
-function finish(facts: ReviewStepFacts) {
-  if (facts.lifecycle === "stopped")
-    return ((pinnedReturn: ReviewStep) => pinnedReturn)(step("terminal_tick"));
-  if (facts.lifecycle === "finalizing")
-    return ((pinnedReturn: ReviewStep) => pinnedReturn)(step("finalize_deadline"));
-  if (facts.failedSpecialists === facts.specialistCount)
-    return ((pinnedReturn: ReviewStep) => pinnedReturn)(step("failure_notice"));
-  if (!facts.sessionRetired && facts.hasSession)
-    return ((pinnedReturn: ReviewStep) => pinnedReturn)(step("synthesis"));
-  return ((pinnedReturn: ReviewStep) => pinnedReturn)(step("deterministic_summary"));
-}
-
-function summaryLoopOpen(facts: ReviewStepFacts) {
-  return ((pinnedReturn: boolean) => pinnedReturn)(
-    !facts.summaryPublished && !facts.sessionRetired && facts.lifecycle === "running",
-  );
-}
-
-function recoverOrSettle(facts: ReviewStepFacts) {
-  return ((pinnedReturn: ReviewStep) => pinnedReturn)(
-    summaryLoopOpen(facts) && facts.recoveryRoundsRun < facts.recoveryRoundLimit
-      ? step("recover_summary")
-      : step("settle_summary"),
-  );
-}
-
-export function nextStep(last: ReviewStepKind | null, facts: ReviewStepFacts) {
-  if (facts.hostAborted && facts.lifecycle === "running" && last !== "stop_on_host_abort") {
-    return ((pinnedReturn: ReviewStep) => pinnedReturn)(step("stop_on_host_abort"));
-  }
-  switch (last) {
-    case null:
-      return ((pinnedReturn: ReviewStep) => pinnedReturn)(
-        facts.hasSession ? step("recon") : briefOrAfter(facts),
-      );
-    case "recon":
-      return ((pinnedReturn: ReviewStep) => pinnedReturn)(briefOrAfter(facts));
-    case "repair_brief":
-      return ((pinnedReturn: ReviewStep) => pinnedReturn)(afterAbortCheck(facts));
-    case "stop_on_host_abort":
-      return ((pinnedReturn: ReviewStep) => pinnedReturn)(afterAbortCheck(facts));
-    case "dispatch_specialists":
-      return ((pinnedReturn: ReviewStep) => pinnedReturn)(finish(facts));
-    case "synthesis":
-      if (facts.lifecycle !== "running")
-        return ((pinnedReturn: ReviewStep) => pinnedReturn)(finish(facts));
-      return ((pinnedReturn: ReviewStep) => pinnedReturn)(
-        summaryLoopOpen(facts) ? step("repair_summary") : recoverOrSettle(facts),
-      );
-    case "repair_summary":
-    case "recover_summary":
-      if (facts.lifecycle !== "running")
-        return ((pinnedReturn: ReviewStep) => pinnedReturn)(finish(facts));
-      return ((pinnedReturn: ReviewStep) => pinnedReturn)(recoverOrSettle(facts));
-    case "terminal_tick":
-    case "finalize_deadline":
-    case "failure_notice":
-    case "settle_summary":
-    case "deterministic_summary":
-    case "done":
-      return ((pinnedReturn: ReviewStep) => pinnedReturn)(step("done"));
-    default: {
-      const exhaustive: never = last;
-      return ((pinnedReturn: ReviewStep) => pinnedReturn)(exhaustive);
-    }
-  }
-}
-
-function briefOrAfter(facts: ReviewStepFacts) {
-  return ((pinnedReturn: ReviewStep) => pinnedReturn)(
-    !facts.briefSubmitted && !facts.sessionRetired && facts.hasSession
-      ? step("repair_brief")
-      : afterAbortCheck(facts),
-  );
+export function nextSynthesisStep(facts: SynthesisStepFacts) {
+  if (facts.pendingJudgment)
+    return ((pinnedReturn: SynthesisStep) => pinnedReturn)(
+      facts.orchestratorAvailable ? "judge" : "unjudged",
+    );
+  if (facts.summaryPublished || !facts.orchestratorAvailable)
+    return ((pinnedReturn: SynthesisStep) => pinnedReturn)("publish");
+  if (!facts.synthesisSent) return ((pinnedReturn: SynthesisStep) => pinnedReturn)("synthesis");
+  if (facts.repairsUsed < facts.repairLimit)
+    return ((pinnedReturn: SynthesisStep) => pinnedReturn)("repair_summary");
+  if (facts.recoveriesUsed < facts.recoveryLimit)
+    return ((pinnedReturn: SynthesisStep) => pinnedReturn)("recover_summary");
+  return ((pinnedReturn: SynthesisStep) => pinnedReturn)("publish");
 }

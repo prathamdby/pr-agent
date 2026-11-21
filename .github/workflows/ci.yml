@@ -42,7 +42,6 @@ jobs:
               - "docker-compose.yml"
               - "README.md"
               - "docs/**"
-              - "migrations/**"
               - "package.json"
               - "package-lock.json"
               - "scripts/**"
@@ -125,22 +124,6 @@ jobs:
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    services:
-      postgres:
-        image: postgres:18.7-alpine
-        env:
-          POSTGRES_DB: pr_agent
-          POSTGRES_USER: pr_agent
-          POSTGRES_PASSWORD: pr_agent
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U pr_agent -d pr_agent"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    env:
-      DATABASE_URL: postgres://pr_agent:pr_agent@localhost:5432/pr_agent
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

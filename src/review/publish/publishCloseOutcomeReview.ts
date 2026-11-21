@@ -1,19 +1,21 @@
-import type { Pool, PoolClient } from "pg";
 import { isAppError } from "../../errors/appError.ts";
 import { prResourceKey } from "../../agentWork/types.ts";
 import { threadMutationLock } from "../findingIdentity/threadMutationLock.ts";
 import {
+  ensureRediscoveredStandingReview,
   operationIntentMarker,
   publishOnce,
   reviewVerdictReviewOperationKey,
-} from "../../agentWork/publishOnce.ts";
+  writePublishStep,
+} from "../../state/publish.ts";
+import type { ReviewPublishTarget } from "./reviewPublishSession.ts";
+import { REVIEW_SUMMARY_SENTINEL } from "../reviewSchema.ts";
 import {
   githubReviewEventFromCloseOutcome,
   reviewCheckDetailsUrl,
   type GithubReviewEvent,
   type OwnVerdictOutcome,
 } from "../../agentWork/reviewVerdict.ts";
-import { fenceForEpoch } from "../../agentWork/writeFence.ts";
 import { logWarn } from "../../evlog.ts";
 import { errorMessage } from "../../errors/errorMessage.ts";
 import { isSelfPullRequestReviewEventRejection } from "../../github/githubErrors.ts";
@@ -99,9 +101,8 @@ export async function publishCloseOutcomeReview(params: {
   readonly outcome: OwnVerdictOutcome;
   readonly headSha: string;
   readonly summaryCommentId?: number | null;
-  readonly workItemId?: string;
-  readonly pool?: Pool | PoolClient;
-  readonly leaseEpoch?: number | null;
+  readonly target?: ReviewPublishTarget;
+  readonly reviewLens?: string;
 }) {
   const event = githubReviewEventFromCloseOutcome(params.outcome);
   if (event == null) return;
@@ -123,22 +124,24 @@ export async function publishCloseOutcomeReview(params: {
   });
 }
 
-export async function publishReviewVerdictEvent(params: {
+type VerdictEventParams = {
   readonly prSurface: PrSurface;
   readonly event: GithubReviewEvent;
   readonly headSha: string;
-  readonly workItemId?: string;
-  readonly pool?: Pool | PoolClient;
-  readonly leaseEpoch?: number | null;
+  readonly target?: ReviewPublishTarget;
+  readonly reviewLens?: string;
   readonly operationKey?: string;
   readonly blockingCount?: number;
   readonly reason?: string;
   readonly summaryUrl?: string;
-}) {
+};
+
+export async function publishReviewVerdictEvent(params: VerdictEventParams) {
   const { event, summaryUrl } = params;
   const reason = params.reason ?? formatVerdictReason(event, params.blockingCount);
   const body = summaryUrl == null ? reason : `${reason} [View review summary](${summaryUrl})`;
-  if (params.pool == null || params.workItemId == null) {
+  const target = params.target;
+  if (target == null) {
     const submitted = await submitTerminalReview({
       prSurface: params.prSurface,
       event,
@@ -148,29 +151,45 @@ export async function publishReviewVerdictEvent(params: {
     if (submitted === "COMMENT") await dismissStandingVerdicts(params.prSurface);
     return;
   }
-  const operationKey = params.operationKey ?? reviewVerdictReviewOperationKey(params.workItemId);
-  const operationMarker = operationIntentMarker(operationKey, params.workItemId);
+  const reviewLens = ("reviewLens" in params ? params.reviewLens : undefined) ?? "review";
+  const operationKey = params.operationKey ?? reviewVerdictReviewOperationKey(target.workItemId);
+  const operationMarker = operationIntentMarker(operationKey, target.workItemId);
+  const rediscovered = await ensureRediscoveredStandingReview(target.db, params.prSurface, {
+    workId: target.workItemId,
+    prKey: target.resourceKey,
+    reviewLens,
+    headSha: params.headSha,
+    sentinel: REVIEW_SUMMARY_SENTINEL,
+  });
+  const expectedState =
+    event === "APPROVE"
+      ? "APPROVED"
+      : event === "REQUEST_CHANGES"
+        ? "CHANGES_REQUESTED"
+        : "COMMENTED";
+  if (rediscovered !== undefined && rediscovered.detail.state === expectedState) return;
   const published = await publishOnce({
+    db: target.db,
+    workId: target.workItemId,
+    prKey: target.resourceKey,
+    resourceTarget: `standing_review:${params.headSha}`,
+    ...(target.laneEpoch !== undefined ? { laneEpoch: target.laneEpoch } : {}),
+    ...(target.shutdownRequested !== undefined
+      ? { shutdownRequested: target.shutdownRequested }
+      : {}),
+    ...(target.gate !== undefined ? { gate: target.gate } : {}),
+    ...(target.signal !== undefined ? { signal: target.signal } : {}),
     decodeResult: decodePublishedBatch,
-    fence: fenceForEpoch(params.leaseEpoch),
-    client: params.pool,
-    workItemId: params.workItemId,
     operationKey,
     mutationKind: "github.review_verdict",
-    leaseEpoch: params.leaseEpoch,
-    detail: {
-      commitId: params.headSha,
-      operationMarker,
-    },
+    identity: { commitId: params.headSha, operationMarker },
     recover: async () => {
       const found = await findPublishedThreadBatch(
         params.prSurface,
         operationMarker,
         params.headSha,
       );
-      return found == null
-        ? { kind: "absent" as const }
-        : { kind: "reconciled" as const, value: found };
+      return found == null ? { found: false as const } : { found: true as const, value: found };
     },
     isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
     mutate: async () => {
@@ -192,24 +211,31 @@ export async function publishReviewVerdictEvent(params: {
     },
   });
   const reviews = await params.prSurface.listPullRequestReviews();
-  if (reviews.some((review) => review.id === published.reviewId && review.state === "COMMENTED")) {
+  const posted = reviews.find((review) => review.id === published.reviewId);
+  writePublishStep(target.db, {
+    workId: target.workItemId,
+    prKey: target.resourceKey,
+    reviewLens,
+    step: "standing_review",
+    githubId: published.reviewId,
+    detail: { headSha: params.headSha, state: posted?.state ?? expectedState },
+  });
+  if (posted?.state === "COMMENTED") {
     await dismissStandingVerdicts(params.prSurface);
   }
 }
 
 export async function tryPublishCloseOutcomeReview(
-  params: Omit<Parameters<typeof publishCloseOutcomeReview>[0], "pool"> & {
-    readonly pool?: Pool;
+  params: Parameters<typeof publishCloseOutcomeReview>[0] & {
     readonly owner: string;
     readonly repo: string;
     readonly prNumber: number;
   },
 ) {
   try {
-    await threadMutationLock(
-      params.pool,
-      prResourceKey(params.owner, params.repo, params.prNumber),
-    )(() => publishCloseOutcomeReview(params));
+    await threadMutationLock(prResourceKey(params.owner, params.repo, params.prNumber))(() =>
+      publishCloseOutcomeReview(params),
+    );
   } catch (error) {
     logWarn("review_verdict_review_failed", {
       owner: params.owner,

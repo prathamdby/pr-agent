@@ -13,11 +13,14 @@ Product terms used across code, prompts, and docs.
 - **Reply target**. Conversation or inline thread where a command reply posts.
 - **Draft pull request**. Draft pull request receiving normal automation.
 - **Acknowledgement reaction**. Reaction showing queued, succeeded, or failed work.
-- **Agent work item**. Durable row for review, ask, describe, triage, or verify work.
-- **Work attempt**. Counted admission to fresh feature execution.
-- **Execution**. Worker dispatch running work or reconciling receipts.
-- **Trace**. Best-effort span tree recorded for execution analysis.
-- **PR actor lease**. Per-pull-request lock keeping one active run per leased type.
+- **Work run**. Durable row owning admission, retries, cancellation, and status.
+- **Work run attempt**. Counted admission with its own identity and durable agent task.
+- **Dispatcher**. In-process loop claiming due work runs and starting their attempts.
+- **Harness**. Durable agent runtime owning conversations and tasks.
+- **Phase A boot**. Paused read-only recovery pass before agents resume.
+- **Phase B boot**. Resume step aborting stale agents, then starting dispatch and intake.
+- **Trace**. Best-effort span tree recorded for attempt analysis.
+- **PR execution mutex**. In-process per-pull-request lock serializing feature execution.
 - **Description run**. Work item generating and merging the pull request description.
 - **Description writing policy**. Diff rule setting description scale, map mode, and depth.
 - **Body scale**. Description size tier governing summary length and detail.
@@ -46,17 +49,18 @@ Product terms used across code, prompts, and docs.
 - **Specialist brief**. Recon handoff carrying intent, risks, file map, and focus.
 - **Risk map**. Recon hypotheses steering specialist focus without authority.
 - **Specialist report**. Candidate findings submitted by a specialist as untrusted evidence.
-- **Validated review artifact**. Redacted stage output saved so restarts skip finished work.
+- **Review task checkpoint**. Durable orchestrator state letting restarts skip finished phases.
 - **Causal-publication contract**. Bar requiring an evidenced defect, trigger, impact, and fix.
 - **Thread batch**. Incremental comment review publishing judged inline findings.
 - **Specialist tick**. Progress-comment edit updating a settled specialist row.
-- **Agent session**. Multi-turn model conversation inside one work item.
+- **Agent session**. Multi-turn model conversation inside one work run attempt.
 - **Trusted context**. Server-owned facts and base policy outside untrusted wrappers.
 - **Untrusted context**. Wrapped repository, pull request, or tool text without authority.
 - **Feature agent**. Shared submit-and-repair loop for feature model sessions.
 - **Pi session seam**. Runtime boundary for creating and driving model sessions.
 - **PR surface seam**. Boundary for GitHub pull request reads and mutations.
-- **Operation intent**. Pre-mutation record preventing duplicate GitHub writes on retry.
+- **Publish intent**. Pre-mutation record fencing one GitHub write against duplicate or stale sends.
+- **Operation-intent marker**. Hidden bot comment marker letting an empty store find earlier writes.
 - **Review superseding**. Replacing active automatic reviews when a newer push arrives.
 - **Review admission state**. Ordered close and reopen record gating review intake.
 - **Review payload**. Validated structured summary fields emitted by the orchestrator.
@@ -76,7 +80,7 @@ Product terms used across code, prompts, and docs.
 - **CI summary**. External check gate row rendered from head CI state.
 - **Prose contract**. Changed doc or rule file defining executable repository behavior.
 - **Truncated change set**. Changed-file list cut at cap with truncation metadata.
-- **Ask run**. Unleased read-only work item answering a code question.
+- **Ask run**. Read-only work run answering a code question.
 - **Ask admission**. Transactional gate deduplicating mentions and enforcing quotas.
 - **Code anchor**. Diff path, range, and hunk attached to an inline ask comment.
 - **Review failure notice**. Neutral comment replacing an unpublished stub on failure.
@@ -94,5 +98,4 @@ Product terms used across code, prompts, and docs.
 - **Policy suggestion**. Drafted policy snippet offered when a maintainer dismisses a finding.
 - **Feature**. User-facing switch setting a surface to off, manual, auto, or approval.
 - **Config slice**. Focused subset of validated settings passed to a module.
-- **Agent event**. Append-only local metadata row for spans, decisions, and publish.
 - **Evidence ledger**. Per-run log of governed reads authorizing cited paths and lines.

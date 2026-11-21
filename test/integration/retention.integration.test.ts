@@ -1,335 +1,225 @@
-import { randomUUID } from "node:crypto";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import type { Pool } from "pg";
-import { runMigrations } from "../../src/db/migrations.ts";
-import { runRetention } from "../../src/agentWork/retention.ts";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
+import * as v from "valibot";
+import { runRetention } from "../../src/state/retention.ts";
+import { readRows } from "../../src/state/db.ts";
 import {
   DEFAULT_AGENT_EVENTS_RETENTION_SECONDS,
   RETENTION_DELETE_BATCH_SIZE,
 } from "../../src/settings/index.ts";
 import { makeTestConfig } from "../helpers/config.ts";
-import { hasDatabase, integrationPool } from "./db.ts";
+import { openSqliteAppState } from "./db.ts";
 
 const RETENTION = makeTestConfig({
   retention: { agentWorkSeconds: 30 * 86_400, webhookEventsSeconds: 30 * 86_400 },
   agentEvents: { retentionSeconds: 0 },
 });
-const OWNER = "retention-it";
-const EVENT = "retention-it";
-const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
+const daysAgo = (n: number) => Date.now() - n * 86_400_000;
 
-describe.skipIf(!hasDatabase)("retention (integration)", () => {
-  let pool: Pool;
+const state = openSqliteAppState();
+const db = state.db;
+let seq = 0;
 
-  beforeAll(async () => {
-    pool = integrationPool();
-    await runMigrations(pool);
-  });
+afterAll(() => {
+  state.close();
+});
 
-  afterAll(async () => {
-    await pool.end();
-  });
-
-  afterEach(async () => {
-    await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
-    await pool.query("DELETE FROM webhook_events WHERE event_name = $1", [EVENT]);
-    await pool.query("DELETE FROM webhook_delivery_duplicates WHERE event_name = $1", [EVENT]);
-    await pool.query("DELETE FROM pr_head_ci_state WHERE owner = $1", [OWNER]);
-    await pool.query("DELETE FROM agent_events WHERE event_kind = $1", [EVENT]);
-    await pool.query("DELETE FROM agent_feedback WHERE owner = $1", [OWNER]);
-    await pool.query("DELETE FROM pr_review_approvals WHERE owner = $1", [OWNER]);
-    await pool.query("DELETE FROM github_repository_capabilities WHERE owner = $1", [OWNER]);
-  });
-
-  async function insertWorkItem(
-    status: string,
-    completedAt: string | null,
-    updatedAt: string = completedAt ?? new Date().toISOString(),
-  ) {
-    const id = randomUUID();
-    await pool.query(
-      `INSERT INTO agent_work_items
-         (id, type, source, status, owner, repo, pr_number, installation_id, head_sha, resource_key, completed_at, updated_at)
-       VALUES ($1, 'review', 'auto', $2, $3, 'r', 1, 1, 'h', $4, $5, $6)`,
-      [id, status, OWNER, `k-${id}`, completedAt, updatedAt],
-    );
-    return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(id);
+afterEach(() => {
+  for (const table of [
+    "work_runs",
+    "work_run_attempts",
+    "webhook_deliveries",
+    "webhook_body_replays",
+    "webhook_rejections",
+    "pr_state",
+    "pr_head_ci_state",
+    "github_repository_capabilities",
+    "agent_feedback",
+    "publish_intents",
+  ]) {
+    db.prepare(`DELETE FROM ${table}`).run();
   }
+});
 
-  it("deletes aged terminal work items but keeps fresh and non-terminal", async () => {
-    const aged = await insertWorkItem("completed", daysAgo(60));
-    const fresh = await insertWorkItem("completed", daysAgo(1));
-    const agedQueued = await insertWorkItem("queued", daysAgo(60));
+function insertRun(status: string, updatedAt: number, prKey = "o/r#1", headSha = "h") {
+  seq += 1;
+  const workId = `retention-${String(seq)}`;
+  db.prepare(
+    `INSERT INTO work_runs
+      (work_id, pr_key, kind, lane, lane_epoch, status, current_attempt_no, payload_json, created_at, updated_at)
+     VALUES (?, ?, 'review', 'review', 0, ?, 1, ?, ?, ?)`,
+  ).run(workId, prKey, status, JSON.stringify({ headSha }), updatedAt, updatedAt);
+  db.prepare(
+    `INSERT INTO work_run_attempts (work_id, attempt_no, attempt_id, status, started_at)
+     VALUES (?, 1, ?, 'completed', ?)`,
+  ).run(workId, `${workId}-a1`, updatedAt);
+  return workId;
+}
 
-    const result = await runRetention(pool, RETENTION);
-    expect(result.workItemsDeleted).toBeGreaterThanOrEqual(1);
+const ids = (sql: string, ...params: readonly (string | number)[]) =>
+  readRows(db.prepare(sql).all(...params), v.object({ id: v.string() })).map((row) => row.id);
 
-    const { rows } = await pool.query<{ id: string }>(
-      "SELECT id FROM agent_work_items WHERE owner = $1",
-      [OWNER],
-    );
-    const ids = rows.map((r) => r.id);
-    expect(ids).not.toContain(aged);
-    expect(ids).toContain(fresh);
-    expect(ids).toContain(agedQueued);
+describe("retention (sqlite)", () => {
+  it("deletes aged terminal work runs but keeps fresh and non-terminal", () => {
+    const aged = insertRun("completed", daysAgo(60));
+    const fresh = insertRun("completed", daysAgo(1));
+    const agedQueued = insertRun("pending_dispatch", daysAgo(60));
+    const result = runRetention(db, RETENTION, Date.now());
+    expect(result.workRunsDeleted).toBe(1);
+    const remaining = ids(`SELECT work_id AS id FROM work_runs`);
+    expect(remaining).not.toContain(aged);
+    expect(remaining).toContain(fresh);
+    expect(remaining).toContain(agedQueued);
   });
 
-  it("uses updated_at for terminal work items without completed_at", async () => {
-    const agedSuperseded = await insertWorkItem("superseded", null, daysAgo(60));
-    const freshSuperseded = await insertWorkItem("superseded", null, daysAgo(1));
-
-    const result = await runRetention(pool, RETENTION);
-    expect(result.workItemsDeleted).toBeGreaterThanOrEqual(1);
-
-    const { rows } = await pool.query<{ id: string }>(
-      "SELECT id FROM agent_work_items WHERE owner = $1",
-      [OWNER],
-    );
-    const ids = rows.map((r) => r.id);
-    expect(ids).not.toContain(agedSuperseded);
-    expect(ids).toContain(freshSuperseded);
+  it("uses updated_at for superseded work runs", () => {
+    const agedSuperseded = insertRun("superseded", daysAgo(60));
+    const freshSuperseded = insertRun("superseded", daysAgo(1));
+    runRetention(db, RETENTION, Date.now());
+    const remaining = ids(`SELECT work_id AS id FROM work_runs`);
+    expect(remaining).not.toContain(agedSuperseded);
+    expect(remaining).toContain(freshSuperseded);
   });
 
-  it("cascades an aged work item's artifact row and keeps the fresh row", async () => {
-    const aged = await insertWorkItem("completed", daysAgo(60));
-    const fresh = await insertWorkItem("completed", daysAgo(1));
-    await pool.query(
-      `INSERT INTO review_run_artifacts
-         (work_item_id, logical_key, artifact_order, kind, input_fingerprint, payload_hash, envelope)
-       VALUES ($1, 'brief', 0, 'brief', repeat('a', 64), repeat('b', 64), '{}'),
-              ($2, 'brief', 0, 'brief', repeat('a', 64), repeat('b', 64), '{}')`,
-      [aged, fresh],
-    );
-    await runRetention(pool, RETENTION);
-    expect(
-      (
-        await pool.query(
-          "SELECT work_item_id FROM review_run_artifacts WHERE work_item_id = ANY($1::uuid[])",
-          [[aged, fresh]],
-        )
-      ).rows,
-    ).toEqual([{ work_item_id: fresh }]);
+  it("cascades an aged work run's attempt rows and keeps the fresh attempts", () => {
+    const aged = insertRun("completed", daysAgo(60));
+    const fresh = insertRun("completed", daysAgo(1));
+    const result = runRetention(db, RETENTION, Date.now());
+    expect(result.workRunAttemptsDeleted).toBe(1);
+    expect(ids(`SELECT work_id AS id FROM work_run_attempts`)).toEqual([fresh]);
+    expect(ids(`SELECT work_id AS id FROM work_run_attempts`)).not.toContain(aged);
   });
 
-  it("deletes aged webhook events but keeps fresh ones", async () => {
-    const agedId = randomUUID();
-    const freshId = randomUUID();
-    await pool.query(
-      `INSERT INTO webhook_events
-         (id, dedupe_key, event_name, body_sha256, processing_decision, received_at)
-       VALUES ($1, $2, $5, 'x', 'processed', $3), ($4, $6, $5, 'x', 'processed', now())`,
-      [agedId, `d-${agedId}`, daysAgo(60), freshId, EVENT, `d-${freshId}`],
-    );
-
-    await runRetention(pool, RETENTION);
-
-    const { rows } = await pool.query<{ id: string }>(
-      "SELECT id FROM webhook_events WHERE event_name = $1",
-      [EVENT],
-    );
-    const ids = rows.map((r) => r.id);
-    expect(ids).not.toContain(agedId);
-    expect(ids).toContain(freshId);
-  });
-
-  it("deletes approval records by last update and preserves fresh rows across all states", async () => {
-    for (const state of ["awaiting", "approved", "withdrawn"]) {
-      await pool.query(
-        `INSERT INTO pr_review_approvals (resource_key, owner, repo, pr_number, head_sha, state, created_at, updated_at)
-         VALUES ($1, $3, 'r', 1, 'h', $4, $5, $5), ($2, $3, 'r', 2, 'h', $4, $5, now())`,
-        [`${OWNER}/r#${state}-old`, `${OWNER}/r#${state}-fresh`, OWNER, state, daysAgo(60)],
-      );
+  it("deletes aged webhook deliveries and body replays but keeps fresh ones", () => {
+    for (const [key, at] of [
+      ["delivery:aged", daysAgo(60)],
+      ["delivery:fresh", Date.now()],
+    ] as const) {
+      db.prepare(
+        `INSERT INTO webhook_deliveries (delivery_key, body_hash, status, created_at) VALUES (?, ?, 'processed', ?)`,
+      ).run(key, `hash-${key}`, at);
+      db.prepare(
+        `INSERT INTO webhook_body_replays (body_hash, delivery_key, created_at) VALUES (?, ?, ?)`,
+      ).run(`hash-${key}`, key, at);
     }
-    const result = await runRetention(pool, RETENTION);
-    expect(result.reviewApprovalsDeleted).toBeGreaterThanOrEqual(3);
-    const remaining = (
-      await pool.query(
-        "SELECT resource_key FROM pr_review_approvals WHERE owner = $1 ORDER BY resource_key",
-        [OWNER],
-      )
-    ).rows;
-    expect(remaining).toEqual(
-      ["approved", "awaiting", "withdrawn"].map((state) => ({
-        resource_key: `${OWNER}/r#${state}-fresh`,
-      })),
-    );
+    runRetention(db, RETENTION, Date.now());
+    expect(ids(`SELECT delivery_key AS id FROM webhook_deliveries`)).toEqual(["delivery:fresh"]);
+    expect(ids(`SELECT delivery_key AS id FROM webhook_body_replays`)).toEqual(["delivery:fresh"]);
   });
 
-  it("purges duplicate evidence across batches using each arrival's age", async () => {
-    await pool.query(
-      `INSERT INTO webhook_delivery_duplicates
-         (id, event_name, body_sha256, dedupe_key, dedupe_reason, received_at)
-       SELECT gen_random_uuid(), $1, repeat('a', 64), 'body:' || repeat('a', 64),
-              'body_replay', CASE WHEN n <= $2 THEN $3::timestamptz ELSE now() END
-         FROM generate_series(1, $2::int + 1) AS n`,
-      [EVENT, RETENTION_DELETE_BATCH_SIZE + 1, daysAgo(60)],
-    );
-    const result = await runRetention(pool, RETENTION);
-    expect(result.webhookDuplicatesDeleted).toBeGreaterThanOrEqual(RETENTION_DELETE_BATCH_SIZE + 1);
-    const evidence = await pool.query<{ received_at: Date }>(
-      "SELECT received_at FROM webhook_delivery_duplicates WHERE event_name = $1",
-      [EVENT],
-    );
-    expect(evidence.rows).toHaveLength(1);
-    expect(evidence.rows[0]?.received_at.getTime()).toBeGreaterThan(Date.parse(daysAgo(1)));
-    await runRetention(pool, RETENTION);
-    const remaining = await pool.query(
-      "SELECT id FROM webhook_delivery_duplicates WHERE event_name = $1",
-      [EVENT],
-    );
-    expect(remaining.rows).toHaveLength(1);
+  it("clears approval records by last update and preserves fresh rows across all states", () => {
+    for (const approval of ["awaiting", "approved", "withdrawn"]) {
+      for (const [suffix, at] of [
+        ["old", daysAgo(60)],
+        ["fresh", Date.now()],
+      ] as const) {
+        db.prepare(
+          `INSERT INTO pr_state (pr_key, lifecycle_state, observed_at, approval_json, updated_at)
+           VALUES (?, 'open', ?, ?, ?)`,
+        ).run(`o/r#${approval}-${suffix}`, at, JSON.stringify({ state: approval }), at);
+      }
+    }
+    const result = runRetention(db, RETENTION, Date.now());
+    expect(result.reviewApprovalsCleared).toBe(3);
+    expect(
+      ids(`SELECT pr_key AS id FROM pr_state WHERE approval_json IS NOT NULL ORDER BY pr_key`),
+    ).toEqual(["o/r#approved-fresh", "o/r#awaiting-fresh", "o/r#withdrawn-fresh"]);
   });
 
-  it("deletes aged head CI state with no work item for that head", async () => {
-    await insertWorkItem("completed", daysAgo(1));
-    await pool.query(
-      `INSERT INTO pr_head_ci_state (owner, repo, head_sha, checks, rollup, version, updated_at)
-       VALUES
-         ($1, 'r', 'orphan-aged', '{}'::jsonb, 'none', 0, $2),
-         ($1, 'r', 'h', '{}'::jsonb, 'none', 0, $2),
-         ($1, 'r', 'fresh', '{}'::jsonb, 'none', 0, now())`,
-      [OWNER, daysAgo(60)],
+  it("purges rejected-arrival evidence across batches using each arrival's age", () => {
+    const insert = db.prepare(
+      `INSERT INTO webhook_rejections (delivery_key, metadata_json, created_at) VALUES ('body:a', '{}', ?)`,
     );
+    for (let index = 0; index < RETENTION_DELETE_BATCH_SIZE + 1; index += 1)
+      insert.run(daysAgo(60));
+    insert.run(Date.now());
+    const result = runRetention(db, RETENTION, Date.now());
+    expect(result.webhookRowsDeleted).toBe(RETENTION_DELETE_BATCH_SIZE + 1);
+    expect(ids(`SELECT CAST(id AS TEXT) AS id FROM webhook_rejections`)).toHaveLength(1);
+    runRetention(db, RETENTION, Date.now());
+    expect(ids(`SELECT CAST(id AS TEXT) AS id FROM webhook_rejections`)).toHaveLength(1);
+  });
 
-    const result = await runRetention(pool, RETENTION);
-    expect(result.prHeadCiStateDeleted).toBeGreaterThanOrEqual(1);
-
-    const { rows } = await pool.query<{ head_sha: string }>(
-      "SELECT head_sha FROM pr_head_ci_state WHERE owner = $1",
-      [OWNER],
-    );
-    const heads = rows.map((row) => row.head_sha);
+  it("deletes aged head CI state unless an active work run still covers that head", () => {
+    insertRun("running", daysAgo(1), "o/r#1", "h");
+    for (const [head, at] of [
+      ["orphan-aged", daysAgo(60)],
+      ["h", daysAgo(60)],
+      ["fresh", Date.now()],
+    ] as const) {
+      db.prepare(
+        `INSERT INTO pr_head_ci_state (repo_key, head_sha, installation_id, state_json, sources_json, updated_at)
+         VALUES ('o/r', ?, 1, '{}', '{}', ?)`,
+      ).run(head, at);
+    }
+    const result = runRetention(db, RETENTION, Date.now());
+    expect(result.prHeadCiStateDeleted).toBe(1);
+    const heads = ids(`SELECT head_sha AS id FROM pr_head_ci_state`);
     expect(heads).not.toContain("orphan-aged");
     expect(heads).toContain("h");
     expect(heads).toContain("fresh");
   });
 
-  it("expires orphaned capability observations and cascades scoped head access", async () => {
-    await insertWorkItem("completed", daysAgo(1));
-    await pool.query(
-      `INSERT INTO github_repository_capabilities
-        (installation_id, owner, repo, generation, capabilities, observed_at)
-       VALUES (1, $1, 'orphan', 1, '{}', $2),
-              (1, $1, 'r', 1, '{}', $2),
-              (1, $1, 'fresh', 1, '{}', now())`,
-      [OWNER, daysAgo(60)],
-    );
-    await pool.query(
-      `INSERT INTO pr_head_ci_state (owner, repo, head_sha, checks, rollup, version, updated_at)
-       VALUES ($1, 'orphan', 'expired', '{}', 'none', 0, $2)`,
-      [OWNER, daysAgo(60)],
-    );
-    await pool.query(
-      `INSERT INTO github_head_ci_sources (installation_id, owner, repo, head_sha, source, generation, access)
-       VALUES (1, $1, 'orphan', 'expired', 'checks', 1, 'denied')`,
-      [OWNER],
-    );
-    await runRetention(pool, RETENTION);
+  it("expires orphaned capability observations and keeps repositories with work", () => {
+    insertRun("completed", daysAgo(1), "o/r#1");
+    for (const [repo, at] of [
+      ["o/orphan", daysAgo(60)],
+      ["o/r", daysAgo(60)],
+      ["o/fresh", Date.now()],
+    ] as const) {
+      db.prepare(
+        `INSERT INTO github_repository_capabilities (installation_id, repo_key, capabilities_json, generation, updated_at)
+         VALUES (1, ?, '{}', 1, ?)`,
+      ).run(repo, at);
+    }
+    const result = runRetention(db, RETENTION, Date.now());
+    expect(result.capabilitiesDeleted).toBe(1);
     expect(
-      (
-        await pool.query(
-          "SELECT repo FROM github_repository_capabilities WHERE owner = $1 ORDER BY repo",
-          [OWNER],
-        )
-      ).rows,
-    ).toEqual([{ repo: "fresh" }, { repo: "r" }]);
-    expect(
-      (await pool.query("SELECT source FROM github_head_ci_sources WHERE owner = $1", [OWNER]))
-        .rows,
-    ).toEqual([]);
+      ids(`SELECT repo_key AS id FROM github_repository_capabilities ORDER BY repo_key`),
+    ).toEqual(["o/fresh", "o/r"]);
   });
 
-  it("deletes agent_events older than the default retention and keeps them when retention is 0", async () => {
-    const agedId = randomUUID();
-    const freshId = randomUUID();
-    await pool.query(
-      `INSERT INTO agent_events (id, event_kind, recorded_at)
-       VALUES ($1, $3, $4), ($2, $3, $5)`,
-      [agedId, freshId, EVENT, daysAgo(31), daysAgo(1)],
+  it("deletes agent_feedback older than the default retention and keeps it when retention is 0", () => {
+    const insert = db.prepare(
+      `INSERT INTO agent_feedback (work_id, pr_key, kind, payload_json, created_at)
+       VALUES (?, 'o/r#1', 'tool', '{}', ?)`,
     );
-
-    const deleted = await runRetention(pool, {
-      ...RETENTION,
-      agentEvents: {
-        ...RETENTION.agentEvents,
-        retentionSeconds: DEFAULT_AGENT_EVENTS_RETENTION_SECONDS,
+    insert.run("aged", daysAgo(31));
+    insert.run("fresh", daysAgo(1));
+    const deleted = runRetention(
+      db,
+      {
+        ...RETENTION,
+        agentEvents: {
+          ...RETENTION.agentEvents,
+          retentionSeconds: DEFAULT_AGENT_EVENTS_RETENTION_SECONDS,
+        },
       },
-    });
-    expect(deleted.agentEventsDeleted).toBeGreaterThanOrEqual(1);
-
-    const { rows } = await pool.query<{ id: string }>(
-      "SELECT id FROM agent_events WHERE event_kind = $1",
-      [EVENT],
+      Date.now(),
     );
-    const ids = rows.map((row) => row.id);
-    expect(ids).not.toContain(agedId);
-    expect(ids).toContain(freshId);
-
-    const keptId = randomUUID();
-    await pool.query(`INSERT INTO agent_events (id, event_kind, recorded_at) VALUES ($1, $2, $3)`, [
-      keptId,
-      EVENT,
-      daysAgo(31),
-    ]);
-    await runRetention(pool, RETENTION);
-    const kept = await pool.query<{ id: string }>(
-      "SELECT id FROM agent_events WHERE event_kind = $1",
-      [EVENT],
-    );
-    expect(kept.rows.map((row) => row.id)).toContain(keptId);
-  });
-
-  it("deletes agent_feedback older than the default retention and keeps it when retention is 0", async () => {
-    const agedId = randomUUID();
-    const freshId = randomUUID();
-    await pool.query(
-      `INSERT INTO agent_feedback (
-         id, group_key, recorded_at, owner, obstacle, subject, intent, problem, expected, severity
-       ) VALUES
-         ($1, 'tool:retention', $3, $5, 'tool', 'retention', 'keep', 'aged', 'stay', 'noise'),
-         ($2, 'tool:retention', $4, $5, 'tool', 'retention', 'keep', 'fresh', 'stay', 'noise')`,
-      [agedId, freshId, daysAgo(31), daysAgo(1), OWNER],
-    );
-
-    const deleted = await runRetention(pool, {
-      ...RETENTION,
-      agentEvents: {
-        ...RETENTION.agentEvents,
-        retentionSeconds: DEFAULT_AGENT_EVENTS_RETENTION_SECONDS,
-      },
-    });
-    expect(deleted.agentFeedbackDeleted).toBeGreaterThanOrEqual(1);
-
-    const { rows } = await pool.query<{ id: string }>(
-      "SELECT id FROM agent_feedback WHERE owner = $1",
-      [OWNER],
-    );
-    const ids = rows.map((row) => row.id);
-    expect(ids).not.toContain(agedId);
-    expect(ids).toContain(freshId);
-
-    const keptId = randomUUID();
-    await pool.query(
-      `INSERT INTO agent_feedback (
-         id, group_key, recorded_at, owner, obstacle, subject, intent, problem, expected, severity
-       ) VALUES ($1, 'tool:retention', $2, $3, 'tool', 'retention', 'keep', 'aged', 'stay', 'noise')`,
-      [keptId, daysAgo(31), OWNER],
-    );
-    const keptRun = await runRetention(pool, RETENTION);
+    expect(deleted.agentFeedbackDeleted).toBe(1);
+    expect(ids(`SELECT work_id AS id FROM agent_feedback`)).toEqual(["fresh"]);
+    insert.run("kept", daysAgo(31));
+    const keptRun = runRetention(db, RETENTION, Date.now());
     expect(keptRun.agentFeedbackDeleted).toBe(0);
-    const kept = await pool.query<{ id: string }>(
-      "SELECT id FROM agent_feedback WHERE owner = $1",
-      [OWNER],
-    );
-    expect(kept.rows.map((row) => row.id)).toContain(keptId);
+    expect(ids(`SELECT work_id AS id FROM agent_feedback`)).toContain("kept");
   });
 
-  it("applies the agent_events recorded_at index", async () => {
-    const { rows } = await pool.query<{ indexdef: string }>(
-      `SELECT indexdef FROM pg_indexes
-        WHERE schemaname = 'public' AND indexname = 'agent_events_recorded_at_idx'`,
+  it("deletes aged settled publish intents but never a mutating or recoverable one", () => {
+    const insert = db.prepare(
+      `INSERT INTO publish_intents
+        (intent_key, pr_key, work_id, resource_target, operation_key, state, mutation_kind, identity_json, updated_at)
+       VALUES (?, 'o/r#1', 'w', 'comment:1', ?, ?, 'comment', '{}', ?)`,
     );
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.indexdef).toContain("(recorded_at)");
+    insert.run("aged-reconciled", "op1", "reconciled", daysAgo(60));
+    insert.run("aged-mutating", "op2", "mutating", daysAgo(60));
+    insert.run("aged-recoverable", "op3", "outcome_unknown_recoverable", daysAgo(60));
+    insert.run("fresh-reconciled", "op4", "reconciled", Date.now());
+    const result = runRetention(db, RETENTION, Date.now());
+    expect(result.publishIntentsDeleted).toBe(1);
+    expect(ids(`SELECT intent_key AS id FROM publish_intents ORDER BY intent_key`)).toEqual([
+      "aged-mutating",
+      "aged-recoverable",
+      "fresh-reconciled",
+    ]);
   });
 });

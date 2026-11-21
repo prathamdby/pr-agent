@@ -2,7 +2,7 @@ import type { AgentSessionRole, CompactionPolicy } from "./types.ts";
 
 const COMPACTION_ENABLED: Readonly<Record<AgentSessionRole, boolean>> = {
   orchestrator: false,
-  specialist: false,
+  specialist: true,
   ci_summary: false,
   ask: true,
   triage: true,

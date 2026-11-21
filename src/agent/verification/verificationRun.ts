@@ -12,7 +12,7 @@ import type { PullRequestDiscussion } from "../discussion/pullRequestDiscussion.
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.ts";
 import type { VerificationPayload } from "../../review/triageSchema.ts";
 import { assistantFromText, runFeatureAgent } from "../runtime/featureAgent.ts";
-import type { FeatureSessionContext } from "../runtime/createFeatureSession.ts";
+import type { createFeaturePiSession } from "../runtime/createFeatureSession.ts";
 import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.ts";
 import {
   buildVerificationRunSetup,
@@ -40,7 +40,7 @@ export async function runVerification(params: {
   readonly pushedCommits: readonly { readonly sha: string; readonly subject: string }[];
   readonly discussion: PullRequestDiscussion;
   readonly compareFilesTruncated?: boolean;
-  readonly sessionContext?: FeatureSessionContext;
+  readonly createSession?: typeof createFeaturePiSession;
   readonly escalation?: EscalationPlan;
   readonly signal?: AbortSignal;
 }) {
@@ -75,10 +75,12 @@ export async function runVerification(params: {
         systemPrompt: setup.systemPrompt,
         tools: setup.piTools,
         executors: setup.executors,
-        sessionContext: params.sessionContext,
+        durableTools: setup.durableTools,
+        toolMeta: setup.toolMeta,
         attemptModel: escalation?.model,
         hostSignal: params.signal,
       },
+      ...(params.createSession !== undefined ? { createSession: params.createSession } : {}),
     },
   );
 

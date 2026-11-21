@@ -1,5 +1,4 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import type { PgBoss } from "pg-boss";
 import type { Config, AnyReviewLens } from "../../settings/index.ts";
 import type { ClassifiedFailure } from "../../errors/classifiedFailure.ts";
 import type { PrSurface } from "../../github/prSurface.ts";
@@ -10,10 +9,8 @@ import type { AcceptedPlacement, ReviewCoverage } from "../orchestrator/orchestr
 import type { RecordPublishStepWithCoordination } from "../publish/reviewSummaryComment.ts";
 import type { FeatureSessionContext } from "../../agent/runtime/createFeatureSession.ts";
 import type { RepoPolicyResult } from "../repoPolicy.ts";
-import type { ReviewRecovery } from "../recovery/reviewRecovery.ts";
 
 export type ReviewRunParams = {
-  readonly recovery?: ReviewRecovery;
   readonly cfg: Config;
   readonly prSurface: PrSurface;
   readonly owner: string;
@@ -38,7 +35,6 @@ export type ReviewRunParams = {
   readonly workItemId?: string;
   readonly resumedPlacements?: readonly AcceptedPlacement[];
   readonly sessionContext?: FeatureSessionContext;
-  readonly boss?: PgBoss;
   readonly reviewSource?: WorkSource;
   readonly staleHeadRescheduled?: boolean;
   readonly publishAbortState?: { readonly staleHead?: boolean };

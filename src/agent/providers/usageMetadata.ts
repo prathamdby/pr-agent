@@ -6,6 +6,7 @@ export type AgentRunnerUsageMetadata = {
   readonly cacheReadTokens?: number;
   readonly cacheWriteTokens?: number;
   readonly cacheWrite1hTokens?: number;
+  readonly reasoningTokens?: number;
   readonly totalTokens?: number;
   readonly estimated: boolean;
 };
@@ -42,6 +43,7 @@ export function exactUsageFromProviderUsage(usage: Usage) {
     ...(usage.cacheRead != null ? { cacheReadTokens: usage.cacheRead } : {}),
     ...(usage.cacheWrite != null ? { cacheWriteTokens: usage.cacheWrite } : {}),
     ...(usage.cacheWrite1h != null ? { cacheWrite1hTokens: usage.cacheWrite1h } : {}),
+    ...(usage.reasoning != null ? { reasoningTokens: usage.reasoning } : {}),
     totalTokens: usage.totalTokens,
   });
 }
@@ -61,6 +63,7 @@ export function mergeExactUsage(
   const cacheReadTokens = mergeOptionalCount(left.cacheReadTokens, right.cacheReadTokens);
   const cacheWriteTokens = mergeOptionalCount(left.cacheWriteTokens, right.cacheWriteTokens);
   const cacheWrite1hTokens = mergeOptionalCount(left.cacheWrite1hTokens, right.cacheWrite1hTokens);
+  const reasoningTokens = mergeOptionalCount(left.reasoningTokens, right.reasoningTokens);
   return ((pinnedReturn: AgentRunnerUsageMetadata | undefined) => pinnedReturn)({
     estimated: false,
     inputTokens: mergeOptionalCount(left.inputTokens, right.inputTokens),
@@ -68,6 +71,7 @@ export function mergeExactUsage(
     ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
     ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {}),
     ...(cacheWrite1hTokens !== undefined ? { cacheWrite1hTokens } : {}),
+    ...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
     totalTokens: mergeOptionalCount(left.totalTokens, right.totalTokens),
   });
 }

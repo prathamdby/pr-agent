@@ -1,27 +1,18 @@
-import { productionInstallationSurface } from "../installationSurface.ts";
-import { unfencedSurface } from "../writeFence.ts";
+import type { DatabaseSync } from "node:sqlite";
+import * as v from "valibot";
+import type { InstallationSurface } from "../installationSurface.ts";
 import {
   type Config,
   DEFERRED_HEAD_SHA,
   GITHUB_REACTION_EYES,
   GITHUB_REACTION_MINUS_ONE,
   GITHUB_REACTION_PLUS_ONE,
+  LEGACY_REVIEW_LENSES,
+  normalizeReviewLens,
   triageCancelledNotice,
-  type GithubReactionContent,
 } from "../../settings/index.ts";
-import type { Pool } from "pg";
-import type { PgBoss } from "pg-boss";
 import { logWarn } from "../../evlog.ts";
 import { REVIEW_SUMMARY_SENTINEL } from "../../review/reviewSchema.ts";
-import { createReviewSummaryComment } from "../../review/publish/reviewSummaryComment.ts";
-import { getProgressCommentOwner } from "../publishRecordRepository.ts";
-import {
-  getReviewQueuePosition,
-  getWorkItemCore,
-  type ReviewQueuePosition,
-} from "../workItemStateRepository.ts";
-import { closeReviewVerdictsForWorkItems, reviewVerdict } from "../reviewVerdict.ts";
-import { loadRenderableHeadCi, requestHeadCiProjection } from "../ciProjection.ts";
 import { parseProgressRevisionState } from "../../review/run/commentMarkers.ts";
 import {
   renderReviewCancelledNotice,
@@ -29,87 +20,152 @@ import {
   renderReviewProgressComment,
 } from "../../review/run/progressComment.ts";
 import type { ReviewMode } from "../../review/reviewSchema.ts";
-import { ACTIVE_WORK_STATUSES, prResourceKey, type AckJobData } from "../types.ts";
-import { canPublishApprovalNotice } from "../intake/reviewApprovals.ts";
+import { prResourceKey, type AckJobData } from "../types.ts";
 import { errorMessage } from "../../errors/errorMessage.ts";
+import type { PrSurface } from "../../github/prSurface.ts";
 import {
-  capabilityObservationUnconfirmed,
-  createReviewCapabilityPolicy,
-  unknownInstallationCapabilities,
-  type InstallationCapabilities,
-  type ReviewCapabilityPolicy,
-} from "../../github/installationCapabilities.ts";
+  approvalNoticePublishable,
+  progressCommentOwner,
+  reviewQueuePosition,
+  workRunStatus,
+  type FeaturePublication,
+} from "../../state/featurePublication.ts";
+import { WORK_RUN_ACTIVE_STATUSES } from "../../state/workRuns.ts";
+import { loadRenderableHeadCi, requestHeadCiProjection } from "../../state/prHeadCiState.ts";
 import {
-  loadGithubCapabilityObservation,
-  nextGithubCapabilityObservationGeneration,
-  recordGithubCapabilityDenial,
-  saveGithubCapabilityObservation,
-} from "../githubCapabilityRepository.ts";
+  canWrite,
+  passthroughMutationBoundary,
+  publishReactions,
+  resolveInstallationPolicy,
+} from "./featureCapabilities.ts";
+import type { ReviewSurfacePublisher } from "./featureExecution.ts";
 
-export async function canAckPublishProgress(
-  pool: Pool,
+const positiveInt = v.pipe(v.number(), v.integer(), v.gtValue(0));
+
+const ackTargetSchema = v.variant("kind", [
+  v.object({ kind: v.literal("pr"), prNumber: positiveInt }),
+  v.object({ kind: v.literal("issueComment"), commentId: positiveInt }),
+  v.object({ kind: v.literal("reviewComment"), commentId: positiveInt }),
+]);
+
+const replyTargetSchema = v.variant("kind", [
+  v.object({ kind: v.literal("prConversation"), prNumber: positiveInt }),
+  v.object({
+    kind: v.literal("inlineReviewThread"),
+    prNumber: positiveInt,
+    inReplyToCommentId: positiveInt,
+  }),
+]);
+
+const attributionSchema = v.variant("kind", [
+  v.object({ kind: v.literal("user"), login: v.string() }),
+  v.object({ kind: v.literal("merged") }),
+  v.object({ kind: v.literal("closed") }),
+]);
+
+const reviewModeSchema = v.pipe(
+  v.picklist(["review", ...LEGACY_REVIEW_LENSES]),
+  v.transform(normalizeReviewLens),
+);
+
+export const ackPayloadSchema = v.object({
+  kind: v.literal("ack"),
+  workItemId: v.optional(v.string()),
+  installationId: v.number(),
+  owner: v.string(),
+  repo: v.string(),
+  prNumber: v.number(),
+  targets: v.array(ackTargetSchema),
+  awaitingApproval: v.optional(v.literal(true)),
+  awaitingApprovalMaintainerOnly: v.optional(v.literal(true)),
+  closedApproval: v.optional(attributionSchema),
+  progress: v.optional(
+    v.object({
+      lens: reviewModeSchema,
+      headSha: v.string(),
+      source: v.picklist(["auto", "slash"]),
+    }),
+  ),
+  cancelProgress: v.optional(
+    v.object({
+      workItemId: v.string(),
+      cancelledWorkItemIds: v.optional(v.array(v.string())),
+      attribution: attributionSchema,
+    }),
+  ),
+  cancelTriage: v.optional(
+    v.object({
+      workItemId: v.string(),
+      cancelledWorkItemIds: v.optional(v.array(v.string())),
+      attribution: attributionSchema,
+      targets: v.array(ackTargetSchema),
+      replyTarget: replyTargetSchema,
+    }),
+  ),
+  reply: v.optional(v.object({ target: replyTargetSchema, body: v.string() })),
+  commenterId: v.optional(v.number()),
+  webhookEventId: v.optional(v.string()),
+  delivery: v.optional(v.string()),
+});
+
+export function parseAckPayload(payloadJson: string) {
+  return ((pinnedReturn: AckJobData) => pinnedReturn)(
+    v.parse(ackPayloadSchema, JSON.parse(payloadJson)),
+  );
+}
+
+export type AckDependencies = {
+  readonly db: DatabaseSync;
+  readonly cfg: Config;
+  readonly installationSurface: InstallationSurface;
+  readonly publication: FeaturePublication;
+  readonly reviewPublisher?: ReviewSurfacePublisher;
+  readonly now: () => number;
+};
+
+const ACTIVE_STATUSES: ReadonlySet<string> = new Set(WORK_RUN_ACTIVE_STATUSES);
+
+export function canAckPublishProgress(
+  db: DatabaseSync,
   params: {
     readonly workItemId: string;
     readonly resourceKey: string;
     readonly reviewLens: ReviewMode;
   },
 ) {
-  const workItem = await getWorkItemCore(pool, params.workItemId);
-  if (workItem == null || !(ACTIVE_WORK_STATUSES as readonly string[]).includes(workItem.status)) {
-    return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
+  const status = workRunStatus(db, params.workItemId);
+  if (status === undefined || !ACTIVE_STATUSES.has(status)) {
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
   }
-  const owner = await getProgressCommentOwner(pool, params.resourceKey, params.reviewLens);
-  if (owner != null && owner.workItemId !== params.workItemId) {
-    return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
-  }
-  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(true);
+  const owner = progressCommentOwner(db, params.resourceKey, params.reviewLens);
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    owner == null || owner.workId === params.workItemId,
+  );
 }
 
-type AckInstallation = Awaited<ReturnType<typeof productionInstallationSurface.token>>;
-
-async function ackPrSurface(
-  cfg: Config,
-  data: Pick<AckJobData, "installationId" | "owner" | "repo" | "prNumber">,
-  installation: AckInstallation,
-  capabilities?: ReviewCapabilityPolicy,
-) {
-  return productionInstallationSurface.create({
-    cfg,
-    installationId: data.installationId,
-    owner: data.owner,
-    repo: data.repo,
-    prNumber: data.prNumber,
-    installation,
-    capabilities,
-    mutationBoundary: unfencedSurface(),
-  });
+function reviewPublisherMissing(step: string, resourceKey: string) {
+  logWarn("ack_review_publisher_unavailable", { step, resourceKey });
 }
 
 async function publishAckProgress(
-  cfg: Config,
-  pool: Pool,
+  deps: AckDependencies,
   data: AckJobData & { readonly progress: NonNullable<AckJobData["progress"]> },
-  installation: AckInstallation,
+  prSurface: PrSurface,
   resourceKey: string,
-  boss?: PgBoss,
-  capabilities?: ReviewCapabilityPolicy,
 ) {
-  const prSurface = await ackPrSurface(cfg, data, installation, capabilities);
-  if ((prSurface.capabilities?.access("commentsWrite") ?? "available") !== "available") return;
+  if (!canWrite(prSurface, "commentsWrite")) return;
   const deferredHead = data.progress.headSha === DEFERRED_HEAD_SHA;
   const headSha = deferredHead ? await prSurface.getHeadSha() : data.progress.headSha;
-  const rendered = await loadRenderableHeadCi(
-    pool,
-    data.owner,
-    data.repo,
+  const rendered = loadRenderableHeadCi(deps.db, {
+    owner: data.owner,
+    repo: data.repo,
     headSha,
-    data.installationId,
-  );
-  const ciSummary = rendered.summary;
-  let queuePosition: ReviewQueuePosition | null = null;
+    installationId: data.installationId,
+  });
+  let queuePosition: { readonly position: number; readonly total: number } | null = null;
   if (data.workItemId != null) {
     try {
-      queuePosition = await getReviewQueuePosition(pool, data.workItemId);
+      queuePosition = reviewQueuePosition(deps.db, data.workItemId);
     } catch (e) {
       logWarn("ack_queue_position_failed", {
         workItemId: data.workItemId,
@@ -121,55 +177,53 @@ async function publishAckProgress(
     mode: data.progress.lens,
     headSha,
     source: data.progress.source,
-    ciSummary,
+    ciSummary: rendered.summary,
     ciVersion: rendered.version,
     queuePosition,
     progressRevision: 0,
     progressWorkItemId: data.workItemId,
   });
-  await createReviewSummaryComment({
+  if (deps.reviewPublisher === undefined) reviewPublisherMissing("progress", resourceKey);
+  await deps.reviewPublisher?.tickProgressSummary({
+    publication: deps.publication,
     prSurface,
+    resourceKey,
     reviewLens: data.progress.lens,
-    coordination: { pool, resourceKey, workItemId: data.workItemId },
-  }).tick({
+    ...(data.workItemId != null ? { workItemId: data.workItemId } : {}),
     body,
     progressRevision: 0,
     ciHeadSha: headSha,
     ciVersion: rendered.version,
   });
-  await requestHeadCiProjection(
-    boss,
+  requestHeadCiProjection(
+    deps.db,
     { installationId: data.installationId, owner: data.owner, repo: data.repo, headSha },
-    { kind: "when_due", pool, renderedVersion: rendered.version },
+    { kind: "when_due", renderedVersion: rendered.version },
+    deps.now(),
   );
   if (data.workItemId && !deferredHead) {
-    await reviewVerdict({
-      pool,
-      commitStatusEnabled: cfg.features.commitStatus,
-      summaryCommentId: null,
+    await deps.reviewPublisher?.pendingVerdict({
+      publication: deps.publication,
       prSurface,
       owner: data.owner,
       repo: data.repo,
       prNumber: data.prNumber,
+      commitStatusEnabled: deps.cfg.features.commitStatus,
       headSha,
       workItemId: data.workItemId,
       resourceKey,
       reviewLens: data.progress.lens,
-    }).pending();
+    });
   }
 }
 
 async function publishCancelProgress(
-  cfg: Config,
-  pool: Pool,
+  deps: AckDependencies,
   data: AckJobData & { readonly cancelProgress: NonNullable<AckJobData["cancelProgress"]> },
-  installation: AckInstallation,
+  prSurface: PrSurface,
   resourceKey: string,
-  capabilities?: ReviewCapabilityPolicy,
 ) {
-  const prSurface = await ackPrSurface(cfg, data, installation, capabilities);
-  const commentsAvailable =
-    (prSurface.capabilities?.access("commentsWrite") ?? "available") === "available";
+  const commentsAvailable = canWrite(prSurface, "commentsWrite");
   const existing = commentsAvailable
     ? await prSurface.findProgressComment(REVIEW_SUMMARY_SENTINEL)
     : null;
@@ -186,13 +240,26 @@ async function publishCancelProgress(
   try {
     if (!commentsAvailable) {
     } else if (ownsStub && existing != null) {
-      await prSurface.editComment(existing.id, body);
+      await deps.publication.once({
+        decodeResult: () => undefined,
+        allowsUndefinedResult: true,
+        resourceTarget: `comment:${existing.id}`,
+        blocksOverwrite: true,
+        operationKey: `ack:cancel_progress:${existing.id}`,
+        mutationKind: "github.progress_comment_edit",
+        mutate: () => prSurface.editComment(existing.id, body),
+      });
     } else {
-      await createReviewSummaryComment({
+      if (deps.reviewPublisher === undefined) reviewPublisherMissing("cancel", resourceKey);
+      await deps.reviewPublisher?.tickProgressSummary({
+        publication: deps.publication,
         prSurface,
+        resourceKey,
         reviewLens: "review",
-        coordination: { pool, resourceKey, workItemId: data.cancelProgress.workItemId },
-      }).tick({ body, progressRevision: 0 });
+        workItemId: data.cancelProgress.workItemId,
+        body,
+        progressRevision: 0,
+      });
     }
   } catch (error) {
     logWarn("ack_cancel_comment_failed", {
@@ -202,42 +269,50 @@ async function publishCancelProgress(
     });
   }
 
-  const cancelledWorkItemIds = data.cancelProgress.cancelledWorkItemIds ?? [
-    data.cancelProgress.workItemId,
-  ];
-
-  await closeReviewVerdictsForWorkItems(pool, {
+  await deps.reviewPublisher?.closeCancelledVerdicts({
+    publication: deps.publication,
     prSurface,
     owner: data.owner,
     repo: data.repo,
     prNumber: data.prNumber,
-    workItemIds: cancelledWorkItemIds,
-    commitStatusEnabled: cfg.features.commitStatus,
-    outcome: { kind: "cancelled" },
+    commitStatusEnabled: deps.cfg.features.commitStatus,
+    workItemIds: data.cancelProgress.cancelledWorkItemIds ?? [data.cancelProgress.workItemId],
   });
 }
 
 async function publishTriageCancellation(
-  prSurface: Awaited<ReturnType<typeof ackPrSurface>>,
+  deps: AckDependencies,
+  prSurface: PrSurface,
   data: AckJobData & { readonly cancelTriage: NonNullable<AckJobData["cancelTriage"]> },
 ) {
-  if ((prSurface.capabilities?.access("reactionsWrite") ?? "available") === "available") {
-    await prSurface.setAcknowledgementReaction(
-      data.cancelTriage.targets,
-      GITHUB_REACTION_MINUS_ONE,
-    );
-  }
-  if ((prSurface.capabilities?.access("commentsWrite") ?? "available") === "available") {
-    await prSurface.replyAt(
-      data.cancelTriage.replyTarget,
-      triageCancelledNotice(data.cancelTriage.attribution),
-    );
+  await publishReactions({
+    publication: deps.publication,
+    prSurface,
+    targets: data.cancelTriage.targets,
+    content: GITHUB_REACTION_MINUS_ONE,
+    logEvent: "ack_reaction_failed",
+  });
+  if (canWrite(prSurface, "commentsWrite")) {
+    await deps.publication.once({
+      decodeResult: () => undefined,
+      allowsUndefinedResult: true,
+      resourceTarget: `triage_cancel_reply:${data.cancelTriage.workItemId}`,
+      operationKey: `ack:triage_cancel_reply:${data.cancelTriage.workItemId}`,
+      mutationKind: "github.triage_cancel_reply",
+      mutate: async () => {
+        await prSurface.replyAt(
+          data.cancelTriage.replyTarget,
+          triageCancelledNotice(data.cancelTriage.attribution),
+        );
+      },
+    });
   }
 }
 
-export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData, boss?: PgBoss) {
+export async function runAckJob(deps: AckDependencies, data: AckJobData) {
+  const { cfg, db } = deps;
   try {
-    const bot = await productionInstallationSurface.botIdentity(cfg);
+    const bot = await deps.installationSurface.botIdentity(cfg);
     if (data.commenterId != null && bot.userId === data.commenterId) return;
   } catch (e) {
     logWarn("ack_bot_identity_check_failed", {
@@ -245,72 +320,59 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData, b
     });
   }
   const scope = { installationId: data.installationId, owner: data.owner, repo: data.repo };
-  const stored = await loadGithubCapabilityObservation(pool, scope);
-  let observation: InstallationCapabilities;
-  let installation: AckInstallation | undefined;
-  if (stored && !capabilityObservationUnconfirmed(stored.capabilities)) {
-    const unknown = unknownInstallationCapabilities(
-      { ...scope, appId: cfg.github.appId },
-      String(stored.generation),
-    );
-    observation = { ...unknown, availability: { ...unknown.availability, ...stored.capabilities } };
-    installation = await productionInstallationSurface.token(cfg, data.installationId);
-  } else {
-    const fresh = await productionInstallationSurface.preflight({
-      cfg,
-      ...scope,
-      generation: await nextGithubCapabilityObservationGeneration(pool),
-    });
-    observation = fresh.observation;
-    installation = fresh.installation;
-    await saveGithubCapabilityObservation(pool, { ...scope, observation });
-    if (!installation) return;
-  }
-  const capabilities = createReviewCapabilityPolicy(observation, async (operation) => {
-    await recordGithubCapabilityDenial(pool, {
-      ...scope,
-      generation: Number(observation.generation),
-      operation,
-    });
+  const policy = await resolveInstallationPolicy({
+    db,
+    cfg,
+    installationSurface: deps.installationSurface,
+    scope,
+    now: deps.now,
   });
-  const prSurface = await ackPrSurface(cfg, data, installation, capabilities);
+  if (policy.preflighted && policy.installation === undefined) return;
+  const prSurface = await deps.installationSurface.create({
+    cfg,
+    installationId: data.installationId,
+    owner: data.owner,
+    repo: data.repo,
+    prNumber: data.prNumber,
+    installation: policy.installation,
+    capabilities: policy.capabilities,
+    mutationBoundary: passthroughMutationBoundary(),
+  });
   const resourceKey = prResourceKey(data.owner, data.repo, data.prNumber);
 
   if (!data.awaitingApproval && !data.closedApproval) {
-    await reactBestEffort(prSurface, data.targets, GITHUB_REACTION_EYES);
+    await publishReactions({
+      publication: deps.publication,
+      prSurface,
+      targets: data.targets,
+      content: GITHUB_REACTION_EYES,
+      logEvent: "ack_reaction_failed",
+    });
   }
 
-  if (
-    (data.awaitingApproval || data.closedApproval) &&
-    (prSurface.capabilities?.access("commentsWrite") ?? "available") === "available"
-  ) {
-    await createReviewSummaryComment({
+  if ((data.awaitingApproval || data.closedApproval) && canWrite(prSurface, "commentsWrite")) {
+    if (deps.reviewPublisher === undefined) reviewPublisherMissing("approval", resourceKey);
+    await deps.reviewPublisher?.tickProgressSummary({
+      publication: deps.publication,
       prSurface,
+      resourceKey,
       reviewLens: "review",
-      coordination: { pool, resourceKey },
-    }).tick({
       body: data.closedApproval
         ? renderReviewCancelledNotice({ attribution: data.closedApproval, progressRevision: 1 })
         : renderReviewAwaitingApprovalNotice(data.awaitingApprovalMaintainerOnly === true),
       progressRevision: data.closedApproval ? 1 : 0,
-      shouldPublish: (client) =>
-        canPublishApprovalNotice(
-          client,
-          resourceKey,
-          data.closedApproval ? "withdrawn" : "awaiting",
-        ),
+      shouldPublish: () =>
+        approvalNoticePublishable(db, resourceKey, data.closedApproval ? "withdrawn" : "awaiting"),
     });
   }
 
   if (data.cancelProgress) {
     try {
       await publishCancelProgress(
-        cfg,
-        pool,
+        deps,
         { ...data, cancelProgress: data.cancelProgress },
-        installation,
+        prSurface,
         resourceKey,
-        capabilities,
       );
     } catch (error) {
       logWarn("ack_cancel_progress_failed", {
@@ -323,7 +385,10 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData, b
 
   if (data.cancelTriage) {
     try {
-      await publishTriageCancellation(prSurface, { ...data, cancelTriage: data.cancelTriage });
+      await publishTriageCancellation(deps, prSurface, {
+        ...data,
+        cancelTriage: data.cancelTriage,
+      });
     } catch (error) {
       logWarn("ack_cancel_triage_failed", {
         workItemId: data.cancelTriage.workItemId,
@@ -335,63 +400,45 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData, b
 
   if (data.progress) {
     const progressData = { ...data, progress: data.progress };
-    if (data.workItemId != null) {
-      const mayPublish = await canAckPublishProgress(pool, {
+    if (
+      data.workItemId != null &&
+      !canAckPublishProgress(db, {
+        workItemId: data.workItemId,
+        resourceKey,
+        reviewLens: progressData.progress.lens,
+      })
+    ) {
+      logWarn("ack_progress_skipped_stale_owner", {
         workItemId: data.workItemId,
         resourceKey,
         reviewLens: progressData.progress.lens,
       });
-      if (!mayPublish) {
-        logWarn("ack_progress_skipped_stale_owner", {
-          workItemId: data.workItemId,
-          resourceKey,
-          reviewLens: progressData.progress.lens,
-        });
-      } else {
-        await publishAckProgress(
-          cfg,
-          pool,
-          progressData,
-          installation,
-          resourceKey,
-          boss,
-          capabilities,
-        );
-      }
     } else {
-      await publishAckProgress(
-        cfg,
-        pool,
-        progressData,
-        installation,
-        resourceKey,
-        boss,
-        capabilities,
-      );
+      await publishAckProgress(deps, progressData, prSurface, resourceKey);
     }
   }
 
-  if (
-    data.reply &&
-    (prSurface.capabilities?.access("commentsWrite") ?? "available") === "available"
-  ) {
-    await prSurface.replyAt(data.reply.target, data.reply.body);
+  const reply = data.reply;
+  if (reply && canWrite(prSurface, "commentsWrite")) {
+    await deps.publication.once({
+      decodeResult: () => undefined,
+      allowsUndefinedResult: true,
+      resourceTarget: "ack_reply",
+      operationKey: "ack:reply",
+      mutationKind: "github.ack_reply",
+      mutate: async () => {
+        await prSurface.replyAt(reply.target, reply.body);
+      },
+    });
   }
 
   if (data.reply && data.workItemId == null) {
-    await reactBestEffort(prSurface, data.targets, GITHUB_REACTION_PLUS_ONE);
-  }
-}
-
-async function reactBestEffort(
-  prSurface: Awaited<ReturnType<typeof ackPrSurface>>,
-  targets: AckJobData["targets"],
-  reaction: GithubReactionContent,
-) {
-  if ((prSurface.capabilities?.access("reactionsWrite") ?? "available") !== "available") return;
-  try {
-    await prSurface.setAcknowledgementReaction(targets, reaction);
-  } catch (error) {
-    logWarn("ack_reaction_failed", { reaction, message: errorMessage(error) });
+    await publishReactions({
+      publication: deps.publication,
+      prSurface,
+      targets: data.targets,
+      content: GITHUB_REACTION_PLUS_ONE,
+      logEvent: "ack_reaction_failed",
+    });
   }
 }

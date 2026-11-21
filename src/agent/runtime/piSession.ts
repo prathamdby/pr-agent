@@ -1,4 +1,5 @@
-import { createPiSessionImpl } from "./piSessionImpl.ts";
+import { createDurablePiSession } from "./durable/session.ts";
+import { getSharedDurableRuntime } from "./durable/runtime.ts";
 import type { PiSession, PiSessionCreateParams } from "./types.ts";
 
 export type { PiSession, PiSessionCreateParams } from "./types.ts";
@@ -20,7 +21,8 @@ export type {
 } from "./promptCachePolicy.ts";
 
 export async function createPiSession(params: PiSessionCreateParams) {
+  const runtime = await getSharedDurableRuntime(params.cfg);
   return ((pinnedReturn: PiSession | Promise<PiSession>) => pinnedReturn)(
-    createPiSessionImpl(params),
+    createDurablePiSession({ ...params, runtime }),
   );
 }

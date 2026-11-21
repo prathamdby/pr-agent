@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import * as v from "valibot";
 import { neutralizeMarkerEcho } from "../../prompts/shared/safety.ts";
 import { isFindingSource, type FindingSource } from "../orchestrator/orchestratorTypes.ts";
 import type { ReviewFinding } from "../reviewSchema.ts";
@@ -238,3 +239,7 @@ export function parseOwnedReceipts(comments: readonly OwnedComment[], botLogin: 
     }),
   );
 }
+
+export const findingIdSchema = v.custom<FindingId>(
+  (value) => typeof value === "string" && isFindingId(value),
+);

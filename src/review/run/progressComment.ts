@@ -32,7 +32,7 @@ import { REVIEW_SUMMARY_SENTINEL } from "../reviewSchema.ts";
 import type { WorkSource } from "../reviewSchema.ts";
 import type { CiSummary } from "../ci/ciFacts.ts";
 import { renderCiSummaryCell, shouldRenderCiSummaryRow } from "../ci/ciSummaryCell.ts";
-import type { ReviewQueuePosition } from "../../agentWork/workItemStateRepository.ts";
+import type { ReviewQueuePosition } from "../../agentWork/types.ts";
 import {
   SPECIALIST_IDS,
   type ReconRunPhase,

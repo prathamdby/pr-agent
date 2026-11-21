@@ -1,6 +1,8 @@
 import { createAskPathGate } from "./askSafety.ts";
-import { hideWorkspaceToolsBehindCodeMode } from "../codemode/assembleExplorationTools.ts";
-import { buildWorkspaceTools } from "../tools/workspaceToolset.ts";
+import {
+  buildWorkspaceTools,
+  hideWorkspaceToolsBehindCodeMode,
+} from "../runtime/durable/piTools.ts";
 import type { AskRunParams } from "./askRunTypes.ts";
 
 export function buildAskRunSetup(params: AskRunParams) {
@@ -12,7 +14,6 @@ export function buildAskRunSetup(params: AskRunParams) {
       pathGate,
       extraAllowedPaths,
     }),
-    { executorKind: params.cfg.codeMode.executorKind },
   );
   return { bundle };
 }

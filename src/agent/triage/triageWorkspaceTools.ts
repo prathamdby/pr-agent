@@ -1,4 +1,4 @@
-import { buildWorkspaceTools, defineToolset } from "../tools/workspaceToolset.ts";
+import { buildWorkspaceTools, defineToolset } from "../runtime/durable/piTools.ts";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";

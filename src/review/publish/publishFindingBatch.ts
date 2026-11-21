@@ -35,7 +35,7 @@ import {
   operationIntentMarker,
   reviewInlineBatchOperationKey,
   publishOnce,
-} from "../../agentWork/publishOnce.ts";
+} from "../../state/publish.ts";
 import { safeEmitPublishEvent } from "../../agent/runtime/agentEventSink.ts";
 import type {
   AcceptedPlacement,
@@ -47,21 +47,9 @@ import type {
 } from "../orchestrator/orchestratorTypes.ts";
 import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.ts";
 import type { EvidenceLedger } from "../findings/evidenceLedger.ts";
-import {
-  isDefinitelyNoAcceptanceReviewError,
-  publicationAttemptRejected,
-} from "../../github/reviewErrors.ts";
+import { isDefinitelyNoAcceptanceReviewError } from "../../github/reviewErrors.ts";
 import { findPublishedThreadBatch } from "../../github/prSurfaceHelpers.ts";
-import { getOperationIntent } from "../../agentWork/operationIntentRepository.ts";
-import {
-  settleRejectedPublication,
-  snapshotFindingLedger,
-  type RecoveryDecision,
-} from "../recovery/reviewRecovery.ts";
-import { findingIdSchema, type CanonicalThreadDecision } from "../recovery/reviewRecoverySchema.ts";
-import { reviewArtifactInvalid } from "../recovery/reviewArtifacts.ts";
-import { evidenceForCachedFindings } from "../recovery/reviewCachedOutputs.ts";
-import { fenceForEpoch } from "../../agentWork/writeFence.ts";
+import { findingIdSchema } from "../findingIdentity/findingMarker.ts";
 
 const publishedPlacementSchema = v.object({
   finding: v.object(reviewFindingEntries),
@@ -109,8 +97,6 @@ export type FindingBatchResult =
   | { readonly kind: "stopped"; readonly reason: PublishStopReason };
 
 export type FindingBatchInput = {
-  readonly recoveryDecision?: RecoveryDecision;
-  readonly recoveryWithoutEvidence?: boolean;
   readonly source: FindingSource;
   readonly ledger: FindingLedger;
   readonly evidenceLedger?: EvidenceLedger;
@@ -139,10 +125,10 @@ export function reconciledFindingKey(finding: ReviewFinding) {
 }
 
 export function findingIdScope(
-  session: Pick<ReviewPublishSession, "operationIntent" | "workItemId" | "ctx">,
+  session: Pick<ReviewPublishSession, "publish" | "workItemId" | "ctx">,
   source: FindingSource,
 ) {
-  const workItemId = session.operationIntent?.workItemId ?? session.workItemId;
+  const workItemId = session.publish?.workItemId ?? session.workItemId;
   return ((pinnedReturn: readonly string[] | undefined) => pinnedReturn)(
     workItemId == null ? undefined : [workItemId, session.ctx.headSha, source],
   );
@@ -359,15 +345,11 @@ export async function publishFindingBatch(
   session: ReviewPublishSession,
   input: FindingBatchInput,
 ) {
-  const replay = input.recoveryDecision;
-  const canonical = replay?.prepared.artifact.canonical;
-  if (canonical && canonical.kind !== "threads") reviewArtifactInvalid("decision_target");
-  const saved = canonical?.kind === "threads" ? canonical : undefined;
   const prepared = prepareReviewPayloadForPublish({
-    payload: replay?.prepared.artifact.payload ?? reviewPayloadFromFindings(batch),
+    payload: reviewPayloadFromFindings(batch),
     cachedDiffIndex: session.cachedDiffIndex,
     enforceInlineAnchorValidation: false,
-    evidenceLedger: input.recoveryWithoutEvidence ? undefined : input.evidenceLedger,
+    evidenceLedger: input.evidenceLedger,
     headSha: session.ctx.headSha,
     checkoutCoverage: input.checkoutCoverage,
     isPathInCheckout: input.isPathInCheckout,
@@ -389,12 +371,12 @@ export async function publishFindingBatch(
   const reconciledBatch = reconcileBatch(
     prepared.prepared.placements,
     input.source,
-    saved ? undefined : input.reconciled,
+    input.reconciled,
     judged,
     coverageGapCeiling,
   );
-  const intentWorkItemId = session.operationIntent?.workItemId ?? session.workItemId;
-  const calculatedTargets = prepareFindingsForPublish({
+  const intentWorkItemId = session.publish?.workItemId ?? session.workItemId;
+  const targets = prepareFindingsForPublish({
     payload: prepared.prepared.payload,
     cachedDiffIndex: session.cachedDiffIndex,
     inlinePlacements: reconciledBatch.postable,
@@ -402,104 +384,16 @@ export async function publishFindingBatch(
     maxInlineComments: remainingInline,
     findingIdScope: findingIdScope(session, input.source),
   });
-  const targets = saved
-    ? {
-        ...calculatedTargets,
-        inline: saved.inline,
-        dropped: {
-          ...calculatedTargets.dropped,
-          inlineCommentCapExcluded: saved.counts.capDowngraded,
-        },
-      }
-    : calculatedTargets;
-  const reconciledDelta = input.recoveryWithoutEvidence
-    ? { reaffirmed: [], suppressedDismissedCount: 0 }
-    : saved
-      ? {
-          reaffirmed: saved.localDelta.reaffirmed,
-          suppressedDismissedCount: saved.localDelta.suppressedDismissedCount,
-        }
-      : {
-          reaffirmed: reconciledBatch.reaffirmed,
-          suppressedDismissedCount: reconciledBatch.suppressedDismissedCount,
-        };
-  const suppressedCount = saved
-    ? saved.counts.suppressed
-    : reconciledBatch.reaffirmed.length + reconciledBatch.suppressedDismissedCount;
-  const evidence = input.evidenceLedger
-    ? evidenceForCachedFindings(input.evidenceLedger, prepared.prepared.payload.findings)
-    : prepared.prepared.payload.findings.length === 0
-      ? []
-      : null;
-  const cacheable = evidence !== null;
-  const plan = (
-    localDelta: FindingLedgerDelta,
-    resultKind: CanonicalThreadDecision["resultKind"],
-    footers: ReadonlyMap<string, readonly string[]> = new Map(),
-  ) =>
-    ((pinnedReturn: CanonicalThreadDecision) => pinnedReturn)({
-      kind: "threads",
-      source: input.source,
-      ledgerBefore: snapshotFindingLedger(input.ledger),
-      localDelta: {
-        ...localDelta,
-        accepted: [...localDelta.accepted],
-        reaffirmed: [...localDelta.reaffirmed],
-        inlineReviewIds: [...localDelta.inlineReviewIds],
-      },
-      inline: targets.inline.map(({ relatedLinks, ...entry }) => ({
-        ...entry,
-        ...(relatedLinks != null ? { relatedLinks: [...relatedLinks] } : {}),
-      })),
-      footers: [...footers].map(([key, paths]) => [key, [...paths]]),
-      baseSha: input.policyBaseSha ?? null,
-      resultKind,
-      evidence: evidence ?? [],
-      judgmentDegraded: session.recovery?.getJudgmentDegraded() ?? false,
-      briefFallback: session.recovery?.getBriefFallback() ?? false,
-      coverage: session.recovery?.getCoverage() ?? { kind: "full" },
-      ...(input.evidenceLedger ? { openedPaths: [...input.evidenceLedger.openedPaths()] } : {}),
-      counts: {
-        suppressed: suppressedCount,
-        capDowngraded: targets.dropped.inlineCommentCapExcluded,
-      },
-    });
-  const prepareDecision = async (operationKey: string, decision: CanonicalThreadDecision) => {
-    if (replay) return replay;
-    session.recovery?.throwIfPublicationUnresolved();
-    if (!cacheable) {
-      session.recovery?.discardEvidenceCache();
-      return null;
-    }
-    return (
-      (await session.recovery?.prepare(prepared.prepared.payload, operationKey, decision)) ?? null
-    );
+  const reconciledDelta = {
+    reaffirmed: reconciledBatch.reaffirmed,
+    suppressedDismissedCount: reconciledBatch.suppressedDismissedCount,
   };
-  const finishLocal = async (
-    result: Extract<FindingBatchResult, { kind: "empty" | "budget_exhausted" }>,
-  ) => {
-    const decision = await prepareDecision(
-      `local:${input.source}:${input.ledger.threadCallCount}`,
-      saved ?? plan(result.delta, result.kind),
-    );
-    await session.recovery?.settle(decision);
-    return result;
-  };
-  if (saved && saved.resultKind !== "remote") {
-    if (input.recoveryWithoutEvidence)
-      return ((pinnedReturn: FindingBatchResult | Promise<FindingBatchResult>) => pinnedReturn)({
-        kind: saved.resultKind,
-        delta: { ...saved.localDelta, ...reconciledDelta, accepted: [] },
-      });
-    return ((pinnedReturn: FindingBatchResult | Promise<FindingBatchResult>) => pinnedReturn)(
-      finishLocal({ kind: saved.resultKind, delta: saved.localDelta }),
-    );
-  }
+  const suppressedCount =
+    reconciledBatch.reaffirmed.length + reconciledBatch.suppressedDismissedCount;
 
   if (
-    !saved &&
-    (input.ledger.threadBudgetExhausted ||
-      input.ledger.threadCallCount >= session.cfg.review.maxThreadPublishCalls)
+    input.ledger.threadBudgetExhausted ||
+    input.ledger.threadCallCount >= session.cfg.review.maxThreadPublishCalls
   ) {
     const accepted = acceptedSummaryPlacements({
       targets: targets.placements,
@@ -508,30 +402,23 @@ export async function publishFindingBatch(
       source: input.source,
       budgetExhausted: true,
     });
-    return ((pinnedReturn: FindingBatchResult | Promise<FindingBatchResult>) => pinnedReturn)(
-      finishLocal({
-        kind: "budget_exhausted",
-        delta: emptyDelta({ accepted, ...reconciledDelta, threadBudgetExhausted: true }),
-      }),
-    );
+    return ((pinnedReturn: FindingBatchResult) => pinnedReturn)({
+      kind: "budget_exhausted",
+      delta: emptyDelta({ accepted, ...reconciledDelta, threadBudgetExhausted: true }),
+    });
   }
 
-  const acceptedBeforePublish = input.recoveryWithoutEvidence
-    ? []
-    : (saved?.localDelta.accepted ??
-      acceptedSummaryPlacements({
-        targets: targets.placements,
-        planned: targets.planned,
-        batch: reconciledBatch,
-        source: input.source,
-      }));
+  const acceptedBeforePublish = acceptedSummaryPlacements({
+    targets: targets.placements,
+    planned: targets.planned,
+    batch: reconciledBatch,
+    source: input.source,
+  });
   if (targets.inline.length === 0) {
-    return ((pinnedReturn: FindingBatchResult | Promise<FindingBatchResult>) => pinnedReturn)(
-      finishLocal({
-        kind: "empty",
-        delta: emptyDelta({ accepted: acceptedBeforePublish, ...reconciledDelta }),
-      }),
-    );
+    return ((pinnedReturn: FindingBatchResult) => pinnedReturn)({
+      kind: "empty",
+      delta: emptyDelta({ accepted: acceptedBeforePublish, ...reconciledDelta }),
+    });
   }
 
   if (session.recordPublishStep && session.workItemId == null) {
@@ -544,7 +431,7 @@ export async function publishFindingBatch(
 
   const stopReason = await session.stopReason();
   if (stopReason != null)
-    return ((pinnedReturn: FindingBatchResult | Promise<FindingBatchResult>) => pinnedReturn)({
+    return ((pinnedReturn: FindingBatchResult) => pinnedReturn)({
       kind: "stopped",
       reason: stopReason,
     });
@@ -567,48 +454,17 @@ export async function publishFindingBatch(
           findingIds: targets.inline.map((placement) => placement.findingId),
         })
       : crypto.randomUUID();
-  const operationKey =
-    replay?.prepared.artifact.operationKey ?? reviewInlineBatchOperationKey(batchId);
+  const operationKey = reviewInlineBatchOperationKey(batchId);
   const operationMarker =
     intentWorkItemId == null ? null : operationIntentMarker(operationKey, intentWorkItemId);
-  const boundByKey = saved
-    ? new Map(saved.footers)
-    : await resolveBoundPolicyFooters({
-        policy: input.repoPolicy ?? { kind: "absent" },
-        findings: targets.inline.map((placement) => placement.finding),
-        judge: input.boundPolicyJudge,
-        evidenceLedger: input.evidenceLedger,
-        isPathInCheckout: input.isPathInCheckout,
-        readCheckoutFile: input.readCheckoutFile,
-      });
-  const decision = await prepareDecision(
-    operationKey,
-    saved ??
-      plan(
-        emptyDelta({ accepted: acceptedBeforePublish, ...reconciledDelta }),
-        "remote",
-        boundByKey,
-      ),
-  );
-  if (
-    replay?.settled?.artifact.kind === "publication_settled" &&
-    replay.settled.artifact.outcome === "stopped"
-  ) {
-    return ((pinnedReturn: FindingBatchResult | Promise<FindingBatchResult>) => pinnedReturn)({
-      kind: "empty",
-      delta: emptyDelta({ threadCallCount: 0 }),
-    });
-  }
-  if (replay?.settled && session.operationIntent) {
-    const intent = await getOperationIntent(
-      session.operationIntent.client,
-      session.operationIntent.workItemId,
-      operationKey,
-    );
-    if (!intent) reviewArtifactInvalid("settled_receipt_missing");
-  }
-  if (replay && !session.operationIntent)
-    reviewArtifactInvalid("recovery_receipt_boundary_missing");
+  const boundByKey = await resolveBoundPolicyFooters({
+    policy: input.repoPolicy ?? { kind: "absent" },
+    findings: targets.inline.map((placement) => placement.finding),
+    judge: input.boundPolicyJudge,
+    evidenceLedger: input.evidenceLedger,
+    isPathInCheckout: input.isPathInCheckout,
+    readCheckoutFile: input.readCheckoutFile,
+  });
   const publishInline = () =>
     publishInlineReviewComments({
       prSurface: session.prSurface,
@@ -635,13 +491,13 @@ export async function publishFindingBatch(
         ),
     });
   const recoverInline = async () => {
-    if (operationMarker == null) return { kind: "absent" as const };
+    if (operationMarker == null) return { found: false as const };
     const found = await findPublishedThreadBatch(
       session.prSurface,
       operationMarker,
       session.ctx.headSha,
     );
-    if (found == null) return { kind: "absent" as const };
+    if (found == null) return { found: false as const };
     const comments = await session.prSurface.listReviewComments();
     if (comments.truncated)
       throw new AppError({
@@ -652,7 +508,7 @@ export async function publishFindingBatch(
     const observed = comments.comments.filter(
       (comment) => comment.pullRequestReviewId === found.reviewId && comment.inReplyToId == null,
     );
-    if (observed.length === 0) return { kind: "absent" as const };
+    if (observed.length === 0) return { found: false as const };
     const botLogin = await session.prSurface.getBotLogin();
     const plannedIds = new Set(targets.inline.map((placement) => placement.findingId));
     const postedIds = new Set<FindingId>();
@@ -662,7 +518,7 @@ export async function publishFindingBatch(
         botLogin,
       );
       if (marker == null || !plannedIds.has(marker.id) || postedIds.has(marker.id))
-        return { kind: "absent" as const };
+        return { found: false as const };
       postedIds.add(marker.id);
     }
     const postedPlacements = targets.inline.filter((placement) =>
@@ -672,7 +528,7 @@ export async function publishFindingBatch(
       .filter((placement) => !postedIds.has(placement.findingId))
       .map((placement) => ({ ...placement, inlinePosted: false }));
     return {
-      kind: "reconciled" as const,
+      found: true as const,
       value: {
         review: { id: found.reviewId, url: found.reviewUrl },
         postedPlacements,
@@ -682,57 +538,48 @@ export async function publishFindingBatch(
     };
   };
   const publishStartedAt = Date.now();
-  let inlineResult: Awaited<ReturnType<typeof publishInline>>;
-  try {
-    inlineResult = await (session.operationIntent == null
-      ? publishInline()
-      : publishOnce<
-          Awaited<ReturnType<typeof publishInlineReviewComments<IdentifiedInlinePlacement>>>
-        >({
-          decodeResult: (value) => {
-            v.assert(inlineResultSchema, value);
-            return value;
-          },
-          fence: fenceForEpoch(session.operationIntent.leaseEpoch),
-          client: session.operationIntent.client,
-          workItemId: session.operationIntent.workItemId,
-          operationKey,
-          mutationKind: "github.inline_review",
-          leaseEpoch: session.operationIntent.leaseEpoch,
-          detail: {
-            step: "inline_review",
-            resourceKey: session.operationIntent.resourceKey,
-            reviewLens: input.source,
-            batchId,
-            operationMarker,
-          },
-          recover: recoverInline,
-          isKnownNoAcceptanceError: isDefinitelyNoAcceptanceReviewError,
-          mutate: input.recoveryWithoutEvidence
-            ? async () => reviewArtifactInvalid("recovery_evidence_miss")
-            : publishInline,
-        }));
-  } catch (error) {
-    if (decision && publicationAttemptRejected(error)) {
-      await settleRejectedPublication(session.recovery, decision, error);
-    } else if (decision) {
-      session.recovery?.rememberUnresolvedPublication(error);
-    }
-    throw error;
-  }
+  const target = session.publish;
+  const inlineResult = await (target == null
+    ? publishInline()
+    : publishOnce<
+        Awaited<ReturnType<typeof publishInlineReviewComments<IdentifiedInlinePlacement>>>
+      >({
+        db: target.db,
+        workId: target.workItemId,
+        prKey: target.resourceKey,
+        resourceTarget: `inline_review:${batchId}`,
+        ...(target.laneEpoch !== undefined ? { laneEpoch: target.laneEpoch } : {}),
+        ...(target.shutdownRequested !== undefined
+          ? { shutdownRequested: target.shutdownRequested }
+          : {}),
+        ...(target.signal !== undefined ? { signal: target.signal } : {}),
+        decodeResult: (value) => {
+          v.assert(inlineResultSchema, value);
+          return value;
+        },
+        operationKey,
+        mutationKind: "github.inline_review",
+        identity: {
+          step: "inline_review",
+          resourceKey: target.resourceKey,
+          reviewLens: input.source,
+          batchId,
+          operationMarker,
+        },
+        recover: recoverInline,
+        isKnownNoAcceptanceError: isDefinitelyNoAcceptanceReviewError,
+        mutate: publishInline,
+      }));
   const publishLatencyMs = Math.max(0, Date.now() - publishStartedAt);
 
   const posted = inlineResult.postedPlacements;
-  const anchorDropped = input.recoveryWithoutEvidence
-    ? []
-    : inlineResult.anchorDroppedPlacements.map((placement) =>
-        summaryOnlyPlacement(placement, input.source, "anchor"),
-      );
+  const anchorDropped = inlineResult.anchorDroppedPlacements.map((placement) =>
+    summaryOnlyPlacement(placement, input.source, "anchor"),
+  );
   const acceptedWithoutPosted = [...acceptedBeforePublish, ...anchorDropped];
   const review = inlineResult.review;
   if (!review) {
-    await session.recovery?.settle(decision);
-    return ((pinnedReturn: FindingBatchResult | Promise<FindingBatchResult>) => pinnedReturn)({
+    return ((pinnedReturn: FindingBatchResult) => pinnedReturn)({
       kind: "empty",
       delta: emptyDelta({ accepted: acceptedWithoutPosted, ...reconciledDelta }),
     });
@@ -774,9 +621,7 @@ export async function publishFindingBatch(
     });
   }
 
-  await session.recovery?.settle(decision, review.id);
-
-  if (session.agentEvents && !replay) {
+  if (session.agentEvents) {
     safeEmitPublishEvent(session.agentEvents, session.cfg, {
       specialist: input.source,
       batchId,
@@ -788,7 +633,7 @@ export async function publishFindingBatch(
     });
   }
 
-  return ((pinnedReturn: FindingBatchResult | Promise<FindingBatchResult>) => pinnedReturn)({
+  return ((pinnedReturn: FindingBatchResult) => pinnedReturn)({
     kind: "published",
     reviewId: review.id,
     delta: emptyDelta({

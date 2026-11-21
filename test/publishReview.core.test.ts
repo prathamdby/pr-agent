@@ -23,21 +23,6 @@ type RecordPublishStep = NonNullable<
   Parameters<typeof publishReviewForTest>[0]["recordPublishStep"]
 >;
 
-vi.mock("../src/agentWork/workItemStateRepository.ts", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/agentWork/workItemStateRepository.ts")>()),
-  getWorkItemCore: vi.fn(async () => ({ type: "review", status: "completed" })),
-}));
-
-vi.mock("../src/agentWork/publishRecordRepository.ts", async (importOriginal) => {
-  const { createPublishRecordReadMock, createOwnVerdictCloseMock } =
-    await import("./helpers/publishReviewTestSetup.ts");
-  return {
-    ...(await importOriginal<typeof import("../src/agentWork/publishRecordRepository.ts")>()),
-    ...createPublishRecordReadMock(),
-    ...createOwnVerdictCloseMock(),
-  };
-});
-
 const payload = publishReviewTestPayload;
 
 function reconciledAs(finding: ReviewFinding, outcome: ReconcileOutcome) {

@@ -100,15 +100,8 @@ describe("analytics facade", () => {
         await import("../src/agent/runtime/createFeatureSession.ts");
       const { createFakePiSession } = await import("../src/agent/runtime/fakePiSession.ts");
       const { makeTestConfig } = await import("./helpers/config.ts");
-      const { Pool } = await import("pg");
-      const pool = new Pool();
-      const writes = vi.spyOn(pool, "query").mockImplementation(async () => ({
-        rows: [],
-        rowCount: 1,
-        command: "INSERT",
-        oid: 0,
-        fields: [],
-      }));
+      const evlogModule = await import("../src/evlog.ts");
+      const writes = vi.spyOn(evlogModule, "logInfo").mockImplementation(() => undefined);
       await analytics.initAnalytics({ projectToken: posthog ? "token" : "", host: "" });
       const captureTimes: number[] = [];
       const capture = mockPostHog.instances[0]?.capture;
@@ -124,7 +117,6 @@ describe("analytics facade", () => {
         tools: [],
         executors: {},
         sessionContext: {
-          pool,
           workItemId: "work",
           installationId: 1,
           owner: "owner",
@@ -173,7 +165,7 @@ describe("analytics facade", () => {
         }
       } finally {
         await session.dispose();
-        await pool.end();
+        writes.mockRestore();
         await analytics.shutdownAnalytics();
       }
     },
@@ -559,12 +551,7 @@ describe("analytics facade", () => {
 const MARKER = "[trace content truncated]";
 
 function tracedConfig(extra: Parameters<typeof makeTestConfig>[0] = {}) {
-  return ((pinnedReturn: Config) => pinnedReturn)(
-    makeTestConfig({
-      ...extra,
-      runtime: { role: "worker", ...extra.runtime },
-    }),
-  );
+  return ((pinnedReturn: Config) => pinnedReturn)(makeTestConfig(extra));
 }
 
 function traceModel(cost: Model<Api>["cost"]) {
@@ -1238,7 +1225,6 @@ describe("posthog ai traces", () => {
     const privateKey = "-----BEGIN PRIVATE KEY-----\ntrace-key\n-----END PRIVATE KEY-----";
     const seen: Array<Record<string, unknown>> = [];
     const cfg = tracedConfig({
-      runtime: { databaseUrl: "postgres://user:trace-pass@localhost/db" },
       github: { privateKey },
       webhook: { secret: "trace-hook" },
       posthog: { projectToken: "trace-posthog" },
@@ -1296,15 +1282,7 @@ describe("posthog ai traces", () => {
     expect(generation?.$ai_total_cost_usd).toBeGreaterThan(0);
   });
 
-  it("records nothing without a token and ignores the web process", async () => {
-    const seen: unknown[] = [];
-    const capture: AiCapture = {
-      capture() {
-        seen.push(true);
-      },
-      flush: async () => undefined,
-      shutdown: async () => undefined,
-    };
+  it("records nothing without a token", async () => {
     drain = initTraces(tracedConfig({ posthog: { projectToken: "" } }));
     expect(openTraceSession({ provider: "openai", model: "trace-model" })).toBeUndefined();
     await expect(startWorkTrace(work(), async () => "ran")).resolves.toBe("ran");
@@ -1314,18 +1292,7 @@ describe("posthog ai traces", () => {
       "silent",
       () => 1,
     ).dispose();
-    drain = initTraces(
-      makeTestConfig({ runtime: { role: "web" }, posthog: { projectToken: "phc" } }),
-      capture,
-    );
-    createSessionTrace(
-      sessionParams(makeTestConfig()),
-      traceModel({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }),
-      "web",
-      () => 1,
-    ).dispose();
     await drain();
-    expect(seen).toEqual([]);
   });
 
   it("degrades a span when queued bytes pass 8 MiB before the count cap", async () => {

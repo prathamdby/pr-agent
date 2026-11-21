@@ -48,3 +48,7 @@ export function createPrSurface(params: FencedPrSurfaceParams) {
     mutationBoundary == null ? surface : withPrSurfaceMutationBoundary(surface, mutationBoundary),
   );
 }
+
+export function createIntentRecoveryPrSurface(params: CreatePrSurfaceParams) {
+  return ((pinnedReturn: PrSurface) => pinnedReturn)(createPrSurfaceImpl(params));
+}

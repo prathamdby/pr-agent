@@ -60,8 +60,8 @@ describe("buildReviewRunSetup", () => {
     });
 
     expect(setup.workspaceTools.piTools.map((tool) => tool.name)).not.toContain("submitReview");
-    expect(setup.workspaceTools.piTools.map((tool) => tool.name)).toContain("execute");
-    expect(setup.workspaceTools.piTools.map((tool) => tool.name)).not.toContain("listChangedFiles");
+    expect(setup.workspaceTools.durableTools.map((tool) => tool.name)).toContain("read_pinned");
+    expect(setup.workspaceTools.piTools.map((tool) => tool.name)).toContain("listChangedFiles");
     expect(setup.workspaceTools.piTools.map((tool) => tool.name)).not.toContain(
       "readWorkspaceFile",
     );
@@ -69,14 +69,11 @@ describe("buildReviewRunSetup", () => {
     expect(setup.prSurface).toBe(prSurface);
     const security = setup.createSpecialistWorkspaceTools("security", () => []);
     const quality = setup.createSpecialistWorkspaceTools("quality", () => []);
-    expect(security.piTools.map((tool) => tool.name)).toContain("execute");
-    expect(quality.piTools.map((tool) => tool.name)).toContain("execute");
-    const securityState = await security.executors.execute?.({
-      code: 'state.owner = "security"; state.owner',
-    });
-    const qualityState = await quality.executors.execute?.({ code: "state.owner" });
-    expect(String(securityState)).toContain("security");
-    expect(String(qualityState)).not.toContain("security");
+    expect(security.durableTools.map((tool) => tool.name)).toContain("read_pinned");
+    expect(quality.durableTools.map((tool) => tool.name)).toContain("read_pinned");
+    expect(security.executors.read_pinned).toBeInstanceOf(Function);
+    expect(quality.executors.read_pinned).toBeInstanceOf(Function);
+    expect(security.executors.read_pinned).not.toBe(quality.executors.read_pinned);
   });
 
   it("returns execute, omits library-doc tools, and does not call fetch", () => {
@@ -91,10 +88,13 @@ describe("buildReviewRunSetup", () => {
       headSha: "a".repeat(40),
       workspace,
     });
-    const names = setup.workspaceTools.piTools.map((tool) => tool.name);
+    const names = [
+      ...setup.workspaceTools.piTools.map((tool) => tool.name),
+      ...setup.workspaceTools.durableTools.map((tool) => tool.name),
+    ];
 
     try {
-      expect(names).toContain("execute");
+      expect(names).toContain("read_pinned");
       expect(names).not.toContain("resolveLibraryId");
       expect(names).not.toContain("getLibraryDocs");
       expect(fetchSpy).not.toHaveBeenCalled();
@@ -219,10 +219,12 @@ describe("buildReviewRunSetup", () => {
       seen.add(ledger);
     }
     const security = setup.createSpecialistWorkspaceTools("security", () => []);
-    await security.executors.execute?.({
-      code: 'await tools.readWorkspaceFile({ path: "src/secure.ts", startLine: 1, maxLines: 5 })',
+    await security.executors.read_pinned?.({
+      path: "src/secure.ts",
+      startLine: 1,
+      maxLines: 5,
     });
-    expect(setup.specialistLedgers.security.covers("src/secure.ts", 1, 1)).toBe(true);
+    expect(setup.specialistLedgers.security.covers("src/secure.ts", 1, 1)).toBe(false);
     expect(setup.specialistLedgers.tests.covers("src/secure.ts", 1, 1)).toBe(false);
   });
 });

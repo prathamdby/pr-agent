@@ -1,797 +1,285 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
-import { createAssistantMessageEventStream, type AssistantMessage } from "@earendil-works/pi-ai";
+import { describe, expect, it } from "vitest";
+import type { Message } from "@earendil-works/pi-ai";
 import { makeTestConfig } from "./helpers/config.ts";
-import type { AgentLifecycleEvent } from "../src/agent/runtime/types.ts";
-import { SPECIALIST_REPEATED_EXECUTE_NUDGE } from "../src/prompts/shared/repair.ts";
-
-const runAgentLoop = vi.hoisted(() => vi.fn());
-const realAgentLoop = vi.hoisted(
-  () =>
-    ({
-      current: undefined as typeof import("@earendil-works/pi-agent-core").runAgentLoop | undefined,
-    }) as {
-      current: typeof import("@earendil-works/pi-agent-core").runAgentLoop | undefined;
-    },
-);
-
-vi.mock("@earendil-works/pi-agent-core", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@earendil-works/pi-agent-core")>();
-  realAgentLoop.current = actual.runAgentLoop;
-  return {
-    ...actual,
-    runAgentLoop,
-    runAgentLoopContinue: vi.fn(),
-  };
-});
-
 import {
-  compactionPolicyForRole,
-  createPiSession,
-  DEFAULT_PROMPT_CACHE_POLICY,
-  DEFAULT_THINKING_POLICY,
-  DEFAULT_TOOL_POLICY,
-} from "../src/agent/runtime/piSession.ts";
+  createDurableTestRuntime,
+  createScriptedModels,
+  type ScriptedResponse,
+} from "./helpers/executorDurableHarness.ts";
+import { createDurablePiSession } from "../src/agent/runtime/durable/session.ts";
+import { DEFAULT_THINKING_POLICY, DEFAULT_TOOL_POLICY } from "../src/agent/runtime/types.ts";
+import { DEFAULT_PROMPT_CACHE_POLICY } from "../src/agent/runtime/promptCachePolicy.ts";
+import type { PiSession } from "../src/agent/runtime/types.ts";
+import type { Tool as PiTool } from "@earendil-works/pi-ai";
+import { initTraces } from "../src/traces/recorder.ts";
 
-describe("createPiSession seam", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    runAgentLoop.mockImplementation(async (_prompts, _context, _config, emit) => {
-      await emit({
-        type: "turn_end",
-        toolResults: [],
-        message: { role: "assistant", content: [{ type: "text", text: "seam-ok" }] },
-      });
-      return [];
+const cfg = makeTestConfig();
+const CHECKPOINT = "ckpt-seam";
+
+function textMessage(
+  text: string,
+  toolCalls: readonly {
+    id: string;
+    name: string;
+    arguments: { readonly [key: string]: never };
+  }[] = [],
+) {
+  return ((pinnedReturn: import("@earendil-works/pi-ai").AssistantMessage) => pinnedReturn)({
+    role: "assistant",
+    content: [
+      ...(text.length > 0 ? [{ type: "text" as const, text }] : []),
+      ...toolCalls.map((call) => ({
+        type: "toolCall" as const,
+        id: call.id,
+        name: call.name,
+        arguments: call.arguments,
+      })),
+    ],
+    api: "stub-api",
+    provider: "stub",
+    model: "stub-model",
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: toolCalls.length > 0 ? "toolUse" : "stop",
+    timestamp: Date.now(),
+  });
+}
+
+function hasToolResult(messages: readonly Message[]) {
+  return messages.some((message) => message.role === "toolResult");
+}
+
+async function createSession(params: {
+  readonly tools?: readonly PiTool[];
+  readonly executors?: Record<
+    string,
+    import("../src/agent/providers/interface.ts").AgentRunnerToolExecutor
+  >;
+  readonly providerSessionId?: string;
+  handler?: Parameters<typeof createScriptedModels>[0];
+}) {
+  const seen: { sessionId?: string }[] = [];
+  const models = createScriptedModels(async (model, context, options) => {
+    seen.push({ sessionId: options?.sessionId });
+    if (params.handler !== undefined) {
+      return params.handler(model, context, options);
+    }
+    return { message: textMessage("done") };
+  });
+  const runtime = await createDurableTestRuntime({ models });
+  const session: PiSession = await createDurablePiSession({
+    cfg,
+    role: "specialist",
+    primary: { provider: "stub", model: "stub-model" },
+    thinkingPolicy: DEFAULT_THINKING_POLICY,
+    compactionPolicy: { enabled: false },
+    promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
+    toolPolicy: DEFAULT_TOOL_POLICY,
+    systemPrompt: "system",
+    eventSink: () => {},
+    tools: params.tools ?? [],
+    executors: params.executors ?? {},
+    codemode: false,
+    runtime,
+    ...(params.providerSessionId !== undefined
+      ? { providerSessionId: params.providerSessionId }
+      : {}),
+  });
+  return { session, seen };
+}
+
+const probeTool: PiTool = {
+  name: "probe",
+  description: "probe tool",
+  parameters: { type: "object", properties: {}, additionalProperties: false },
+};
+
+const submitTool: PiTool = {
+  name: "submit_report",
+  description: "submit",
+  parameters: { type: "object", properties: {}, additionalProperties: false },
+};
+
+describe("durable PiSession seam", () => {
+  it("emits session trace spans for a send", async () => {
+    const captured: { event: string; spanName?: unknown }[] = [];
+    const drain = initTraces(makeTestConfig(), {
+      capture(input) {
+        captured.push({
+          event: input.event,
+          spanName: input.properties?.$ai_span_name,
+        });
+      },
+      flush: async () => undefined,
+      shutdown: async () => undefined,
     });
+    const { session } = await createSession({});
+    const turn = await session.send("hello", {
+      phase: "specialist",
+      checkpointId: CHECKPOINT,
+    });
+    expect(turn.end).toBe("completed");
+    await drain();
+    expect(captured.some((entry) => entry.spanName === "generation")).toBe(true);
   });
 
-  it("creates a session with role, model assignment, and send options", async () => {
-    const events: Array<{ kind: string }> = [];
-    const session = await createPiSession({
-      role: "orchestrator",
-      primary: { provider: "openai", model: "gpt-4o-mini" },
-      thinkingPolicy: DEFAULT_THINKING_POLICY,
-      compactionPolicy: compactionPolicyForRole("orchestrator"),
-      promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
-      toolPolicy: DEFAULT_TOOL_POLICY,
-      systemPrompt: "orchestrator",
-      eventSink: (event) => events.push({ kind: event.kind }),
-      cfg: makeTestConfig({ models: { providerKeys: { openai: "k" } } }),
-      tools: [],
-      executors: {},
+  it("completes a send with the final assistant text", async () => {
+    const { session } = await createSession({});
+    let turn;
+    try {
+      turn = await session.send("hello", {
+        phase: "specialist",
+        checkpointId: CHECKPOINT,
+      });
+    } catch (error) {
+      console.log("SEND_ERR", JSON.stringify(error, Object.getOwnPropertyNames(error as object)));
+      throw error;
+    }
+    expect(turn.end).toBe("completed");
+    expect(turn.text).toBe("done");
+    await session.dispose();
+  });
+
+  it("runs a tool call then completes on the follow-up request", async () => {
+    const calls: string[] = [];
+    const { session } = await createSession({
+      tools: [probeTool],
+      executors: {
+        probe: async () => {
+          calls.push("probe");
+          return { ok: true };
+        },
+      },
+      handler: async (_model, context) => {
+        if (!hasToolResult(context.messages)) {
+          return {
+            message: textMessage("", [{ id: "call-1", name: "probe", arguments: {} }]),
+          };
+        }
+        return { message: textMessage("after-tool") };
+      },
     });
+    const turn = await session.send("go", {
+      phase: "specialist",
+      checkpointId: CHECKPOINT,
+    });
+    expect(calls).toEqual(["probe"]);
+    expect(turn.end).toBe("completed");
+    await session.dispose();
+  });
 
-    expect(session.role).toBe("orchestrator");
-    expect(session.primary).toEqual({ provider: "openai", model: "gpt-4o-mini" });
-
-    const turn = await session.send("run", {
-      phase: "recon",
-      checkpointId: "cp-recon",
+  it("ends a turn as tool_budget when maxToolRounds is spent", async () => {
+    let rounds = 0;
+    const { session } = await createSession({
+      tools: [probeTool],
+      executors: {
+        probe: async () => {
+          rounds += 1;
+          return { ok: true };
+        },
+      },
+      handler: async (_model, context) => {
+        if (!hasToolResult(context.messages)) {
+          return {
+            message: textMessage("", [{ id: `call-${rounds}`, name: "probe", arguments: {} }]),
+          };
+        }
+        return {
+          message: textMessage("", [{ id: `call-${rounds}`, name: "probe", arguments: {} }]),
+        };
+      },
+    });
+    const turn = await session.send("go", {
+      phase: "specialist",
+      checkpointId: CHECKPOINT,
       maxToolRounds: 2,
     });
-    expect(turn.text).toBe("seam-ok");
-    expect(events.map((event) => event.kind)).toContain("turn");
-    expect(events.map((event) => event.kind)).toContain("completion");
-
-    await session.dispose();
-  });
-
-  it("keeps send ids stable through completion and aggregates measured turn usage", async () => {
-    const events: AgentLifecycleEvent[] = [];
-    runAgentLoop.mockImplementation(async (_prompts, _context, _config, emit) => {
-      for (const input of [10, 20]) {
-        await emit({
-          type: "turn_end",
-          toolResults: [],
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "answer" }],
-            stopReason: "stop",
-            usage: { input, output: 3, cacheRead: 4, cacheWrite: 0, totalTokens: input + 7 },
-          },
-        });
-      }
-      return [];
-    });
-    const session = await createPiSession({
-      role: "specialist",
-      specialistId: "quality",
-      primary: { provider: "openai", model: "gpt-4o-mini" },
-      thinkingPolicy: DEFAULT_THINKING_POLICY,
-      compactionPolicy: compactionPolicyForRole("specialist"),
-      promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
-      toolPolicy: DEFAULT_TOOL_POLICY,
-      systemPrompt: "system",
-      eventSink: (event) => events.push(event),
-      cfg: makeTestConfig({ models: { providerKeys: { openai: "k" } } }),
-      tools: [],
-      executors: {},
-    });
-    await session.send("first", { phase: "specialist", checkpointId: "same" });
-    await session.send("repair", { phase: "validation_repair", checkpointId: "same" });
-    const starts = events.filter((event) => event.kind === "turn");
-    const ends = events.filter((event) => event.kind === "completion");
-    expect(ends).toHaveLength(2);
-    expect(ends[0]).toMatchObject({
-      generationId: starts[0]?.generationId,
-      sessionId: starts[0]?.sessionId,
-      specialistId: "quality",
-      inputTokens: 30,
-      outputTokens: 6,
-      cacheReadTokens: 8,
-    });
-    expect(ends[0]?.generationId).not.toBe(ends[1]?.generationId);
-    expect(ends[0]?.sessionId).toBe(ends[1]?.sessionId);
-    const cacheId = runAgentLoop.mock.calls[0]?.[2]?.sessionId;
-    expect(ends[0]?.sessionId).not.toBe(cacheId);
-    await session.dispose();
-  });
-
-  it("reserves one publish_thread call beyond the investigation budget", async () => {
-    const beforeDecisions: Array<{ tool: string; blocked: boolean }> = [];
-    const finishEnds: boolean[] = [];
-    let executedBlockedAfterBudget = false;
-    let publishAllowedAfterBudget = false;
-    let capturedConfig: {
-      beforeToolCall?: (
-        ctx: unknown,
-        signal?: AbortSignal,
-      ) => Promise<{ block?: boolean; reason?: string } | undefined>;
-      finishTurn?: (turn: unknown, signal?: AbortSignal) => { action: string } | undefined;
-    } | null = null;
-
-    const toolResultFor = (toolName: string, isError: boolean, id: string) => ({
-      role: "toolResult" as const,
-      toolCallId: id,
-      toolName,
-      content: [{ type: "text" as const, text: isError ? "blocked" : "ok" }],
-      isError,
-      timestamp: Date.now(),
-    });
-    const assistantForTool = (toolName: string, id: string) => ({
-      role: "assistant" as const,
-      content: [{ type: "toolCall" as const, id, name: toolName, arguments: {} }],
-    });
-
-    runAgentLoop.mockImplementation(async (_prompts, _context, config, emit) => {
-      capturedConfig = config as typeof capturedConfig & object;
-      const cfg = config as unknown as {
-        beforeToolCall: (ctx: {
-          assistantMessage: unknown;
-          toolCall: unknown;
-          args: unknown;
-          context: unknown;
-        }) => Promise<{ block?: boolean } | undefined>;
-        finishTurn: (turn: {
-          message: unknown;
-          toolResults: unknown[];
-          context: unknown;
-          newMessages: unknown[];
-        }) => { action: string } | undefined | Promise<{ action: string } | undefined>;
-      };
-      const simulateToolTurn = async (toolName: string, isError: boolean, step: string) => {
-        const id = `${step}-${toolName}`;
-        const assistantMessage = assistantForTool(toolName, id);
-        const before = await cfg.beforeToolCall({
-          assistantMessage,
-          toolCall: { id, name: toolName, arguments: {} },
-          args: {},
-          context: _context,
-        });
-        beforeDecisions.push({ tool: toolName, blocked: before?.block === true });
-        const toolResults = [toolResultFor(toolName, isError, id)];
-        const message = {
-          role: "assistant" as const,
-          content: [{ type: "text" as const, text: step }],
-        };
-        const decision = await cfg.finishTurn({
-          message,
-          toolResults,
-          context: _context,
-          newMessages: [],
-        });
-        finishEnds.push(decision?.action === "end");
-        await emit({ type: "turn_end", toolResults, message });
-        return decision;
-      };
-
-      for (let index = 0; index < 4; index += 1) {
-        await simulateToolTurn("execute", false, `inv-${index}`);
-      }
-      const blockedProbe = await cfg.beforeToolCall({
-        assistantMessage: assistantForTool("execute", "probe-execute"),
-        toolCall: { id: "probe-execute", name: "execute", arguments: {} },
-        args: {},
-        context: _context,
-      });
-      executedBlockedAfterBudget = blockedProbe?.block === true;
-      const allowedProbe = await cfg.beforeToolCall({
-        assistantMessage: assistantForTool("publish_thread", "probe-publish"),
-        toolCall: { id: "probe-publish", name: "publish_thread", arguments: {} },
-        args: {},
-        context: _context,
-      });
-      publishAllowedAfterBudget = !(allowedProbe?.block === true);
-      await simulateToolTurn("publish_thread", false, "terminal");
-      await emit({
-        type: "turn_end",
-        toolResults: [],
-        message: { role: "assistant", content: [{ type: "text", text: "judgment-done" }] },
-      });
-      return [];
-    });
-
-    const session = await createPiSession({
-      role: "orchestrator",
-      primary: { provider: "openai", model: "gpt-4o-mini" },
-      thinkingPolicy: DEFAULT_THINKING_POLICY,
-      compactionPolicy: compactionPolicyForRole("orchestrator"),
-      promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
-      toolPolicy: DEFAULT_TOOL_POLICY,
-      systemPrompt: "orchestrator",
-      eventSink: () => undefined,
-      cfg: makeTestConfig({ models: { providerKeys: { openai: "k" } } }),
-      tools: [],
-      executors: {},
-    });
-
-    const turn = await session.send("judge", {
-      phase: "judgment",
-      checkpointId: "cp-judgment",
-      maxToolRounds: 4,
-      reservedTerminalTool: "publish_thread",
-    });
-    expect(turn.text).toBe("judgment-done");
-    expect(turn.end).toBe("completed");
-    expect(beforeDecisions.slice(0, 4).every((entry) => !entry.blocked)).toBe(true);
-    expect(beforeDecisions[4]).toEqual({ tool: "publish_thread", blocked: false });
-    expect(executedBlockedAfterBudget).toBe(true);
-    expect(publishAllowedAfterBudget).toBe(true);
-    expect(finishEnds.slice(0, 4).every((ended) => !ended)).toBe(true);
-    expect(finishEnds[4]).toBe(true);
-
-    const cfg = capturedConfig as unknown as {
-      beforeToolCall: (ctx: {
-        assistantMessage: unknown;
-        toolCall: unknown;
-        args: unknown;
-        context: unknown;
-      }) => Promise<{ block?: boolean } | undefined>;
-    };
-    const againPublish = await cfg.beforeToolCall({
-      assistantMessage: assistantForTool("publish_thread", "again-publish"),
-      toolCall: { id: "again-publish", name: "publish_thread", arguments: {} },
-      args: {},
-      context: {},
-    });
-    expect(againPublish?.block).toBe(true);
-    const againExecute = await cfg.beforeToolCall({
-      assistantMessage: assistantForTool("execute", "again-execute"),
-      toolCall: { id: "again-execute", name: "execute", arguments: {} },
-      args: {},
-      context: {},
-    });
-    expect(againExecute?.block).toBe(true);
-
-    await session.dispose();
-  });
-
-  it("fits a publish_thread validation-failure retry in the reserved slot", async () => {
-    const beforeDecisions: Array<{ tool: string; blocked: boolean }> = [];
-    const finishEnds: boolean[] = [];
-    let publishAllowedAfterFailure = false;
-    let capturedConfig: {
-      beforeToolCall?: (
-        ctx: unknown,
-        signal?: AbortSignal,
-      ) => Promise<{ block?: boolean; reason?: string } | undefined>;
-    } | null = null;
-
-    const toolResultFor = (toolName: string, isError: boolean, id: string) => ({
-      role: "toolResult" as const,
-      toolCallId: id,
-      toolName,
-      content: [{ type: "text" as const, text: isError ? "validation failed" : "ok" }],
-      isError,
-      timestamp: Date.now(),
-    });
-    const assistantForTool = (toolName: string, id: string) => ({
-      role: "assistant" as const,
-      content: [{ type: "toolCall" as const, id, name: toolName, arguments: {} }],
-    });
-
-    runAgentLoop.mockImplementation(async (_prompts, _context, config, emit) => {
-      capturedConfig = config as typeof capturedConfig & object;
-      const cfg = config as unknown as {
-        beforeToolCall: (ctx: {
-          assistantMessage: unknown;
-          toolCall: unknown;
-          args: unknown;
-          context: unknown;
-        }) => Promise<{ block?: boolean } | undefined>;
-        finishTurn: (turn: {
-          message: unknown;
-          toolResults: unknown[];
-          context: unknown;
-          newMessages: unknown[];
-        }) => { action: string } | undefined | Promise<{ action: string } | undefined>;
-      };
-      const simulateToolTurn = async (toolName: string, isError: boolean, step: string) => {
-        const id = `${step}-${toolName}`;
-        const before = await cfg.beforeToolCall({
-          assistantMessage: assistantForTool(toolName, id),
-          toolCall: { id, name: toolName, arguments: {} },
-          args: {},
-          context: _context,
-        });
-        beforeDecisions.push({ tool: toolName, blocked: before?.block === true });
-        const toolResults = [toolResultFor(toolName, isError, id)];
-        const message = {
-          role: "assistant" as const,
-          content: [{ type: "text" as const, text: step }],
-        };
-        const decision = await cfg.finishTurn({
-          message,
-          toolResults,
-          context: _context,
-          newMessages: [],
-        });
-        finishEnds.push(decision?.action === "end");
-        await emit({ type: "turn_end", toolResults, message });
-        return decision;
-      };
-
-      for (let index = 0; index < 4; index += 1) {
-        await simulateToolTurn("execute", false, `inv-${index}`);
-      }
-      await simulateToolTurn("publish_thread", true, "terminal-fail");
-      const retryProbe = await cfg.beforeToolCall({
-        assistantMessage: assistantForTool("publish_thread", "probe-retry"),
-        toolCall: { id: "probe-retry", name: "publish_thread", arguments: {} },
-        args: {},
-        context: _context,
-      });
-      publishAllowedAfterFailure = !(retryProbe?.block === true);
-      await simulateToolTurn("publish_thread", false, "terminal-retry");
-      await emit({
-        type: "turn_end",
-        toolResults: [],
-        message: { role: "assistant", content: [{ type: "text", text: "judgment-retry-done" }] },
-      });
-      return [];
-    });
-
-    const session = await createPiSession({
-      role: "orchestrator",
-      primary: { provider: "openai", model: "gpt-4o-mini" },
-      thinkingPolicy: DEFAULT_THINKING_POLICY,
-      compactionPolicy: compactionPolicyForRole("orchestrator"),
-      promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
-      toolPolicy: DEFAULT_TOOL_POLICY,
-      systemPrompt: "orchestrator",
-      eventSink: () => undefined,
-      cfg: makeTestConfig({ models: { providerKeys: { openai: "k" } } }),
-      tools: [],
-      executors: {},
-    });
-
-    const turn = await session.send("judge", {
-      phase: "judgment",
-      checkpointId: "cp-judgment-retry",
-      maxToolRounds: 4,
-      reservedTerminalTool: "publish_thread",
-    });
-    expect(turn.text).toBe("judgment-retry-done");
-    expect(turn.end).toBe("completed");
-    expect(beforeDecisions.slice(0, 4).every((entry) => !entry.blocked)).toBe(true);
-    expect(beforeDecisions[4]).toEqual({ tool: "publish_thread", blocked: false });
-    expect(beforeDecisions[5]).toEqual({ tool: "publish_thread", blocked: false });
-    expect(publishAllowedAfterFailure).toBe(true);
-    expect(finishEnds.slice(0, 5).every((ended) => !ended)).toBe(true);
-    expect(finishEnds[5]).toBe(true);
-
-    const cfg = capturedConfig as unknown as {
-      beforeToolCall: (ctx: {
-        assistantMessage: unknown;
-        toolCall: unknown;
-        args: unknown;
-        context: unknown;
-      }) => Promise<{ block?: boolean } | undefined>;
-    };
-    const againPublish = await cfg.beforeToolCall({
-      assistantMessage: assistantForTool("publish_thread", "again-publish"),
-      toolCall: { id: "again-publish", name: "publish_thread", arguments: {} },
-      args: {},
-      context: {},
-    });
-    expect(againPublish?.block).toBe(true);
-
-    await session.dispose();
-  });
-
-  it("ends at budget with no reserved terminal tool", async () => {
-    const finishEnds: boolean[] = [];
-    const beforeBlocked: boolean[] = [];
-    let capturedConfig: {
-      beforeToolCall?: (
-        ctx: unknown,
-        signal?: AbortSignal,
-      ) => Promise<{ block?: boolean; reason?: string } | undefined>;
-      finishTurn?: (turn: unknown, signal?: AbortSignal) => { action: string } | undefined;
-    } | null = null;
-
-    const toolResultFor = (toolName: string, isError: boolean, id: string) => ({
-      role: "toolResult" as const,
-      toolCallId: id,
-      toolName,
-      content: [{ type: "text" as const, text: isError ? "blocked" : "ok" }],
-      isError,
-      timestamp: Date.now(),
-    });
-    const assistantForTool = (toolName: string, id: string) => ({
-      role: "assistant" as const,
-      content: [{ type: "toolCall" as const, id, name: toolName, arguments: {} }],
-    });
-
-    runAgentLoop.mockImplementation(async (_prompts, _context, config, emit) => {
-      capturedConfig = config as typeof capturedConfig & object;
-      const cfg = config as unknown as {
-        beforeToolCall: (ctx: {
-          assistantMessage: unknown;
-          toolCall: unknown;
-          args: unknown;
-          context: unknown;
-        }) => Promise<{ block?: boolean } | undefined>;
-        finishTurn: (turn: {
-          message: unknown;
-          toolResults: unknown[];
-          context: unknown;
-          newMessages: unknown[];
-        }) => { action: string } | undefined | Promise<{ action: string } | undefined>;
-      };
-      const simulateToolTurn = async (toolName: string, step: string) => {
-        const id = `${step}-${toolName}`;
-        const before = await cfg.beforeToolCall({
-          assistantMessage: assistantForTool(toolName, id),
-          toolCall: { id, name: toolName, arguments: {} },
-          args: {},
-          context: _context,
-        });
-        beforeBlocked.push(before?.block === true);
-        const toolResults = [toolResultFor(toolName, false, id)];
-        const message = {
-          role: "assistant" as const,
-          content: [{ type: "text" as const, text: step }],
-        };
-        const decision = await cfg.finishTurn({
-          message,
-          toolResults,
-          context: _context,
-          newMessages: [],
-        });
-        finishEnds.push(decision?.action === "end");
-        await emit({ type: "turn_end", toolResults, message });
-      };
-
-      await simulateToolTurn("execute", "inv-0");
-      await simulateToolTurn("execute", "inv-1");
-      return [];
-    });
-
-    const session = await createPiSession({
-      role: "orchestrator",
-      primary: { provider: "openai", model: "gpt-4o-mini" },
-      thinkingPolicy: DEFAULT_THINKING_POLICY,
-      compactionPolicy: compactionPolicyForRole("orchestrator"),
-      promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
-      toolPolicy: DEFAULT_TOOL_POLICY,
-      systemPrompt: "orchestrator",
-      eventSink: () => undefined,
-      cfg: makeTestConfig({ models: { providerKeys: { openai: "k" } } }),
-      tools: [],
-      executors: {},
-    });
-
-    const turn = await session.send("run", {
-      phase: "recon",
-      checkpointId: "cp-no-reserved",
-      maxToolRounds: 2,
-    });
-    expect(finishEnds).toEqual([false, true]);
+    expect(rounds).toBe(2);
     expect(turn.end).toBe("tool_budget");
-    expect(turn.text).toBe("");
-
-    const cfg = capturedConfig as unknown as {
-      finishTurn: (turn: {
-        message: unknown;
-        toolResults: unknown[];
-        context: unknown;
-        newMessages: unknown[];
-      }) => { action: string } | undefined | Promise<{ action: string } | undefined>;
-    };
-    const probeFinish = await cfg.finishTurn({
-      message: { role: "assistant", content: [{ type: "text", text: "probe" }] },
-      toolResults: [toolResultFor("execute", false, "probe-execute")],
-      context: {},
-      newMessages: [],
-    });
-    expect(probeFinish?.action).toBe("end");
-
     await session.dispose();
   });
 
-  it("counts investigation in a mixed execute+publish_thread turn without double-counting reserved", async () => {
-    const beforeDecisions: Array<{ tool: string; blocked: boolean }> = [];
-    const finishEnds: boolean[] = [];
-    let capturedConfig: {
-      beforeToolCall?: (
-        ctx: unknown,
-        signal?: AbortSignal,
-      ) => Promise<{ block?: boolean; reason?: string } | undefined>;
-    } | null = null;
-
-    const toolResultFor = (toolName: string, isError: boolean, id: string) => ({
-      role: "toolResult" as const,
-      toolCallId: id,
-      toolName,
-      content: [{ type: "text" as const, text: isError ? "blocked" : "ok" }],
-      isError,
-      timestamp: Date.now(),
+  it("ends a turn as tool_budget once stopAtMs passes", async () => {
+    const { session } = await createSession({
+      tools: [probeTool],
+      executors: { probe: async () => ({ ok: true }) },
+      handler: async () => ({
+        message: textMessage("", [{ id: "call-loop", name: "probe", arguments: {} }]),
+      }),
     });
-    const assistantForTool = (toolName: string, id: string) => ({
-      role: "assistant" as const,
-      content: [{ type: "toolCall" as const, id, name: toolName, arguments: {} }],
+    const turn = await session.send("go", {
+      phase: "specialist",
+      checkpointId: CHECKPOINT,
+      stopAtMs: Date.now() - 1,
     });
-
-    runAgentLoop.mockImplementation(async (_prompts, _context, config, emit) => {
-      capturedConfig = config as typeof capturedConfig & object;
-      const cfg = config as unknown as {
-        beforeToolCall: (ctx: {
-          assistantMessage: unknown;
-          toolCall: unknown;
-          args: unknown;
-          context: unknown;
-        }) => Promise<{ block?: boolean } | undefined>;
-        finishTurn: (turn: {
-          message: unknown;
-          toolResults: unknown[];
-          context: unknown;
-          newMessages: unknown[];
-        }) => { action: string } | undefined | Promise<{ action: string } | undefined>;
-      };
-      const simulateToolTurn = async (toolName: string, isError: boolean, step: string) => {
-        const id = `${step}-${toolName}`;
-        const before = await cfg.beforeToolCall({
-          assistantMessage: assistantForTool(toolName, id),
-          toolCall: { id, name: toolName, arguments: {} },
-          args: {},
-          context: _context,
-        });
-        beforeDecisions.push({ tool: toolName, blocked: before?.block === true });
-        const toolResults = [toolResultFor(toolName, isError, id)];
-        const message = {
-          role: "assistant" as const,
-          content: [{ type: "text" as const, text: step }],
-        };
-        const decision = await cfg.finishTurn({
-          message,
-          toolResults,
-          context: _context,
-          newMessages: [],
-        });
-        finishEnds.push(decision?.action === "end");
-        await emit({ type: "turn_end", toolResults, message });
-      };
-
-      for (let index = 0; index < 3; index += 1) {
-        await simulateToolTurn("execute", false, `inv-${index}`);
-      }
-
-      const execId = "mixed-execute";
-      const pubId = "mixed-publish";
-      const mixedAssistant = {
-        role: "assistant" as const,
-        content: [
-          { type: "toolCall" as const, id: execId, name: "execute", arguments: {} },
-          { type: "toolCall" as const, id: pubId, name: "publish_thread", arguments: {} },
-        ],
-      };
-      const beforeExec = await cfg.beforeToolCall({
-        assistantMessage: mixedAssistant,
-        toolCall: { id: execId, name: "execute", arguments: {} },
-        args: {},
-        context: _context,
-      });
-      beforeDecisions.push({ tool: "execute", blocked: beforeExec?.block === true });
-      const beforePub = await cfg.beforeToolCall({
-        assistantMessage: mixedAssistant,
-        toolCall: { id: pubId, name: "publish_thread", arguments: {} },
-        args: {},
-        context: _context,
-      });
-      beforeDecisions.push({ tool: "publish_thread", blocked: beforePub?.block === true });
-      const mixedResults = [
-        toolResultFor("execute", false, execId),
-        toolResultFor("publish_thread", false, pubId),
-      ];
-      const mixedMessage = {
-        role: "assistant" as const,
-        content: [{ type: "text" as const, text: "mixed" }],
-      };
-      const mixedDecision = await cfg.finishTurn({
-        message: mixedMessage,
-        toolResults: mixedResults,
-        context: _context,
-        newMessages: [],
-      });
-      finishEnds.push(mixedDecision?.action === "end");
-      await emit({ type: "turn_end", toolResults: mixedResults, message: mixedMessage });
-
-      await emit({
-        type: "turn_end",
-        toolResults: [],
-        message: { role: "assistant", content: [{ type: "text", text: "mixed-done" }] },
-      });
-      return [];
-    });
-
-    const session = await createPiSession({
-      role: "orchestrator",
-      primary: { provider: "openai", model: "gpt-4o-mini" },
-      thinkingPolicy: DEFAULT_THINKING_POLICY,
-      compactionPolicy: compactionPolicyForRole("orchestrator"),
-      promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
-      toolPolicy: DEFAULT_TOOL_POLICY,
-      systemPrompt: "orchestrator",
-      eventSink: () => undefined,
-      cfg: makeTestConfig({ models: { providerKeys: { openai: "k" } } }),
-      tools: [],
-      executors: {},
-    });
-
-    const turn = await session.send("judge", {
-      phase: "judgment",
-      checkpointId: "cp-mixed",
-      maxToolRounds: 4,
-      reservedTerminalTool: "publish_thread",
-    });
-    expect(turn.text).toBe("mixed-done");
-    expect(turn.end).toBe("completed");
-    expect(finishEnds).toEqual([false, false, false, true]);
-    expect(beforeDecisions).toEqual([
-      { tool: "execute", blocked: false },
-      { tool: "execute", blocked: false },
-      { tool: "execute", blocked: false },
-      { tool: "execute", blocked: false },
-      { tool: "publish_thread", blocked: false },
-    ]);
-
-    const cfg = capturedConfig as unknown as {
-      beforeToolCall: (ctx: {
-        assistantMessage: unknown;
-        toolCall: unknown;
-        args: unknown;
-        context: unknown;
-      }) => Promise<{ block?: boolean } | undefined>;
-    };
-    const againPublish = await cfg.beforeToolCall({
-      assistantMessage: assistantForTool("publish_thread", "again-publish"),
-      toolCall: { id: "again-publish", name: "publish_thread", arguments: {} },
-      args: {},
-      context: {},
-    });
-    expect(againPublish?.block).toBe(true);
-    const againExecute = await cfg.beforeToolCall({
-      assistantMessage: assistantForTool("execute", "again-execute"),
-      toolCall: { id: "again-execute", name: "execute", arguments: {} },
-      args: {},
-      context: {},
-    });
-    expect(againExecute?.block).toBe(true);
-
+    expect(turn.end).toBe("tool_budget");
     await session.dispose();
   });
 
-  it("carries one repeated-execute nudge into the next request and ends the sixth", async () => {
-    const real = realAgentLoop.current;
-    expect(real).toBeTypeOf("function");
-    const requests: string[] = [];
-    runAgentLoop.mockImplementation(async (prompts, context, config, emit, signal) => {
-      let turn = 0;
-      return real!(prompts, context, config, emit, signal, async (_model, llmContext) => {
-        turn += 1;
-        requests.push(JSON.stringify(llmContext.messages));
-        const stream = createAssistantMessageEventStream();
-        const message: AssistantMessage = {
-          role: "assistant",
-          content: [
+  it("completes when the reserved terminal tool submits after the budget", async () => {
+    const { session } = await createSession({
+      tools: [probeTool, submitTool],
+      executors: {
+        probe: async () => ({ ok: true }),
+        submit_report: async () => ({ accepted: true }),
+      },
+      handler: async (_model, context) => {
+        const blocked = context.messages.some(
+          (message) =>
+            message.role === "toolResult" &&
+            typeof message.content === "object" &&
+            JSON.stringify(message.content).includes("budget"),
+        );
+        return {
+          message: textMessage("", [
             {
-              type: "toolCall",
-              id: `exec-${turn}`,
-              name: "execute",
-              arguments: { code: "return coverage" },
+              id: blocked ? "call-submit" : "call-probe",
+              name: blocked ? "submit_report" : "probe",
+              arguments: {},
             },
-          ],
-          api: "openai-completions",
-          provider: "openai",
-          model: "gpt-4o-mini",
-          stopReason: "toolUse",
-          timestamp: 1,
-          usage: {
-            input: 1,
-            output: 1,
-            cacheRead: 0,
-            cacheWrite: 0,
-            totalTokens: 2,
-            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-          },
+          ]),
         };
-        stream.end(message);
-        return stream;
-      });
+      },
     });
-    const session = await createPiSession({
-      role: "specialist",
-      specialistId: "security",
-      primary: { provider: "openai", model: "gpt-4o-mini" },
-      thinkingPolicy: DEFAULT_THINKING_POLICY,
-      compactionPolicy: compactionPolicyForRole("specialist"),
-      promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
-      toolPolicy: DEFAULT_TOOL_POLICY,
-      systemPrompt: "system",
-      eventSink: () => undefined,
-      cfg: makeTestConfig({ models: { providerKeys: { openai: "k" } } }),
-      tools: [],
-      executors: {},
+    const turn = await session.send("go", {
+      phase: "specialist",
+      checkpointId: CHECKPOINT,
+      maxToolRounds: 1,
+      reservedTerminalTool: "submit_report",
     });
-
-    const turn = await session.send("review", { phase: "specialist", checkpointId: "cp" });
-
-    const copies = (payload: string) => payload.split(SPECIALIST_REPEATED_EXECUTE_NUDGE).length - 1;
-    expect(requests).toHaveLength(6);
-    expect(copies(requests[0] ?? "")).toBe(0);
-    expect(copies(requests[1] ?? "")).toBe(0);
-    expect(copies(requests[2] ?? "")).toBe(0);
-    expect(copies(requests[3] ?? "")).toBe(1);
-    expect(copies(requests[4] ?? "")).toBe(1);
-    expect(copies(requests[5] ?? "")).toBe(1);
     expect(turn.end).toBe("completed");
     await session.dispose();
   });
 
-  it("does not import createAgentSession or coding-agent from feature harness paths", async () => {
-    const fs = await import("node:fs/promises");
-    const path = await import("node:path");
-    async function walk(dir: string) {
-      const entries = await fs.readdir(dir, { withFileTypes: true });
-      const files: string[] = [];
-      for (const entry of entries) {
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory()) {
-          if (entry.name === "runtime" && dir.endsWith("agent")) continue;
-          files.push(...(await walk(full)));
-        } else if (entry.name.endsWith(".ts")) {
-          files.push(full);
-        }
-      }
-      return ((pinnedReturn: string[] | Promise<string[]>) => pinnedReturn)(files);
-    }
-    const featureFiles = [
-      ...(await walk("src/review")),
-      ...(await walk("src/agent/ask")),
-      ...(await walk("src/agent/description")),
-      ...(await walk("src/agent/triage")),
-      ...(await walk("src/agent/verification")),
-      ...(await walk("src/agent/providers")),
-    ];
-    const forbidden = ["createAgentSession", "pi-coding-agent", "pi-ai/compat", "runAgentLoop"];
-    for (const file of featureFiles) {
-      const text = await fs.readFile(file, "utf8");
-      for (const token of forbidden) {
-        if (text.includes(token)) {
-          throw new Error(`unexpected ${token} in ${file}`);
-        }
-      }
-    }
+  it("aborts an in-flight send", async () => {
+    const { session } = await createSession({
+      handler: () =>
+        new Promise<ScriptedResponse>((resolve) => {
+          setTimeout(() => resolve({ message: textMessage("late") }), 5_000);
+        }),
+    });
+    const pending = session.send("go", {
+      phase: "specialist",
+      checkpointId: CHECKPOINT,
+    });
+    await session.abort();
+    await expect(pending).rejects.toThrow(/abort/i);
+    await session.dispose();
+  });
+
+  it("passes providerSessionId through to the provider request options", async () => {
+    const { session, seen } = await createSession({
+      providerSessionId: "pr:" + "f".repeat(32),
+    });
+    await session.send("go", { phase: "specialist", checkpointId: CHECKPOINT });
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen[0]?.sessionId).toBe("pr:" + "f".repeat(32));
+    await session.dispose();
   });
 });

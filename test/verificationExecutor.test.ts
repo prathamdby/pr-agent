@@ -1,10 +1,17 @@
-import { createDurableExecutionContext } from "../src/agentWork/durableJob.ts";
 import { isRecord } from "../src/util/typeGuards.ts";
 import { makeDurableJobMetadata } from "./helpers/executorDurableHarness.ts";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  openExecutorDurableHarness,
+  testFeatureEnv,
+  testPublication,
+  type ExecutorDurableHarness,
+} from "./helpers/executorDurableHarness.ts";
+import type { VerificationWorkItem } from "../src/agentWork/types.ts";
+import type { PrSurface } from "../src/github/prSurface.ts";
+import type { FeatureWorkExecution } from "../src/agentWork/executors/featureExecution.ts";
+import type { EscalationPlan } from "../src/agentWork/retryPolicy.ts";
 import { mockWorkClaim } from "./helpers/executorDurableHarness.ts";
-import type { PgBoss } from "pg-boss";
 import * as evlog from "../src/evlog.ts";
 import { makeTestConfig } from "./helpers/config.ts";
 import {
@@ -52,64 +59,81 @@ vi.mock("../src/review/repoPolicy.ts", () => ({
   loadRepoPolicy: mocks.loadRepoPolicy,
 }));
 
-vi.mock("../src/agentWork/prActorLease.ts", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/prActorLease.ts")>();
-  return { ...actual, isPrActorLeaseHeld: vi.fn().mockResolvedValue(true) };
-});
-
-vi.mock("../src/agentWork/publishRecordRepository.ts", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/agentWork/publishRecordRepository.ts")>()),
-  listTriageEligibleInlineReviews: mocks.listTriageEligibleInlineReviews,
+vi.mock("../src/state/featurePublication.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/state/featurePublication.ts")>()),
+  inlineReviewLensesForPr: mocks.listTriageEligibleInlineReviews,
+  activeReviewWorkId: mocks.getActiveReviewWorkItem,
 }));
 
-vi.mock("../src/agentWork/workItemStateRepository.ts", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/agentWork/workItemStateRepository.ts")>()),
-  shouldSkipWork: mocks.shouldSkipWork,
-  getActiveReviewWorkItem: mocks.getActiveReviewWorkItem,
-}));
-
-vi.mock("../src/agentWork/publishOnce.ts", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/agentWork/publishOnce.ts")>()),
-  publishOnce: vi.fn(async (params: { mutate: () => Promise<unknown> }) => params.mutate()),
-}));
-
-vi.mock("../src/review/findingIdentity/threadMutationLock.ts", () => ({
-  threadMutationLock: () => (apply: () => Promise<unknown>) => apply(),
-}));
-
-vi.mock("../src/agentWork/verificationThreadLedger.ts", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../src/agentWork/verificationThreadLedger.ts")>();
+vi.mock("../src/state/verificationThreadLedger.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/state/verificationThreadLedger.ts")>();
   return {
     ...actual,
-    loadVerificationThreadLedger: vi.fn(async () => ({ threads: {} })),
+    loadVerificationThreadLedger: vi.fn(() => ({ threads: {} })),
   };
 });
 
 import { mintFindingId, renderFindingMarker } from "../src/review/findingIdentity/findingMarker.ts";
 import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.ts";
-import { createWorkDefinitions } from "../src/agentWork/workDefinition.ts";
-import { openInstallationSurface } from "../src/agentWork/installationSurface.ts";
+import { createVerificationFeatureExecution } from "../src/agentWork/executors/verificationExecutor.ts";
+import { makeVerificationWorkItem } from "./helpers/agentWorkItems.ts";
 import {
   STALE_VERIFICATION_RESULT,
   verificationHeadFreshness,
 } from "../src/agentWork/verificationPublishGate.ts";
-import { makeVerificationWorkItem } from "./helpers/agentWorkItems.ts";
+
+let harness: ExecutorDurableHarness;
+const pool = undefined;
 
 let runExecution: () => Promise<unknown>;
 function configureExecution(
-  run: (definition: ReturnType<typeof createWorkDefinitions>["verification"]) => Promise<unknown>,
+  run: (definition: FeatureWorkExecution<"verification">) => Promise<unknown>,
 ) {
   runExecution = () =>
     run(
-      createWorkDefinitions({ cfg, pool, boss, installationSurface: openInstallationSurface() })
-        .verification,
+      createVerificationFeatureExecution({
+        cfg,
+        botIdentity: () => mocks.getAppBotIdentity(),
+      }),
     );
 }
 
+function verificationPublication(item: { readonly id: string; readonly resourceKey: string }) {
+  return testPublication(harness.db, {
+    workId: item.id,
+    prKey: item.resourceKey,
+    kind: "verification",
+  });
+}
+
+function createDurableExecutionContext(params: {
+  readonly item: VerificationWorkItem;
+  readonly prSurface: PrSurface;
+  readonly headSha?: string;
+  readonly signal?: AbortSignal;
+  readonly getEscalation?: () => EscalationPlan | undefined;
+  readonly [key: string]: unknown;
+}) {
+  const escalation = params.getEscalation?.();
+  const publication = verificationPublication(params.item);
+  return testFeatureEnv(harness.db, {
+    item: params.item,
+    cfg,
+    prSurface: params.prSurface,
+    publication,
+    ...(params.headSha !== undefined ? { headSha: params.headSha } : {}),
+    ...(params.signal !== undefined ? { signal: params.signal } : {}),
+    ...(escalation !== undefined ? { escalation } : {}),
+    shouldAbortPublish: async () => (await mocks.shouldSkipWork()) === true,
+  });
+}
+
+function terminalEnv() {
+  const workItem = item();
+  return { db: harness.db, cfg, publication: verificationPublication(workItem) };
+}
+
 const cfg = makeTestConfig();
-const pool = {} as Pool;
-const boss = {} as PgBoss;
 const verificationWorkspace = {
   agentCwd: "/tmp/view",
   policySnapshot: { kind: "unavailable" as const, reason: "missing_base_sha" as const },
@@ -132,7 +156,6 @@ function mockDurableExecution(workItem = item()) {
         item: workItem,
         prSurface: fakeDurablePrSurface(),
         headSha: "a".repeat(40),
-        leaseEpoch: 1,
         job: makeDurableJobMetadata(),
         beginAttempt: async () => mockWorkClaim(),
         signal: new AbortController().signal,
@@ -278,8 +301,12 @@ describe("verificationHeadFreshness", () => {
 });
 
 describe("verification work definition", () => {
+  afterEach(() => {
+    harness.close();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
+    harness = openExecutorDurableHarness();
     resetDurablePrSurface({ headSha: "a".repeat(40) });
     mockDurableExecution();
     configureDefaultPrFiles();
@@ -306,9 +333,9 @@ describe("verification work definition", () => {
     });
     mocks.clearVerificationFailureSignal.mockResolvedValue(undefined);
     mocks.loadRepoPolicy.mockResolvedValue({ kind: "absent" });
-    mocks.listTriageEligibleInlineReviews.mockResolvedValue(new Map());
+    mocks.listTriageEligibleInlineReviews.mockReturnValue(new Map());
     mocks.shouldSkipWork.mockResolvedValue(false);
-    mocks.getActiveReviewWorkItem.mockReset().mockResolvedValue(null);
+    mocks.getActiveReviewWorkItem.mockReset().mockReturnValue(undefined);
   });
 
   it.each([
@@ -372,7 +399,6 @@ describe("verification work definition", () => {
               item: item(),
               prSurface: surface,
               headSha: "a".repeat(40),
-              leaseEpoch: 1,
               job: makeDurableJobMetadata(),
               beginAttempt: async () => mockWorkClaim(),
               signal: new AbortController().signal,
@@ -516,12 +542,12 @@ describe("verification work definition", () => {
         });
       }
       if (scenario === "active full review") {
-        mocks.getActiveReviewWorkItem.mockResolvedValue({ id: "review-running" });
+        mocks.getActiveReviewWorkItem.mockReturnValue("review-running");
       }
       if (scenario === "review starts during refresh") {
         mocks.getActiveReviewWorkItem
-          .mockResolvedValueOnce(null)
-          .mockResolvedValue({ id: "review-queued" });
+          .mockReturnValueOnce(undefined)
+          .mockReturnValue("review-queued");
       }
       if (scenario === "publisher failure") {
         vi.spyOn(surface, "publishThreadBatch").mockRejectedValueOnce(
@@ -555,7 +581,7 @@ describe("verification work definition", () => {
               expect.objectContaining({
                 event,
                 commitId: "a".repeat(40),
-                body: expect.stringContaining("pr-agent:operation-intent"),
+                body: expect.any(String),
               }),
             ],
       );
@@ -1074,7 +1100,6 @@ describe("verification work definition", () => {
             item: workItem,
             prSurface: fakeDurablePrSurface(),
             headSha: boundHeadSha,
-            leaseEpoch: 1,
             job: makeDurableJobMetadata(),
             beginAttempt: async () => mockWorkClaim(),
             signal: new AbortController().signal,
@@ -1154,7 +1179,6 @@ describe("verification work definition", () => {
           item: item(),
           prSurface: fakeDurablePrSurface(),
           headSha: "a".repeat(40),
-          leaseEpoch: 1,
           job: makeDurableJobMetadata(),
           beginAttempt: async () => mockWorkClaim(),
           signal: new AbortController().signal,
@@ -1198,7 +1222,6 @@ describe("verification work definition", () => {
           item: item(),
           prSurface: fakeDurablePrSurface(),
           headSha: "a".repeat(40),
-          leaseEpoch: 1,
           job: makeDurableJobMetadata(),
           beginAttempt: async () => mockWorkClaim(),
           signal: new AbortController().signal,
@@ -1241,7 +1264,6 @@ describe("verification work definition", () => {
           item: item(),
           prSurface: fakeDurablePrSurface(),
           headSha: "a".repeat(40),
-          leaseEpoch: 1,
           job: makeDurableJobMetadata(),
           beginAttempt: async () => mockWorkClaim(),
           signal: new AbortController().signal,
@@ -1304,7 +1326,6 @@ describe("verification work definition", () => {
           item: item(),
           prSurface: fakeDurablePrSurface(),
           headSha: "a".repeat(40),
-          leaseEpoch: 1,
           job: makeDurableJobMetadata(),
           beginAttempt: async () => mockWorkClaim(),
           signal: new AbortController().signal,
@@ -1347,7 +1368,6 @@ describe("verification work definition", () => {
           item: item(),
           prSurface: fakeDurablePrSurface(),
           headSha: "a".repeat(40),
-          leaseEpoch: 1,
           job: makeDurableJobMetadata(),
           beginAttempt: async () => mockWorkClaim(),
           signal: new AbortController().signal,
@@ -1386,7 +1406,6 @@ describe("verification work definition", () => {
           item: item(),
           prSurface: fakeDurablePrSurface(),
           headSha: "a".repeat(40),
-          leaseEpoch: 1,
           job: makeDurableJobMetadata(),
           beginAttempt: async () => mockWorkClaim(),
           signal: new AbortController().signal,
@@ -1434,7 +1453,6 @@ describe("verification work definition", () => {
           item: item(),
           prSurface: fakeDurablePrSurface(),
           headSha: "a".repeat(40),
-          leaseEpoch: 1,
           job: makeDurableJobMetadata(),
           beginAttempt: async () => mockWorkClaim(),
           signal: new AbortController().signal,
@@ -1515,7 +1533,6 @@ describe("verification work definition", () => {
           }),
           prSurface: fakeDurablePrSurface(),
           headSha: "a".repeat(40),
-          leaseEpoch: 1,
           job: makeDurableJobMetadata(),
           beginAttempt: async () => mockWorkClaim(),
           signal: new AbortController().signal,
@@ -1560,12 +1577,7 @@ describe("verification work definition", () => {
   it("publishes one failure signal from the terminal failure hook", async () => {
     let hooked = false;
     configureExecution(async (spec) => {
-      await spec.onTerminalFailure?.(
-        item(),
-        fakeDurablePrSurface(),
-        new Error("provider timeout"),
-        1,
-      );
+      await spec.onTerminalFailure?.(item(), fakeDurablePrSurface(), terminalEnv());
       hooked = true;
     });
 
@@ -1578,7 +1590,6 @@ describe("verification work definition", () => {
         workItemId: "wi-1",
         resourceKey: expect.any(String),
         headSha: "a".repeat(40),
-        leaseEpoch: 1,
       }),
     );
     expect(mocks.publishVerification).not.toHaveBeenCalled();

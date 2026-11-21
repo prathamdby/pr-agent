@@ -7,6 +7,7 @@ import { type Config, INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../settings/ind
 import { AppError } from "../errors/appError.ts";
 import { logDebug } from "../evlog.ts";
 import { onRateLimit, onSecondaryRateLimit } from "./octokitThrottle.ts";
+import { createMutationOctokit, isMutationRequest } from "./mutationOctokit.ts";
 import { noteGithubRequestSuccess } from "./rateLimitCircuit.ts";
 import { errorMessage } from "../errors/errorMessage.ts";
 import { unrefTimer } from "../util/unrefTimer.ts";
@@ -154,7 +155,7 @@ function clearInstallationOctokitEntry(entry: CachedInstallationOctokit) {
   entry.evictionTimer = null;
 }
 
-export function createInstallationOctokitCache() {
+export function createInstallationOctokitCache(options: { readonly baseUrl?: string } = {}) {
   const installationOctokitByToken = new Map<string, CachedInstallationOctokit>();
   function scheduleInstallationOctokitEviction(token: string, entry: CachedInstallationOctokit) {
     clearInstallationOctokitEntry(entry);
@@ -187,9 +188,22 @@ export function createInstallationOctokitCache() {
     const octokit = new ThrottledOctokit({
       auth: token,
       throttle: { onRateLimit, onSecondaryRateLimit },
+      ...(options.baseUrl !== undefined ? { baseUrl: options.baseUrl } : {}),
     });
     octokit.hook.after("request", () => {
       noteGithubRequestSuccess();
+    });
+    const mutationOctokit = createMutationOctokit({
+      token,
+      ...(options.baseUrl !== undefined ? { baseUrl: options.baseUrl } : {}),
+    });
+    mutationOctokit.hook.after("request", () => {
+      noteGithubRequestSuccess();
+    });
+    octokit.hook.wrap("request", (request, requestOptions) => {
+      if (!isMutationRequest(requestOptions)) return request(requestOptions);
+      const { hook: _readHook, ...requestSettings } = requestOptions.request ?? {};
+      return mutationOctokit.request({ ...requestOptions, request: requestSettings });
     });
     const entry = {
       octokit,

@@ -1,48 +1,11 @@
+import { sqliteReviewCoordination } from "./helpers/publishReviewTestSetup.ts";
 vi.mock("../src/review/findingIdentity/threadMutationLock.ts", () => ({
   threadMutationLock: () => (apply: () => Promise<unknown>) => apply(),
 }));
-vi.mock("../src/agentWork/publishOnce.ts", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.ts")>();
-  const { createFakePublishRecords } = await import("../src/agentWork/fakePublishStore.ts");
-  const records = createFakePublishRecords(actual.publishStepSpecs);
-  return {
-    ...actual,
-    createPublishContext: (
-      client: import("pg").Pool | import("pg").PoolClient,
-      identity: import("../src/agentWork/publishOnce.ts").PublicationIdentity,
-    ) => actual.createPublishContext(client, identity, records),
-  };
-});
 import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.ts";
-import { createFakePublishStore } from "../src/agentWork/fakePublishStore.ts";
-const publishStoreState = vi.hoisted(() => {
-  let store: import("../src/agentWork/publishOnce.ts").PublishIntentStore;
-  return {
-    get store() {
-      return store;
-    },
-    set store(value) {
-      store = value;
-    },
-  };
-});
-vi.mock("../src/agentWork/operationIntentRepository.ts", async () => {
-  const { operationIntentRepositoryMock } = await import("./helpers/operationIntentMock.ts");
-  return operationIntentRepositoryMock(publishStoreState);
-});
-beforeEach(() => {
-  publishStoreState.store = createFakePublishStore();
-});
-vi.mock("../src/agentWork/reconcilePendingIntents.ts", () => ({
-  reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
-  findCompletedPublishRecordId: vi.fn(async () => null),
-}));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.ts";
-import {
-  completeFindingInventory,
-  publishSummaryForTest,
-} from "./helpers/reviewPublishTestHelpers.ts";
+import { publishSummaryForTest } from "./helpers/reviewPublishTestHelpers.ts";
 import type { ReviewFinding } from "../src/review/reviewSchema.ts";
 import { makeTestConfig } from "./helpers/config.ts";
 import { makeReviewPayload } from "./helpers/reviewPayloadFactory.ts";
@@ -90,40 +53,9 @@ vi.mock("../src/github/reviewPublish.ts", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/agentWork/workItemStateRepository.ts", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/agentWork/workItemStateRepository.ts")>()),
-  getWorkItemCore: vi.fn(async () => ({ type: "review", status: "completed" })),
-}));
-
-vi.mock("../src/agentWork/publishRecordRepository.ts", async (importOriginal) => {
-  const { createPublishRecordReadMock, createOwnVerdictCloseMock } =
-    await import("./helpers/publishReviewTestSetup.ts");
-  return {
-    ...(await importOriginal<typeof import("../src/agentWork/publishRecordRepository.ts")>()),
-    ...createPublishRecordReadMock(),
-    ...createOwnVerdictCloseMock(),
-  };
-});
-
-vi.mock("../src/agentWork/ciProjection.ts", () => ({
-  loadRenderableHeadCi: vi.fn(async () => ({
-    summary: { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
-    version: 0,
-  })),
-  requestHeadCiProjection: vi.fn(async () => "skipped"),
-}));
-
-import * as verdictOwner from "../src/agentWork/reviewVerdict.ts";
+import * as verdictSurfaces from "../src/review/publish/reviewVerdictSurfaces.ts";
 import { attachSummaryCommentCoordination } from "../src/review/publish/reviewSummaryComment.ts";
-import type { Pool, PoolClient } from "pg";
-import { publishReviewSummaryOnly } from "../src/review/publish/publishSummaryOnly.ts";
 import { publishCloseOutcomeReview } from "../src/review/publish/publishCloseOutcomeReview.ts";
-import { createReviewPublishSession } from "../src/review/publish/reviewPublishSession.ts";
-import { openReviewRecovery } from "../src/review/recovery/reviewRecovery.ts";
-import {
-  createReviewArtifactBinding,
-  parseReviewArtifactEnvelope,
-} from "../src/review/recovery/reviewArtifacts.ts";
 
 function finding(line: number) {
   return ((pinnedReturn: ReviewFinding) => pinnedReturn)({
@@ -141,156 +73,6 @@ describe("publishReviewSummaryOnly", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.clearAllMocks();
-  });
-
-  it("prepares final summary inputs and the summary-only ledger before the remote mutation", async () => {
-    const binding = createReviewArtifactBinding(
-      {
-        workItemId: "00000000-0000-4000-8000-000000000001",
-        resourceKey: "o/r#1",
-        owner: "o",
-        repo: "r",
-        prNumber: 1,
-        installationId: 1,
-        baseSha: "base",
-        headSha: "head",
-        mode: "review",
-      },
-      "a".repeat(64),
-    );
-    const rows = new Map<string, unknown>();
-    const recovery = openReviewRecovery(binding, {
-      load: async (key) => parseReviewArtifactEnvelope(rows.get(key)),
-      save: async (envelope) => {
-        const parsed = parseReviewArtifactEnvelope(envelope);
-        if (!parsed) throw new Error("invalid");
-        rows.set(parsed.logicalKey, parsed);
-        return "stored";
-      },
-    });
-    const { surface, upsertProgressComment } = configuredSummarySurface();
-    upsertProgressComment.mockImplementation(async () => {
-      expect(rows.has("final-summary")).toBe(true);
-      expect(rows.has("decision/0/prepared")).toBe(true);
-      return { id: 2, updated: false };
-    });
-    const item = finding(10);
-    const ledger = createFindingLedger({
-      accepted: [
-        {
-          kind: "summary_only",
-          source: "quality",
-          placement: {
-            finding: item,
-            inlineLine: 10,
-            inlinePosted: false,
-          },
-          findingId: legacyFindingId("fp"),
-          reason: "budget",
-        },
-      ],
-      threadCallCount: 9,
-      threadBudgetExhausted: true,
-    });
-    const session = createReviewPublishSession({
-      cfg: makeTestConfig(),
-      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "head", hasDescriptionReviewMap: false },
-      prSurface: surface,
-      findingInventory: completeFindingInventory(),
-      recovery,
-    });
-    await expect(
-      publishReviewSummaryOnly(session, {
-        payload: makeReviewPayload({ findings: [item] }),
-        ledger,
-        coverage: {
-          kind: "partial",
-          failed: ["tests"],
-          unjudged: ["quality"],
-          note: "Partial coverage",
-        },
-      }),
-    ).resolves.toEqual({
-      kind: "published",
-      summaryCommentId: 2,
-      check: { conclusion: "failure", blockingCount: 1 },
-    });
-    expect(parseReviewArtifactEnvelope(rows.get("final-summary"))?.artifact).toMatchObject({
-      inputs: {
-        kind: "summary",
-        ledger: {
-          threadCallCount: 9,
-          threadBudgetExhausted: true,
-          accepted: [expect.objectContaining({ reason: "budget" })],
-        },
-        coverage: { kind: "partial", failed: ["tests"], unjudged: ["quality"] },
-      },
-    });
-    expect(parseReviewArtifactEnvelope(rows.get("decision/0/settled"))?.artifact).toMatchObject({
-      remote: { githubId: 2 },
-    });
-    const summaryBody = upsertProgressComment.mock.calls[0]?.[0];
-    expect(summaryBody).toContain("Judgment did not finish for quality.");
-    expect(summaryBody).toContain("All specialists ran except tests, not judged: quality.");
-  });
-
-  it("does not send a summary again after rejection settles stopped", async () => {
-    const binding = createReviewArtifactBinding(
-      {
-        workItemId: "00000000-0000-4000-8000-000000000839",
-        resourceKey: "o/r#1",
-        owner: "o",
-        repo: "r",
-        prNumber: 1,
-        installationId: 1,
-        baseSha: "base",
-        headSha: "head",
-        mode: "review",
-      },
-      "b".repeat(64),
-    );
-    const rows = new Map<string, unknown>();
-    const store = {
-      load: async (key: string) => parseReviewArtifactEnvelope(rows.get(key)),
-      save: async (envelope: unknown) => {
-        const parsed = parseReviewArtifactEnvelope(envelope);
-        if (!parsed) throw new Error("invalid");
-        rows.set(parsed.logicalKey, parsed);
-        return "stored" as const;
-      },
-    };
-    const recovery = openReviewRecovery(binding, store);
-    const { surface, upsertProgressComment } = configuredSummarySurface();
-    upsertProgressComment.mockRejectedValueOnce(
-      Object.assign(new Error("GitHub rejected the review"), { status: 403 }),
-    );
-    const session = createReviewPublishSession({
-      cfg: makeTestConfig(),
-      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "head", hasDescriptionReviewMap: false },
-      prSurface: surface,
-      findingInventory: completeFindingInventory(),
-      recovery,
-    });
-    const payload = makeReviewPayload({ findings: [] });
-    const input = {
-      payload,
-      ledger: createFindingLedger(),
-      coverage: { kind: "full" as const },
-    };
-    await expect(publishReviewSummaryOnly(session, input)).rejects.toThrow(/rejected/);
-    expect(upsertProgressComment).toHaveBeenCalledTimes(1);
-    const decisions = await recovery.decisions();
-    expect(decisions).toHaveLength(1);
-    expect(decisions[0]?.settled?.artifact).toMatchObject({
-      kind: "publication_settled",
-      outcome: "stopped",
-    });
-    expect(decisions[0]?.settled?.artifact).not.toHaveProperty("remote");
-    await expect(
-      publishReviewSummaryOnly(session, { ...input, recoveryDecision: decisions[0] }),
-    ).resolves.toEqual({ kind: "stopped", reason: "superseded" });
-    expect(upsertProgressComment).toHaveBeenCalledTimes(1);
-    expect(await openReviewRecovery(binding, store).decisions()).toHaveLength(1);
   });
 
   it("links placements to comments from every inline review batch", async () => {
@@ -321,15 +103,7 @@ describe("publishReviewSummaryOnly", () => {
     });
 
     const { surface, upsertProgressComment } = configuredSummarySurface();
-    const close = vi.fn<(outcome: verdictOwner.OwnVerdictOutcome) => Promise<void>>(
-      async () => undefined,
-    );
-    const actualVerdict = verdictOwner.reviewVerdict;
-    const create = vi.spyOn(verdictOwner, "reviewVerdict").mockImplementation((params) => {
-      const verdict = actualVerdict(params);
-      close.mockImplementation((outcome) => verdict.close(outcome));
-      return { ...verdict, close };
-    });
+    const create = vi.spyOn(verdictSurfaces, "reviewVerdictSurfaces");
 
     const result = await publishSummaryForTest({
       cfg: makeTestConfig(),
@@ -355,7 +129,6 @@ describe("publishReviewSummaryOnly", () => {
       summaryCommentId: 2,
       check: { conclusion: "failure", blockingCount: 2 },
     });
-    expect(close).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
     expect(upsertProgressComment).toHaveBeenCalledTimes(1);
     const summaryBody = upsertProgressComment.mock.calls[0]?.[0];
@@ -419,118 +192,6 @@ describe("publishReviewSummaryOnly", () => {
     expect(upsertProgressComment).not.toHaveBeenCalled();
   });
 
-  it("forces a neutral check and error commit status for partial coverage", async () => {
-    const client = {
-      query: vi.fn(async () => ({ rows: [{ locked: true }] })),
-      release: vi.fn(),
-    } as unknown as PoolClient;
-    const pool = {
-      options: { max: 4 },
-      connect: vi.fn(async () => client),
-    } as unknown as Pool;
-    const recordPublishStep = attachSummaryCommentCoordination(async () => undefined, {
-      pool,
-      workItemId: "wi-1",
-      resourceKey: "o/r#1",
-    });
-    const { surface, setReviewCommitStatus, upsertProgressComment } = configuredSummarySurface();
-    const close = vi.fn<(outcome: verdictOwner.OwnVerdictOutcome) => Promise<void>>(
-      async () => undefined,
-    );
-    const actualVerdict = verdictOwner.reviewVerdict;
-    const create = vi.spyOn(verdictOwner, "reviewVerdict").mockImplementation((params) => {
-      const verdict = actualVerdict(params);
-      close.mockImplementation((outcome) => verdict.close(outcome));
-      return { ...verdict, close };
-    });
-    const result = await publishSummaryForTest({
-      cfg: makeTestConfig({
-        features: { ...makeTestConfig().features, commitStatus: true, reviewLabels: "off" },
-      }),
-      ctx: {
-        owner: "o",
-        repo: "r",
-        prNumber: 1,
-        headSha: "sha",
-        hasDescriptionReviewMap: false,
-      },
-      prSurface: surface,
-      payload: makeReviewPayload({ findings: [finding(10)] }),
-      ledger: createFindingLedger(),
-      recordPublishStep,
-      coverage: {
-        kind: "partial",
-        failed: ["security"],
-        note: "Coverage partial: security specialist failed.",
-      },
-    });
-
-    expect(result.kind).toBe("published");
-    expect(surface.finishReviewCheck).toHaveBeenCalledWith(
-      expect.objectContaining({
-        conclusion: "neutral",
-        summary: "Coverage partial: security specialist failed.",
-      }),
-    );
-    expect(close).toHaveBeenCalledWith({
-      kind: "partial",
-      note: "Coverage partial: security specialist failed.",
-    });
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({ commitStatusEnabled: true }));
-    expect(setReviewCommitStatus).toHaveBeenCalledWith(
-      "sha",
-      expect.objectContaining({ state: "error" }),
-    );
-    expect(upsertProgressComment).toHaveBeenCalled();
-  });
-
-  it("closes the own verdict from pool identity when summary coordination is absent", async () => {
-    const pool = { connect: vi.fn() } as unknown as Pool;
-    const { surface } = configuredSummarySurface();
-    const close = vi.fn<(outcome: verdictOwner.OwnVerdictOutcome) => Promise<void>>(
-      async () => undefined,
-    );
-    const actualVerdict = verdictOwner.reviewVerdict;
-    const create = vi.spyOn(verdictOwner, "reviewVerdict").mockImplementation((params) => {
-      const verdict = actualVerdict(params);
-
-      return { ...verdict, close };
-    });
-    const result = await publishSummaryForTest({
-      cfg: makeTestConfig({
-        features: { ...makeTestConfig().features, commitStatus: true, reviewLabels: "off" },
-      }),
-      ctx: {
-        owner: "o",
-        repo: "r",
-        prNumber: 1,
-        headSha: "sha",
-        hasDescriptionReviewMap: false,
-      },
-      prSurface: surface,
-      payload: makeReviewPayload({ findings: [finding(10)] }),
-      ledger: createFindingLedger(),
-      pool,
-      workItemId: "wi-1",
-      resourceKey: "o/r#1",
-    });
-
-    expect(result.kind).toBe("published");
-    expect(close).toHaveBeenCalledWith({
-      kind: "published",
-      conclusion: "success",
-      blockingCount: 0,
-    });
-    expect(create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        pool,
-        workItemId: "wi-1",
-        resourceKey: "o/r#1",
-        commitStatusEnabled: true,
-      }),
-    );
-  });
-
   it("rejects summary publication when every specialist failed", async () => {
     const bundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
     const upsertProgressComment = vi.spyOn(bundle.surface, "upsertProgressComment");
@@ -557,7 +218,6 @@ describe("publishReviewSummaryOnly", () => {
   });
 
   it("submits an APPROVE review after a complete summary with no blockers", async () => {
-    const pool = { connect: vi.fn() } as unknown as Pool;
     const { surface } = configuredSummarySurface();
     const publishThreadBatch = vi.spyOn(surface, "publishThreadBatch");
     const dismissPullRequestReview = vi.spyOn(surface, "dismissPullRequestReview");
@@ -575,7 +235,6 @@ describe("publishReviewSummaryOnly", () => {
       prSurface: surface,
       payload: makeReviewPayload({ findings: [] }),
       ledger: createFindingLedger(),
-      pool,
       workItemId: "wi-1",
       resourceKey: "o/r#1",
     });
@@ -594,7 +253,6 @@ describe("publishReviewSummaryOnly", () => {
   });
 
   it("requests changes for a published failure and leaves prior verdicts standing", async () => {
-    const pool = { connect: vi.fn() } as unknown as Pool;
     const { surface, controls } = configuredSummarySurface();
     controls.setPullRequestReviews([
       {
@@ -635,7 +293,6 @@ describe("publishReviewSummaryOnly", () => {
       prSurface: surface,
       payload: makeReviewPayload({ findings: [item] }),
       ledger,
-      pool,
       workItemId: "wi-1",
       resourceKey: "o/r#1",
     });
@@ -651,19 +308,10 @@ describe("publishReviewSummaryOnly", () => {
   });
 
   it("comments on a partial run and dismisses this app's standing verdicts", async () => {
-    const client = {
-      query: vi.fn(async () => ({ rows: [{ locked: true }] })),
-      release: vi.fn(),
-    } as unknown as PoolClient;
-    const pool = {
-      options: { max: 4 },
-      connect: vi.fn(async () => client),
-    } as unknown as Pool;
-    const recordPublishStep = attachSummaryCommentCoordination(async () => undefined, {
-      pool,
-      workItemId: "wi-1",
-      resourceKey: "o/r#1",
-    });
+    const recordPublishStep = attachSummaryCommentCoordination(
+      async () => undefined,
+      sqliteReviewCoordination({ workItemId: "wi-1", resourceKey: "o/r#1" }),
+    );
     const { surface, controls } = configuredSummarySurface();
     controls.setPullRequestReviews([
       {
@@ -745,7 +393,6 @@ describe("publishReviewSummaryOnly", () => {
   });
 
   it("falls back to COMMENT when GitHub rejects a self-authored APPROVE and then dismisses prior verdicts", async () => {
-    const pool = { connect: vi.fn() } as unknown as Pool;
     const { surface, controls } = configuredSummarySurface();
     controls.setPullRequestReviews([
       {
@@ -777,7 +424,6 @@ describe("publishReviewSummaryOnly", () => {
       prSurface: surface,
       payload: makeReviewPayload({ findings: [] }),
       ledger: createFindingLedger(),
-      pool,
       workItemId: "wi-1",
       resourceKey: "o/r#1",
     });
@@ -800,61 +446,18 @@ describe("publishReviewSummaryOnly", () => {
   });
 
   it("reuses the terminal review when the same work item publishes twice", async () => {
-    const pool = { connect: vi.fn() } as unknown as Pool;
+    const target = sqliteReviewCoordination({ workItemId: "wi-1", resourceKey: "o/r#1" });
     const { surface } = configuredSummarySurface();
     const publishThreadBatch = vi.spyOn(surface, "publishThreadBatch");
     const params = {
       prSurface: surface,
       outcome: { kind: "published" as const, conclusion: "success" as const, blockingCount: 0 },
       headSha: "sha",
-      workItemId: "wi-1",
-      pool,
-      leaseEpoch: null,
+      target,
+      reviewLens: "review",
     };
     await publishCloseOutcomeReview(params);
     await publishCloseOutcomeReview(params);
     expect(publishThreadBatch).toHaveBeenCalledTimes(1);
-  });
-
-  it("keeps the published summary when the terminal review fails", async () => {
-    const pool = { connect: vi.fn() } as unknown as Pool;
-    const { surface } = configuredSummarySurface();
-    vi.spyOn(surface, "publishThreadBatch").mockRejectedValue(new Error("GitHub unavailable"));
-    const close = vi.fn<(outcome: verdictOwner.OwnVerdictOutcome) => Promise<void>>(
-      async () => undefined,
-    );
-    const actualVerdict = verdictOwner.reviewVerdict;
-    vi.spyOn(verdictOwner, "reviewVerdict").mockImplementation((params) => {
-      const verdict = actualVerdict(params);
-      return { ...verdict, close };
-    });
-    const result = await publishSummaryForTest({
-      cfg: makeTestConfig({
-        features: { ...makeTestConfig().features, commitStatus: false, reviewLabels: "off" },
-      }),
-      ctx: {
-        owner: "o",
-        repo: "r",
-        prNumber: 1,
-        headSha: "sha",
-        hasDescriptionReviewMap: false,
-      },
-      prSurface: surface,
-      payload: makeReviewPayload({ findings: [] }),
-      ledger: createFindingLedger(),
-      pool,
-      workItemId: "wi-1",
-      resourceKey: "o/r#1",
-    });
-    expect(result).toEqual({
-      kind: "published",
-      summaryCommentId: 2,
-      check: { conclusion: "success", blockingCount: 0 },
-    });
-    expect(close).toHaveBeenCalledWith({
-      kind: "published",
-      conclusion: "success",
-      blockingCount: 0,
-    });
   });
 });

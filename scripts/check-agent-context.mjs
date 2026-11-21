@@ -180,7 +180,7 @@ const relocated = [
   ["docs/topology.md", "Lifecycle claims and watchdog hops do not spend work retries."],
   ["docs/topology.md", "```mermaid"],
   ["docs/runtime-surfaces.md", "Acknowledgement and CI refresh are fire-and-forget jobs."],
-  ["docs/local-stack.md", "Web-only runs accept work but do not publish reviews."],
+  ["docs/local-stack.md", "One process accepts work and publishes reviews."],
   ["docs/ship.md", "A passing typecheck alone does not prove webhook intake"],
   ["docs/public-voice.md", "Pratham's way of hosting"],
 ];

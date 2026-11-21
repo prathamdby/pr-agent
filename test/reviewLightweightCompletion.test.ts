@@ -1,80 +1,17 @@
+import { sqliteReviewCoordination } from "./helpers/publishReviewTestSetup.ts";
 vi.mock("../src/review/findingIdentity/threadMutationLock.ts", () => ({
   threadMutationLock: () => (apply: () => Promise<unknown>) => apply(),
 }));
-const publicationWrites = vi.hoisted(() => ({
-  write: vi
-    .fn<import("../src/agentWork/publishOnce.ts").PublishRecordStore["write"]>()
-    .mockResolvedValue(undefined),
-}));
-vi.mock("../src/agentWork/publishOnce.ts", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.ts")>();
-  return {
-    ...actual,
-    createPublishContext: (
-      client: import("pg").Pool | import("pg").PoolClient,
-      identity: import("../src/agentWork/publishOnce.ts").PublicationIdentity,
-    ) =>
-      actual.createPublishContext(client, identity, {
-        ...actual.postgresPublishRecords,
-        write: publicationWrites.write,
-      }),
-  };
-});
-const recordPublishStep = publicationWrites.write;
-import { createFakePublishStore } from "../src/agentWork/fakePublishStore.ts";
-const publishStoreState = vi.hoisted(() => {
-  let store: import("../src/agentWork/publishOnce.ts").PublishIntentStore;
-  return {
-    get store() {
-      return store;
-    },
-    set store(value) {
-      store = value;
-    },
-  };
-});
-vi.mock("../src/agentWork/operationIntentRepository.ts", async () => {
-  const { operationIntentRepositoryMock } = await import("./helpers/operationIntentMock.ts");
-  return operationIntentRepositoryMock(publishStoreState);
-});
-beforeEach(() => {
-  publishStoreState.store = createFakePublishStore();
-});
-vi.mock("../src/agentWork/reconcilePendingIntents.ts", () => ({
-  reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
-  findCompletedPublishRecordId: vi.fn(async () => null),
-}));
-vi.mock("../src/agentWork/prActorLease.ts", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/agentWork/prActorLease.ts")>()),
-  assertPrActorLeaseHeld: vi.fn(async () => undefined),
-}));
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
 import { tryLightweightAutoReviewCompletion } from "../src/agentWork/reviewLightweightCompletion.ts";
 import type { AgentWorkItem } from "../src/agentWork/types.ts";
 import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.ts";
 import { createFakePrSurface } from "../src/github/prSurface.ts";
 import { LIGHTWEIGHT_REVIEW_COMPLETION_LEAD } from "../src/settings/index.ts";
-import { FINDING_INVENTORY_UNAVAILABLE_NOTE } from "../src/review/statusCopy.ts";
-
-vi.mock("../src/agentWork/publishRecordRepository.ts", () => ({
-  getSummaryCommentGithubId: vi.fn(async () => null),
-}));
-
-vi.mock("../src/agentWork/workItemStateRepository.ts", () => ({
-  shouldSkipWork: vi.fn(),
-}));
+import { writePublishStep, workPublishRecord } from "../src/state/publish.ts";
 
 vi.mock("../src/review/run/reviewRunMetrics.ts", () => ({
   snapshotReviewRunMetrics: vi.fn(() => null),
-}));
-
-vi.mock("../src/agentWork/ciProjection.ts", () => ({
-  loadRenderableHeadCi: vi.fn(async () => ({
-    summary: { status: "pending", headline: "CI is pending", failures: [] },
-    version: 1,
-  })),
-  requestHeadCiProjection: vi.fn(async () => "skipped"),
 }));
 
 const summaryWrite = vi.hoisted(() =>
@@ -112,12 +49,7 @@ vi.mock("../src/review/publish/reviewSummaryComment.ts", () => ({
   }),
 }));
 
-import { getSummaryCommentGithubId } from "../src/agentWork/publishRecordRepository.ts";
-import { shouldSkipWork } from "../src/agentWork/workItemStateRepository.ts";
 import { snapshotReviewRunMetrics } from "../src/review/run/reviewRunMetrics.ts";
-import { requestHeadCiProjection, loadRenderableHeadCi } from "../src/agentWork/ciProjection.ts";
-
-const pool = {} as Pool;
 
 function autoReviewItem(overrides: { headSha?: string } = {}) {
   return ((pinnedReturn: AgentWorkItem) => pinnedReturn)({
@@ -143,27 +75,26 @@ function fakeSurface() {
   return createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
 }
 
+let currentWork = true;
+
 describe("tryLightweightAutoReviewCompletion", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(shouldSkipWork).mockResolvedValue(false);
     vi.mocked(snapshotReviewRunMetrics).mockReturnValue(null);
-    vi.mocked(loadRenderableHeadCi).mockResolvedValue({
-      summary: { status: "pending", headline: "CI is pending", failures: [] },
-      version: 1,
-    });
+    currentWork = true;
   });
 
   it("does not publish summary when shouldSkipWork is true", async () => {
-    vi.mocked(shouldSkipWork).mockResolvedValue(true);
+    currentWork = false;
     const { surface, controls } = fakeSurface();
+    const target = sqliteReviewCoordination();
 
-    const result = await tryLightweightAutoReviewCompletion(pool, {
+    const result = await tryLightweightAutoReviewCompletion(target, {
       item: autoReviewItem(),
       reviewLens: "review",
       prSurface: surface,
       model: "grok-4.5",
-      leaseEpoch: null,
+      isCurrent: () => currentWork,
       checkFailSeverity: "P2",
       preflight: {
         files: [{ filename: "README.md" }],
@@ -182,96 +113,31 @@ describe("tryLightweightAutoReviewCompletion", () => {
       0,
     );
     expect(summaryWrite).not.toHaveBeenCalled();
-    expect(recordPublishStep).not.toHaveBeenCalled();
-  });
-
-  it("publishes summary when trivial and work is not skipped", async () => {
-    const { surface, controls } = fakeSurface();
-    const result = await tryLightweightAutoReviewCompletion(pool, {
-      item: autoReviewItem(),
-      reviewLens: "review",
-      prSurface: surface,
-      model: "grok-4.5",
-      leaseEpoch: null,
-      checkFailSeverity: "P2",
-      preflight: {
-        files: [{ filename: "README.md" }],
-        truncated: false,
-        fileCount: 1,
-        totalChanges: 1,
-      },
-    });
-
-    expect(result).toMatchObject({ handled: true, published: true });
-    expect(summaryWrite).toHaveBeenCalledWith(
-      expect.objectContaining({
-        progressRevision: 7,
-        workItemId: "wi-1",
-        resourceKey: "o/r#1",
-      }),
-    );
-    expect(controls.events.some((event) => event.kind === "upsertProgressComment")).toBe(true);
-    expect(recordPublishStep).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({ step: "summary_comment" }),
-    );
-    expect(requestHeadCiProjection).toHaveBeenCalled();
-  });
-
-  it("returns a neutral check and notes the gap when thread state is incomplete", async () => {
-    const { surface, controls } = fakeSurface();
-    controls.setThreadResolutionStatus("partial", "thread pagination failed");
-
-    const result = await tryLightweightAutoReviewCompletion(pool, {
-      item: autoReviewItem(),
-      reviewLens: "review",
-      prSurface: surface,
-      model: "grok-4.5",
-      leaseEpoch: null,
-      checkFailSeverity: "P2",
-      preflight: {
-        files: [{ filename: "README.md" }],
-        truncated: false,
-        fileCount: 1,
-        totalChanges: 1,
-      },
-    });
-
-    expect(result).toMatchObject({
-      handled: true,
-      published: true,
-      check: { conclusion: "neutral", blockingCount: 0 },
-    });
-    const upsertArgs = vi.mocked(summaryWrite).mock.calls[0]?.[0];
-    expect(upsertArgs?.body).toContain(FINDING_INVENTORY_UNAVAILABLE_NOTE);
-    expect(recordPublishStep).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        step: "summary_comment",
-        detail: expect.objectContaining({
-          ownCheckFailing: false,
-          ownCheckIncomplete: true,
-          ownCheckFailSeverity: "P2",
-        }),
-      }),
-    );
+    expect(workPublishRecord(target.db, target.workItemId, "summary_comment")).toBeUndefined();
   });
 
   it("writes a terminal lightweight body that replaces the queued stub wording", async () => {
     const { surface, controls } = fakeSurface();
+    const target = sqliteReviewCoordination();
     controls.setProgressComment(
       REVIEW_SUMMARY_SENTINEL,
       `${REVIEW_SUMMARY_SENTINEL}\n\n> [!NOTE]\n> Review queued on the latest commit.\n<!-- pr-agent:progress-revision workItemId=wi-1 value=0 -->`,
       99,
     );
-    vi.mocked(getSummaryCommentGithubId).mockResolvedValue(99);
+    writePublishStep(target.db, {
+      workId: target.workItemId,
+      prKey: target.resourceKey,
+      reviewLens: "review",
+      step: "progress_comment",
+      githubId: 99,
+    });
 
-    const result = await tryLightweightAutoReviewCompletion(pool, {
+    const result = await tryLightweightAutoReviewCompletion(target, {
       item: autoReviewItem({ headSha: "5f93e93419cbd32419388cffd90b88804fe6259c" }),
       reviewLens: "review",
       prSurface: surface,
       model: "grok-4.5",
-      leaseEpoch: 3,
+      isCurrent: () => currentWork,
       checkFailSeverity: "P2",
       preflight: {
         files: [{ filename: "README.md" }],
@@ -295,12 +161,12 @@ describe("tryLightweightAutoReviewCompletion", () => {
 
   it("publishes a 0s footer when metrics snapshot is null", async () => {
     const { surface, controls } = fakeSurface();
-    const result = await tryLightweightAutoReviewCompletion(pool, {
+    const result = await tryLightweightAutoReviewCompletion(sqliteReviewCoordination(), {
       item: autoReviewItem({ headSha: "abc123def456" }),
       reviewLens: "review",
       prSurface: surface,
       model: "grok-4.5",
-      leaseEpoch: null,
+      isCurrent: () => currentWork,
       checkFailSeverity: "P2",
       preflight: {
         files: [{ filename: "README.md" }],
@@ -326,12 +192,12 @@ describe("tryLightweightAutoReviewCompletion", () => {
     } as ReturnType<typeof snapshotReviewRunMetrics>);
     const { surface, controls } = fakeSurface();
 
-    await tryLightweightAutoReviewCompletion(pool, {
+    await tryLightweightAutoReviewCompletion(sqliteReviewCoordination(), {
       item: autoReviewItem({ headSha: "abc123def456" }),
       reviewLens: "review",
       prSurface: surface,
       model: "grok-4.5",
-      leaseEpoch: null,
+      isCurrent: () => currentWork,
       checkFailSeverity: "P2",
       preflight: {
         files: [{ filename: "README.md" }],
@@ -348,44 +214,15 @@ describe("tryLightweightAutoReviewCompletion", () => {
     vi.useRealTimers();
   });
 
-  it("uses stored summary id when resolving the progress comment", async () => {
-    vi.mocked(getSummaryCommentGithubId).mockResolvedValue(55);
-    const { surface, controls } = fakeSurface();
-    controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, "existing", 55);
-
-    await tryLightweightAutoReviewCompletion(pool, {
-      item: autoReviewItem(),
-      reviewLens: "review",
-      prSurface: surface,
-      model: "grok-4.5",
-      leaseEpoch: null,
-      checkFailSeverity: "P2",
-      preflight: {
-        files: [{ filename: "README.md" }],
-        truncated: false,
-        fileCount: 1,
-        totalChanges: 1,
-      },
-    });
-
-    expect(getSummaryCommentGithubId).toHaveBeenCalledWith(pool, "o/r#1", "review");
-    const resolve = controls.events.find((event) => event.kind === "resolveProgressComment");
-    expect(resolve).toMatchObject({
-      kind: "resolveProgressComment",
-      hintCommentId: 55,
-    });
-    expect(summaryWrite).toHaveBeenCalledWith(expect.objectContaining({ hintCommentId: 55 }));
-  });
-
   it("submits an APPROVE review after a published docs-only summary", async () => {
     const { surface } = fakeSurface();
     const publishThreadBatch = vi.spyOn(surface, "publishThreadBatch");
-    const result = await tryLightweightAutoReviewCompletion(pool, {
+    const result = await tryLightweightAutoReviewCompletion(sqliteReviewCoordination(), {
       item: autoReviewItem(),
       reviewLens: "review",
       prSurface: surface,
       model: "grok-4.5",
-      leaseEpoch: null,
+      isCurrent: () => currentWork,
       checkFailSeverity: "P2",
       preflight: {
         files: [{ filename: "README.md" }],
@@ -404,12 +241,12 @@ describe("tryLightweightAutoReviewCompletion", () => {
     const { surface, controls } = fakeSurface();
     controls.setThreadResolutionStatus("partial", "thread pagination failed");
     const publishThreadBatch = vi.spyOn(surface, "publishThreadBatch");
-    const result = await tryLightweightAutoReviewCompletion(pool, {
+    const result = await tryLightweightAutoReviewCompletion(sqliteReviewCoordination(), {
       item: autoReviewItem(),
       reviewLens: "review",
       prSurface: surface,
       model: "grok-4.5",
-      leaseEpoch: null,
+      isCurrent: () => currentWork,
       checkFailSeverity: "P2",
       preflight: {
         files: [{ filename: "README.md" }],

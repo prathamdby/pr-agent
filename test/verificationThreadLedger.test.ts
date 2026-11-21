@@ -1,53 +1,23 @@
-import { createFakePublishStore } from "../src/agentWork/fakePublishStore.ts";
-const publishStoreState = vi.hoisted(() => {
-  let store: import("../src/agentWork/publishOnce.ts").PublishIntentStore;
-  return {
-    get store() {
-      return store;
-    },
-    set store(value) {
-      store = value;
-    },
-  };
-});
-vi.mock("../src/agentWork/operationIntentRepository.ts", async () => {
-  const { operationIntentRepositoryMock } = await import("./helpers/operationIntentMock.ts");
-  return operationIntentRepositoryMock(publishStoreState);
-});
-beforeEach(() => {
-  publishStoreState.store = createFakePublishStore();
-});
-vi.mock("../src/agentWork/reconcilePendingIntents.ts", () => ({
-  reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
-  findCompletedPublishRecordId: vi.fn(async () => null),
-}));
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  loadVerificationThreadLedger,
   parseVerificationThreadLedger,
-  saveVerificationThreadLedger,
   upsertVerificationThreadState,
 } from "../src/agentWork/verificationThreadLedger.ts";
-import { VERIFICATION_PUBLISH_LENS } from "../src/settings/index.ts";
+import {
+  loadVerificationThreadLedger,
+  saveVerificationThreadLedger,
+} from "../src/state/verificationThreadLedger.ts";
+import {
+  openExecutorDurableHarness,
+  type ExecutorDurableHarness,
+} from "./helpers/executorDurableHarness.ts";
 
-const mocks = vi.hoisted(() => ({
-  write: vi.fn(),
-}));
-
-vi.mock("../src/agentWork/publishOnce.ts", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.ts")>();
-  return {
-    ...actual,
-    createPublishContext: (
-      client: import("pg").Pool | import("pg").PoolClient,
-      identity: import("../src/agentWork/publishOnce.ts").PublicationIdentity,
-    ) =>
-      actual.createPublishContext(client, identity, {
-        ...actual.postgresPublishRecords,
-        write: mocks.write,
-      }),
-  };
+let harness: ExecutorDurableHarness;
+beforeEach(() => {
+  harness = openExecutorDurableHarness();
+});
+afterEach(() => {
+  harness.close();
 });
 
 describe("verificationThreadLedger", () => {
@@ -163,14 +133,6 @@ describe("verificationThreadLedger", () => {
   });
 
   it("round-trips a failure signal through save and load", async () => {
-    let stored: unknown;
-    mocks.write.mockImplementation(async (_pool, params: { detail: unknown }) => {
-      stored = params.detail;
-    });
-    const query = vi.fn(async () => ({
-      rows: stored == null ? [] : [{ detail: stored }],
-    }));
-    const pool = { query } as unknown as Pool;
     const ledger = {
       threads: { "10": { lastVerdict: "skipped" as const } },
       failureSignal: {
@@ -180,13 +142,12 @@ describe("verificationThreadLedger", () => {
       },
     };
 
-    await saveVerificationThreadLedger(pool, {
-      workItemId: "wi-1",
+    saveVerificationThreadLedger(harness.db, {
+      workId: "wi-1",
       resourceKey: "o/r#1",
       ledger,
-      leaseEpoch: 1,
     });
-    const loaded = await loadVerificationThreadLedger(pool, { resourceKey: "o/r#1" });
+    const loaded = loadVerificationThreadLedger(harness.db, { resourceKey: "o/r#1" });
 
     expect(loaded.failureSignal).toEqual(ledger.failureSignal);
     expect(loaded.threads["10"]?.lastVerdict).toBe("skipped");
@@ -245,16 +206,8 @@ describe("verificationThreadLedger", () => {
     });
   });
 
-  it("loads an empty ledger when no publish record exists", async () => {
-    const query = vi.fn(async () => ({ rows: [] }));
-    const ledger = await loadVerificationThreadLedger({ query } as unknown as Pool, {
-      resourceKey: "o/r#1",
-    });
+  it("loads an empty ledger when no publish record exists", () => {
+    const ledger = loadVerificationThreadLedger(harness.db, { resourceKey: "o/r#1" });
     expect(ledger).toEqual({ threads: {} });
-    expect(query).toHaveBeenCalledWith(expect.stringContaining("resource_key"), [
-      "o/r#1",
-      VERIFICATION_PUBLISH_LENS,
-      "verification_thread_actions",
-    ]);
   });
 });

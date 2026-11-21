@@ -17,7 +17,6 @@ RUN --mount=type=cache,id=npm,target=/root/.npm \
 FROM deps AS build
 COPY tsconfig.base.json tsconfig.build.json ./
 COPY src ./src
-COPY migrations ./migrations
 RUN npm run build
 
 FROM node:24.22.1-bookworm-slim AS runtime
@@ -25,15 +24,17 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=7224
+ENV SQLITE_DIR=/data
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends git ca-certificates \
-  && rm -rf /var/lib/apt/lists/*
+  && rm -rf /var/lib/apt/lists/* \
+  && mkdir -p /data \
+  && chown node:node /data
 
 COPY --from=prod-deps /app/package.json ./package.json
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-COPY --from=build /app/migrations ./migrations
 
 # Optional: if the build context has repo-root models.json (e.g. Dokploy patch),
 # place it at /app/models.json. Absent file must not fail the image build.
@@ -44,6 +45,8 @@ RUN --mount=type=bind,source=.,target=/build-context,ro \
   fi
 
 USER node
+
+VOLUME /data
 
 EXPOSE 7224
 

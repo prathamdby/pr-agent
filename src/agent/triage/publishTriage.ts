@@ -1,12 +1,8 @@
 import { decodeProgressComment } from "../../github/prSurfaceResults.ts";
 import { isRecord } from "../../util/typeGuards.ts";
 import { isDeepStrictEqual } from "node:util";
-import { assertPrActorLeaseHeld } from "../../agentWork/prActorLease.ts";
 import { AppError } from "../../errors/appError.ts";
-import { getWorkItemCore, shouldSkipWork } from "../../agentWork/workItemStateRepository.ts";
-import { createPublishContext } from "../../agentWork/publishOnce.ts";
 import type { TriageScope } from "../../agentWork/types.ts";
-import type { Pool } from "pg";
 import * as v from "valibot";
 import { pullRequestBranchInfo } from "../../github/listPullRequestFiles.ts";
 import type { PrSurface } from "../../github/prSurface.ts";
@@ -19,7 +15,6 @@ import {
   appendRootResolutionReceipt,
   unpostedResolutionReceipt,
 } from "../../review/findingIdentity/resolutionReceipt.ts";
-import { threadMutationLock } from "../../review/findingIdentity/threadMutationLock.ts";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.ts";
 import {
   TriagePayloadSchema,
@@ -40,17 +35,19 @@ import {
   TriageCancelledError,
   TriageClosedPullRequestError,
 } from "./triageErrors.ts";
-import { loadPrHeadCiState } from "../../agentWork/prHeadCiState.ts";
+import { loadPrHeadCiState } from "../../state/prHeadCiState.ts";
+import { workRunById } from "../../state/workRuns.ts";
 import {
+  foundFromRecovery,
+  intentIdentity,
   operationIntentMarker,
   triagePreviewOperationKey,
   triagePushOperationKey,
   triageReportOperationKey,
   triageThreadOperationKey,
-  publishOnce,
-  throwIfExecutionAborted,
-} from "../../agentWork/publishOnce.ts";
-import { fenceForEpoch } from "../../agentWork/writeFence.ts";
+  type FeaturePublication,
+} from "../../state/featurePublication.ts";
+import { throwIfAborted } from "../../errors/appError.ts";
 import {
   StaleHeadPushError,
   type WritablePrCheckout,
@@ -69,7 +66,7 @@ type TriagePublishCheckout = Pick<
 >;
 
 type PublishTriageParams = {
-  readonly pool: Pool;
+  readonly publication: FeaturePublication;
   readonly workItemId: string;
   readonly resourceKey: string;
   readonly installationId: number;
@@ -85,7 +82,6 @@ type PublishTriageParams = {
   readonly previouslyResolvedCount: number;
   readonly scope?: TriageScope;
   readonly threadRootCommentId?: number;
-  readonly leaseEpoch: number | null;
   readonly signal?: AbortSignal;
   readonly bulkOutcomes?: ReadonlyMap<number, TriageBulkOutcome>;
   readonly bulkClassification?: {
@@ -349,33 +345,33 @@ async function replyToThread(
 async function upsertTriageReport(
   params: Pick<
     PublishTriageParams,
-    "prSurface" | "pool" | "workItemId" | "resourceKey" | "leaseEpoch" | "signal"
+    "prSurface" | "publication" | "workItemId" | "resourceKey" | "signal"
   > & {
     readonly body: string;
   },
 ) {
   const operationKey = triageReportOperationKey(params.resourceKey);
   const operationMarker = operationIntentMarker(operationKey, params.workItemId);
-  const result = await publishOnce<{ readonly id: number; readonly updated: boolean }>({
+  const result = await params.publication.once({
     decodeResult: decodeProgressComment,
-    fence: fenceForEpoch(params.leaseEpoch),
-    client: params.pool,
-    workItemId: params.workItemId,
-    leaseEpoch: params.leaseEpoch,
+    resourceTarget: "triage_report_comment",
+    blocksOverwrite: true,
     operationKey,
     mutationKind: "github.triage_report",
-    detail: {
+    identity: {
       step: "triage_report",
       resourceKey: params.resourceKey,
       reviewLens: TRIAGE_PUBLISH_LENS,
       operationMarker,
     },
     recover: () =>
-      recoverMarkedProgressComment(params.prSurface, {
-        operationMarker,
-        sentinel: TRIAGE_SUMMARY_SENTINEL,
-      }),
-    isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
+      foundFromRecovery(
+        recoverMarkedProgressComment(params.prSurface, {
+          operationMarker,
+          sentinel: TRIAGE_SUMMARY_SENTINEL,
+        }),
+      ),
+    isKnownNoAcceptanceError: triageNoAcceptance,
     signal: params.signal,
     mutate: async () => {
       await assertTriagePublicationActive(params);
@@ -385,15 +381,11 @@ async function upsertTriageReport(
       );
     },
   });
-  await createPublishContext(params.pool, {
-    workItemId: params.workItemId,
-    leaseEpoch: params.leaseEpoch,
-    resourceKey: params.resourceKey,
-    reviewLens: TRIAGE_PUBLISH_LENS,
+  params.publication.record({
+    lens: TRIAGE_PUBLISH_LENS,
     step: "triage_report",
-    githubId: result.id,
-    detail: { updated: result.updated },
-  }).record();
+    detail: { updated: result.updated, githubId: result.id },
+  });
 }
 
 export async function publishTriageReportOnly(params: ReportOnlyParams) {
@@ -417,46 +409,43 @@ export async function publishTriagePreview(params: PublishTriagePreviewParams) {
   });
   const operationKey = triagePreviewOperationKey(params.resourceKey);
   const operationMarker = operationIntentMarker(operationKey, params.workItemId);
-  const result = await publishOnce<{ readonly id: number; readonly updated: boolean }>({
+  const result = await params.publication.once({
     decodeResult: decodeProgressComment,
-    fence: fenceForEpoch(params.leaseEpoch),
-    client: params.pool,
-    workItemId: params.workItemId,
-    leaseEpoch: params.leaseEpoch,
+    resourceTarget: "triage_preview_comment",
+    blocksOverwrite: true,
     operationKey,
     mutationKind: "github.triage_preview",
-    detail: {
+    identity: {
       step: "triage_preview",
       resourceKey: params.resourceKey,
       reviewLens: TRIAGE_PUBLISH_LENS,
       operationMarker,
     },
     recover: () =>
-      recoverMarkedProgressComment(params.prSurface, {
-        operationMarker,
-        sentinel: TRIAGE_PREVIEW_SENTINEL,
-      }),
-    isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
+      foundFromRecovery(
+        recoverMarkedProgressComment(params.prSurface, {
+          operationMarker,
+          sentinel: TRIAGE_PREVIEW_SENTINEL,
+        }),
+      ),
+    isKnownNoAcceptanceError: triageNoAcceptance,
     mutate: () =>
       params.prSurface.upsertProgressComment(
         `${redactReviewText(body)}\n${operationMarker}`,
         TRIAGE_PREVIEW_SENTINEL,
       ),
   });
-  await createPublishContext(params.pool, {
-    workItemId: params.workItemId,
-    leaseEpoch: params.leaseEpoch,
-    resourceKey: params.resourceKey,
-    reviewLens: TRIAGE_PUBLISH_LENS,
+  const previewDetail = {
+    headSha: params.headSha,
+    threadRootCommentIds: params.inventory.map((thread) => thread.rootCommentId),
+    hunks: params.hunks,
+    payload: params.payload,
+  } satisfies StoredTriagePreviewDetail;
+  params.publication.record({
+    lens: TRIAGE_PUBLISH_LENS,
     step: "triage_preview",
-    githubId: result.id,
-    detail: {
-      headSha: params.headSha,
-      threadRootCommentIds: params.inventory.map((thread) => thread.rootCommentId),
-      hunks: params.hunks,
-      payload: params.payload,
-    } satisfies StoredTriagePreviewDetail,
-  }).record();
+    detail: { ...previewDetail, githubId: result.id },
+  });
 }
 
 export async function publishTriage(params: PublishTriageParams) {
@@ -474,41 +463,47 @@ type RecoveryTriageParams = Omit<PublishTriageParams, "checkout" | "payload"> & 
   readonly recoveryInventory?: readonly BotFindingThread[];
 };
 
+function triageNoAcceptance(error: unknown) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    error instanceof TriageClosedPullRequestError ||
+      error instanceof TriageCancelledError ||
+      isKnownNoAcceptanceMutationError(error),
+  );
+}
+
+function triagePushFailClosed(params: { readonly workItemId: string }, operationKey: string) {
+  return ((pinnedReturn: AppError) => pinnedReturn)(
+    new AppError({
+      domain: "operation_intent",
+      kind: "mutation_outcome_unknown",
+      message:
+        "Mutation outcome unknown after crash between mutating and reconciled; remutate forbidden",
+      context: { workItemId: params.workItemId, operationKey, unknownResolution: "terminal" },
+    }),
+  );
+}
+
 export async function recoverTriagePublication(params: RecoveryTriageParams) {
-  const ctx = createPublishContext(params.pool, {
-    workItemId: params.workItemId,
-    resourceKey: params.resourceKey,
-    reviewLens: TRIAGE_PUBLISH_LENS,
-    leaseEpoch: params.leaseEpoch,
-  });
+  const publication = params.publication;
   const detail =
-    (await ctx.completed("triage_push")) ??
-    (await ctx.withoutNewer("triage_push", "triage_report"));
+    publication.completed("triage_push") ??
+    publication.latestWithoutNewer(TRIAGE_PUBLISH_LENS, "triage_push", "triage_report");
   const operationKey = triagePushOperationKey(params.resourceKey);
-  const intent = detail == null ? await ctx.intent(operationKey) : null;
+  const intent = detail == null ? publication.intent(operationKey) : undefined;
+  const failClosed = () => {
+    throw triagePushFailClosed(params, operationKey);
+  };
   if (detail == null && intent == null)
     return ((pinnedReturn: (PublishTriageResult | null) | Promise<PublishTriageResult | null>) =>
       pinnedReturn)(null);
-  if (intent?.status === "failed")
+  if (intent?.state === "mutation_failed" || intent?.state === "reserved")
     return ((pinnedReturn: (PublishTriageResult | null) | Promise<PublishTriageResult | null>) =>
       pinnedReturn)(null);
-  if (
-    intent != null &&
-    intent.detail.__mutating !== true &&
-    !Object.hasOwn(intent.detail, "__result") &&
-    intent.status === "pending"
-  )
-    return ((pinnedReturn: (PublishTriageResult | null) | Promise<PublishTriageResult | null>) =>
-      pinnedReturn)(null);
-  if (intent?.detail.unknownResolution === "terminal")
-    return ((pinnedReturn: (PublishTriageResult | null) | Promise<PublishTriageResult | null>) =>
-      pinnedReturn)(ctx.failClosed(intent));
-  const retained = detail ?? intent?.detail.pushPlan;
+  if (intent?.state === "outcome_unknown_terminal") return failClosed();
+  const retained = detail ?? intentIdentity(intent).pushPlan;
   const push = parseStoredTriagePushDetail(retained);
   if (push == null || !isRecord(retained)) {
-    if (intent != null)
-      return ((pinnedReturn: (PublishTriageResult | null) | Promise<PublishTriageResult | null>) =>
-        pinnedReturn)(ctx.failClosed(intent));
+    if (intent != null) return failClosed();
     throw new AppError({
       domain: "triage",
       kind: "invalid_stored_push",
@@ -520,37 +515,37 @@ export async function recoverTriagePublication(params: RecoveryTriageParams) {
       v.array(v.pipe(v.number(), v.integer(), v.minValue(1))),
       retained.threadRootCommentIds,
     );
-    const item = await getWorkItemCore(params.pool, params.workItemId);
+    const run = workRunById(publication.db, params.workItemId);
+    const runPayload: unknown = run === undefined ? undefined : JSON.parse(run.payload_json);
+    const runHeadSha =
+      isRecord(runPayload) && typeof runPayload.headSha === "string" ? runPayload.headSha : null;
     const verdictIds = new Set(push.payload.verdicts.map((verdict) => verdict.threadRootCommentId));
     if (
       push.pushOutcome !== "pushed" ||
       push.headRef == null ||
       push.pushedShas == null ||
       push.baseHeadSha == null ||
-      item?.headSha?.toLowerCase() !== push.baseHeadSha.toLowerCase() ||
-      item.resourceKey !== params.resourceKey ||
-      item.type !== "triage" ||
+      runHeadSha?.toLowerCase() !== push.baseHeadSha.toLowerCase() ||
+      run?.pr_key !== params.resourceKey ||
+      run.kind !== "triage" ||
       !roots.success ||
       roots.output.length !== verdictIds.size ||
       new Set(roots.output).size !== verdictIds.size ||
       !roots.output.every((id) => verdictIds.has(id))
     )
-      return ((pinnedReturn: (PublishTriageResult | null) | Promise<PublishTriageResult | null>) =>
-        pinnedReturn)(ctx.failClosed(intent));
+      return failClosed();
   }
   const inventory = retainedPublicationInventory(push, params);
   const publicationParams = inventory == null ? null : { ...params, inventory };
   const matches =
     publicationParams != null && storedPushMatchesPublication(push, publicationParams);
   const reconciledHeadMiss =
-    intent?.status === "reconciled" &&
+    intent?.state === "reconciled" &&
     publicationParams != null &&
     !matches &&
     storedPushMatchesPublication(push, publicationParams, { prePushHead: true });
   if (!matches && !reconciledHeadMiss) {
-    if (intent != null)
-      return ((pinnedReturn: (PublishTriageResult | null) | Promise<PublishTriageResult | null>) =>
-        pinnedReturn)(ctx.failClosed(intent));
+    if (intent != null) return failClosed();
     return ((pinnedReturn: (PublishTriageResult | null) | Promise<PublishTriageResult | null>) =>
       pinnedReturn)(null);
   }
@@ -559,26 +554,42 @@ export async function recoverTriagePublication(params: RecoveryTriageParams) {
       pinnedReturn)(null);
   await assertTriagePublicationActive(params);
   if (intent != null) {
+    const pushVisible = async () => {
+      const pushed = await params.prSurface.listPushedCommits();
+      const liveHead = await params.prSurface.getHeadSha();
+      const branch = pullRequestBranchInfo((await params.prSurface.getHead()).pullRequest);
+      await assertTriagePublicationActive(params);
+      return (
+        branch.sameRepo &&
+        branch.headRef === push.headRef &&
+        liveHead.toLowerCase() === push.pushedHeadSha?.toLowerCase() &&
+        push.commits.every((commit) => pushed.some((entry) => entry.sha === commit.sha))
+      );
+    };
     try {
-      await ctx.once<void>({
-        operationKey,
-        mutationKind: "github.triage_push",
-        signal: params.signal,
-        allowsUndefinedResult: false,
-        recover: async () => {
-          const pushed = await params.prSurface.listPushedCommits();
-          const liveHead = await params.prSurface.getHeadSha();
-          const branch = pullRequestBranchInfo((await params.prSurface.getHead()).pullRequest);
-          await assertTriagePublicationActive(params);
-          return branch.sameRepo &&
-            branch.headRef === push.headRef &&
-            liveHead.toLowerCase() === push.pushedHeadSha?.toLowerCase() &&
-            push.commits.every((commit) => pushed.some((entry) => entry.sha === commit.sha))
-            ? { kind: "reconciled", value: undefined }
-            : { kind: "absent" };
-        },
-        mutate: async () => ctx.failClosed(intent),
-      });
+      if (intent.state === "reconciled" && intent.result_json === null) {
+        if (!(await pushVisible())) {
+          throw new AppError({
+            domain: "operation_intent",
+            kind: "mutation_outcome_unknown",
+            message:
+              "Reconciled mutation has no stored result and recovery cannot rebuild it; remutate forbidden",
+            context: { workItemId: params.workItemId, operationKey, unknownResolution: "terminal" },
+          });
+        }
+      } else {
+        await publication.once({
+          decodeResult: () => undefined,
+          allowsUndefinedResult: true,
+          resourceTarget: "triage_push",
+          operationKey,
+          mutationKind: "github.triage_push",
+          signal: params.signal,
+          recover: async () =>
+            (await pushVisible()) ? { found: true, value: undefined } : { found: false },
+          mutate: async () => failClosed(),
+        });
+      }
     } catch (error) {
       await assertTriagePublicationActive(params);
       throw error;
@@ -589,7 +600,8 @@ export async function recoverTriagePublication(params: RecoveryTriageParams) {
     } catch (error) {
       if (!(error instanceof TriageClosedPullRequestError)) throw error;
       const closed = { ...push, pushOutcome: "closed" as const };
-      await ctx.record({
+      publication.record({
+        lens: TRIAGE_PUBLISH_LENS,
         step: "triage_push",
         detail: storedTriagePushRecord({
           outcome: "closed",
@@ -608,7 +620,7 @@ export async function recoverTriagePublication(params: RecoveryTriageParams) {
         ),
       );
     }
-    await ctx.record({ step: "triage_push", detail: retained });
+    publication.record({ lens: TRIAGE_PUBLISH_LENS, step: "triage_push", detail: retained });
   }
   return ((pinnedReturn: (PublishTriageResult | null) | Promise<PublishTriageResult | null>) =>
     pinnedReturn)(
@@ -670,17 +682,17 @@ function storedPushMatchesPublication(
 }
 
 async function assertTriagePublicationActive(
-  params: Pick<PublishTriageParams, "pool" | "workItemId" | "signal" | "leaseEpoch">,
+  params: Pick<PublishTriageParams, "publication" | "workItemId" | "signal">,
 ) {
-  throwIfExecutionAborted(params.signal, { workItemId: params.workItemId });
-  if (await shouldSkipWork(params.pool, { id: params.workItemId }))
-    throw new TriageCancelledError();
-  if (params.leaseEpoch != null)
-    await assertPrActorLeaseHeld(params.pool, params.workItemId, params.leaseEpoch);
+  throwIfAborted(params.signal, {
+    message: "PR-surface mutation was aborted before completion",
+    context: { workItemId: params.workItemId },
+  });
+  if (!params.publication.current()) throw new TriageCancelledError();
 }
 
 async function assertTriageWriteAllowed(
-  params: Pick<PublishTriageParams, "pool" | "workItemId" | "signal" | "leaseEpoch" | "prSurface">,
+  params: Pick<PublishTriageParams, "publication" | "workItemId" | "signal" | "prSurface">,
 ) {
   await assertTriagePublicationActive(params);
   await assertTriagePullRequestWritable(params.prSurface);
@@ -716,38 +728,31 @@ async function publishTriageBody(
         }),
         threadRootCommentIds: params.inventory.map((thread) => thread.rootCommentId),
       };
-      const ctx = createPublishContext(params.pool, {
-        workItemId: params.workItemId,
-        resourceKey: params.resourceKey,
-        reviewLens: TRIAGE_PUBLISH_LENS,
-        leaseEpoch: params.leaseEpoch,
-      });
-      const retained = await ctx.intent(operationKey);
+      const retained = params.publication.intent(operationKey);
       if (
         retained != null &&
-        (Object.hasOwn(retained.detail, "__result") ||
-          retained.status === "outcome_unknown" ||
-          retained.status === "reconciled" ||
-          (retained.status === "pending" && retained.detail.__mutating === true)) &&
-        !isDeepStrictEqual(retained.detail.pushPlan, pushPlan)
+        retained.state !== "reserved" &&
+        retained.state !== "mutation_failed" &&
+        !isDeepStrictEqual(intentIdentity(retained).pushPlan, pushPlan)
       ) {
-        await ctx.failClosed(retained);
+        throw triagePushFailClosed(params, operationKey);
       }
-      await ctx.once<void>({
+      await params.publication.once({
+        decodeResult: () => undefined,
+        allowsUndefinedResult: true,
+        resourceTarget: "triage_push",
         signal: params.signal,
         operationKey,
         mutationKind: "github.triage_push",
-        allowsUndefinedResult: false,
-        detail: {
+        identity: {
           step: "triage_push",
           resourceKey: params.resourceKey,
           reviewLens: TRIAGE_PUBLISH_LENS,
           pushPlan,
         },
-        mutationDetail: { pushPlan },
         recover: async (intent) => {
-          const plan = parseStoredTriagePushDetail(intent.detail.pushPlan);
-          if (plan == null) return { kind: "absent" as const };
+          const plan = parseStoredTriagePushDetail(intentIdentity(intent).pushPlan);
+          if (plan == null) return { found: false };
           const pushed = await params.prSurface.listPushedCommits();
           const liveHead = await params.prSurface.getHeadSha();
           const branch = pullRequestBranchInfo((await params.prSurface.getHead()).pullRequest);
@@ -756,11 +761,11 @@ async function publishTriageBody(
             branch.headRef === plan.headRef &&
             liveHead.toLowerCase() === plan.pushedHeadSha?.toLowerCase() &&
             plan.commits.every((expected) => pushed.some((commit) => commit.sha === expected.sha))
-            ? { kind: "reconciled" as const, value: undefined }
-            : { kind: "absent" as const };
+            ? { found: true, value: undefined }
+            : { found: false };
         },
         isKnownNoAcceptanceError: (error) =>
-          error instanceof StaleHeadPushError || isKnownNoAcceptanceMutationError(error),
+          error instanceof StaleHeadPushError || triageNoAcceptance(error),
         mutate: async () => {
           await assertTriageWriteAllowed(params);
           await publication.checkout.push();
@@ -769,11 +774,8 @@ async function publishTriageBody(
       await assertTriagePublicationActive(params);
       await assertTriagePullRequestWritable(params.prSurface);
       pushOutcome = "pushed";
-      await createPublishContext(params.pool, {
-        workItemId: params.workItemId,
-        leaseEpoch: params.leaseEpoch,
-        resourceKey: params.resourceKey,
-        reviewLens: TRIAGE_PUBLISH_LENS,
+      params.publication.record({
+        lens: TRIAGE_PUBLISH_LENS,
         step: "triage_push",
         detail: storedTriagePushRecord({
           outcome: "pushed",
@@ -783,7 +785,7 @@ async function publishTriageBody(
           commits: committedDetails,
           payload: params.payload,
         }),
-      }).record();
+      });
     } catch (error) {
       if (error instanceof TriageClosedPullRequestError) {
         pushOutcome = "closed";
@@ -792,11 +794,8 @@ async function publishTriageBody(
       } else {
         throw error;
       }
-      await createPublishContext(params.pool, {
-        workItemId: params.workItemId,
-        leaseEpoch: params.leaseEpoch,
-        resourceKey: params.resourceKey,
-        reviewLens: TRIAGE_PUBLISH_LENS,
+      params.publication.record({
+        lens: TRIAGE_PUBLISH_LENS,
         step: "triage_push",
         detail: storedTriagePushRecord({
           outcome: pushOutcome,
@@ -806,14 +805,11 @@ async function publishTriageBody(
           commits: committedDetails,
           payload: params.payload,
         }),
-      }).record();
+      });
     }
   } else if (publication.kind === "fresh") {
-    await createPublishContext(params.pool, {
-      workItemId: params.workItemId,
-      leaseEpoch: params.leaseEpoch,
-      resourceKey: params.resourceKey,
-      reviewLens: TRIAGE_PUBLISH_LENS,
+    params.publication.record({
+      lens: TRIAGE_PUBLISH_LENS,
       step: "triage_push",
       detail: storedTriagePushRecord({
         outcome: "not-needed",
@@ -823,19 +819,16 @@ async function publishTriageBody(
         commits: [],
         payload: params.payload,
       }),
-    }).record();
+    });
   }
 
+  const storedActed = params.publication.completed("triage_thread_actions")?.actedThreadIds;
   const actedThreadIds = new Set(
-    await createPublishContext(params.pool, {
-      workItemId: params.workItemId,
-      resourceKey: params.resourceKey,
-      reviewLens: TRIAGE_PUBLISH_LENS,
-      step: "triage_thread_actions",
-    }).actedThreads("triage_thread_actions"),
+    Array.isArray(storedActed)
+      ? storedActed.filter((id): id is number => Number.isInteger(id))
+      : [],
   );
   const threadById = new Map(params.inventory.map((thread) => [thread.rootCommentId, thread]));
-  const withThreadLock = threadMutationLock(params.pool, params.resourceKey);
   for (const verdict of params.payload.verdicts) {
     await assertTriagePublicationActive(params);
     if (!shouldResolveTriageThread(verdict, pushOutcome)) continue;
@@ -851,7 +844,7 @@ async function publishTriageBody(
       missingThreadAction = true;
       continue;
     }
-    await withThreadLock(async () => {
+    {
       if (
         shouldReplyToTriageThread(verdict) &&
         !actedThreadIds.has(verdict.threadRootCommentId) &&
@@ -864,16 +857,14 @@ async function publishTriageBody(
         });
         const operationKey = triageThreadOperationKey(verdict.threadRootCommentId);
         const operationMarker = operationIntentMarker(operationKey, params.workItemId);
-        await publishOnce<void>({
-          fence: fenceForEpoch(params.leaseEpoch),
-          client: params.pool,
-          workItemId: params.workItemId,
-          leaseEpoch: params.leaseEpoch,
+        await params.publication.once({
+          decodeResult: () => undefined,
+          allowsUndefinedResult: true,
+          resourceTarget: `thread_reply:${verdict.threadRootCommentId}`,
           signal: params.signal,
           operationKey,
           mutationKind: "github.triage_thread_reply",
-          allowsUndefinedResult: true,
-          detail: {
+          identity: {
             step: "triage_thread_actions",
             resourceKey: params.resourceKey,
             reviewLens: TRIAGE_PUBLISH_LENS,
@@ -886,15 +877,13 @@ async function publishTriageBody(
               operationMarker,
               verdict.threadRootCommentId,
             );
-            return existing == null
-              ? { kind: "absent" as const }
-              : { kind: "reconciled" as const, value: undefined };
+            return existing == null ? { found: false } : { found: true, value: undefined };
           },
-          isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
+          isKnownNoAcceptanceError: triageNoAcceptance,
           mutate: async () => {
             await assertTriagePublicationActive(params);
             if (receipt == null) return;
-            return replyToThread({
+            await replyToThread({
               ...params,
               thread,
               verdict,
@@ -904,25 +893,21 @@ async function publishTriageBody(
           },
         });
         actedThreadIds.add(verdict.threadRootCommentId);
-        await createPublishContext(params.pool, {
-          workItemId: params.workItemId,
-          resourceKey: params.resourceKey,
-          reviewLens: TRIAGE_PUBLISH_LENS,
+        params.publication.record({
+          lens: TRIAGE_PUBLISH_LENS,
           step: "triage_thread_actions",
-          leaseEpoch: params.leaseEpoch,
-        }).recordActedThreads("triage_thread_actions", [...actedThreadIds]);
+          detail: { actedThreadIds: [...actedThreadIds] },
+        });
       }
       const operationKey = `${triageThreadOperationKey(verdict.threadRootCommentId)}:resolve`;
-      await publishOnce<void>({
-        fence: fenceForEpoch(params.leaseEpoch),
-        client: params.pool,
-        workItemId: params.workItemId,
-        leaseEpoch: params.leaseEpoch,
+      await params.publication.once({
+        decodeResult: () => undefined,
+        allowsUndefinedResult: true,
+        resourceTarget: `thread_resolve:${verdict.threadRootCommentId}`,
         signal: params.signal,
         operationKey,
         mutationKind: "github.triage_thread_resolve",
-        allowsUndefinedResult: true,
-        detail: {
+        identity: {
           step: "triage_thread_actions",
           resourceKey: params.resourceKey,
           reviewLens: TRIAGE_PUBLISH_LENS,
@@ -931,10 +916,10 @@ async function publishTriageBody(
         recover: async () => {
           const current = await params.prSurface.listInlineReviewThreads();
           return current.byRootCommentId.get(verdict.threadRootCommentId)?.isResolved === true
-            ? { kind: "reconciled" as const, value: undefined }
-            : { kind: "absent" as const };
+            ? { found: true, value: undefined }
+            : { found: false };
         },
-        isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
+        isKnownNoAcceptanceError: triageNoAcceptance,
         mutate: async () => {
           await assertTriagePublicationActive(params);
           if (verdict.verdict === "dismissed") {
@@ -947,7 +932,7 @@ async function publishTriageBody(
           await params.prSurface.resolveInlineReviewThread(resolution.threadNodeId);
         },
       });
-    });
+    }
   }
 
   const bulkOutcomes =
@@ -969,7 +954,10 @@ async function publishTriageBody(
 
   const ciHeadSha =
     pushOutcome === "pushed" ? (committedDetails.at(-1)?.sha ?? params.headSha) : params.headSha;
-  const ciRow = await loadPrHeadCiState(params.pool, params.owner, params.repo, ciHeadSha);
+  const ciRow = loadPrHeadCiState(params.publication.db, {
+    repoKey: `${params.owner}/${params.repo}`,
+    headSha: ciHeadSha,
+  });
 
   await assertTriagePublicationActive(params);
   await upsertTriageReport({
@@ -978,8 +966,8 @@ async function publishTriageBody(
       headSha: params.headSha,
       ciRollup: {
         headSha: ciHeadSha,
-        version: ciRow?.version ?? 0,
-        rollup: ciRow?.rollup ?? "none",
+        version: ciRow?.state.version ?? 0,
+        rollup: ciRow?.state.rollup ?? "none",
       },
       inventory: params.inventory,
       payload: params.payload,

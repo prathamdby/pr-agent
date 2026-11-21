@@ -327,12 +327,12 @@ const PROMPT_IMPORTS_PROBE: Record<string, string> = {
     'import { readFileSync } from "node:fs";',
     'import type { Config } from "../../settings/config.ts";',
     'import { ASK_FAILURE_MESSAGE } from "../../settings/askConstants.ts";',
-    'import { MAX_TOOL_ROUNDS } from "../../settings/index.ts";',
+    'import { RECON_MAX_TOOL_ROUNDS } from "../../settings/index.ts";',
     'import { escape } from "../../util/escape.ts";',
     'import { renderGuestCatalogue } from "../../agent/codemode/guestCatalogue.ts";',
     'import { envelope } from "../shared/safety.ts";',
     'import { askOutput } from "./output.ts";',
-    "export const e = [loadRepoPolicy, readFileSync, ASK_FAILURE_MESSAGE, MAX_TOOL_ROUNDS];",
+    "export const e = [loadRepoPolicy, readFileSync, ASK_FAILURE_MESSAGE, RECON_MAX_TOOL_ROUNDS];",
     "export const f = [escape, renderGuestCatalogue, envelope, askOutput];",
     "export type G = Config;",
     "",
@@ -556,7 +556,7 @@ const PROMPT_STYLE_PROBE: Record<string, string> = {
     'const paramText = "Read DEEPLY."; export const alias = v.description(paramText);',
     "",
   ].join("\n"),
-  "src/agent/codemode/guestCatalogue.ts":
+  "src/prompts/shared/tools.ts":
     'export function renderExecuteDescription() { return "Run QUIETLY!"; }\n',
   "src/agent/description/fooSchema.ts": [
     'export const tool = { description: "Read SHOUT." };',
@@ -581,7 +581,7 @@ describe("architecture rules", () => {
       "src/prompts/ask/context.ts": [],
       "src/prompts/shared/safety.ts": [5],
       "src/agent/tools/workspaceToolset.ts": [1, 3, 3, 4, 8, 9, 10],
-      "src/agent/codemode/guestCatalogue.ts": [1, 1],
+      "src/prompts/shared/tools.ts": [1, 1],
       "src/agent/description/fooSchema.ts": [1, 2],
       "src/other.ts": [],
       "test/promptStyle.ts": [],
@@ -592,7 +592,7 @@ describe("architecture rules", () => {
     expect(lintWithPlugin(ratchet).lines("prompt-style")).toEqual({
       "src/prompts/shared/safety.ts": [5],
       "src/agent/tools/workspaceToolset.ts": [1, 3, 3, 4, 8, 9, 10],
-      "src/agent/codemode/guestCatalogue.ts": [1, 1],
+      "src/prompts/shared/tools.ts": [1, 1],
       "src/agent/description/fooSchema.ts": [1, 2],
       "src/other.ts": [],
       "test/promptStyle.ts": [],
@@ -624,7 +624,7 @@ describe("architecture rules", () => {
       "src/review/sectionImports.ts": [1, 2, 3, 4],
       "src/agent/entryImports.ts": [],
       "src/review/repairImports.ts": [],
-      "src/prompts/ask/prompt.ts": [1, 2],
+      "src/prompts/ask/prompt.ts": [1, 2, 7],
       "src/prompts/shared/context.ts": [1, 2],
       "test/promptImports.ts": [],
     });
@@ -784,9 +784,8 @@ export function buildThing(
     const rows = loadCodeRows();
     const sql = rows.find((row) => row.id === "sql-status");
     expect(sql).toBeDefined();
-    const hit = "const q = `UPDATE agent_work_items SET\n  status = 'failed' WHERE id = $1`;";
-    const miss =
-      "const q = `UPDATE agent_work_items SET updated_at = now() WHERE status = 'failed'`;";
+    const hit = "const q = `UPDATE work_runs SET\n  status = 'failed' WHERE id = ?`;";
+    const miss = "const q = `UPDATE work_runs SET updated_at = ? WHERE status = 'failed'`;";
     expect(sourceMatchesCodeRow(sql!, "src/banned/probe.ts", hit)).toBe(true);
     expect(sourceMatchesCodeRow(sql!, "src/banned/probe.ts", miss)).toBe(false);
   });
@@ -827,16 +826,15 @@ import { foo } from "../agent/foo.ts";
   it("keeps webhook server free of worker executors and orchestrator", () => {
     const graph = runtimeImportGraph("src/effect/server.ts");
     expect(graph.size).toBeLessThan(120);
-    expect(graph.has("src/agentWork/runtime.ts")).toBe(true);
-    expect(graph.has("src/agentWork/intake/delivery.ts")).toBe(true);
+    expect(graph.has("src/effect/webhookIntake.ts")).toBe(true);
+    expect(graph.has("src/state/intake.ts")).toBe(true);
     expect(graph.has("src/webhook/intakeCommand.ts")).toBe(true);
-    expect(graph.has("src/effect/services/webhookHandlers.ts")).toBe(false);
-    expect(graph.has("src/agentWork/worker.ts")).toBe(false);
-    expect(graph.has("src/agentWork/executors/reviewExecutor.ts")).toBe(false);
+    expect(graph.has("src/agent/runtime/durable/dispatcher.ts")).toBe(false);
+    expect(graph.has("src/agent/runtime/durable/reviewOrchestratorTask.ts")).toBe(false);
     expect(graph.has("src/review/orchestrator/orchestratorRun.ts")).toBe(false);
     expect(graph.has("src/agent/runtime/piSession.ts")).toBe(false);
     expect(runtimeImportGraph("src/effect/server.ts", { staticOnly: true })).not.toContain(
-      "src/agent/runtime/modelsJson.ts",
+      "src/agent/runtime/durable/modelsJson.ts",
     );
   });
 });

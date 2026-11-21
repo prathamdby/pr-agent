@@ -1,5 +1,22 @@
 import { randomUUID } from "node:crypto";
-import type { AgentEventInsertRow } from "../agentWork/agentEventsRepository.ts";
+
+export type AgentEventInsertRow = {
+  readonly workItemId?: string | null;
+  readonly installationId?: number | null;
+  readonly owner?: string | null;
+  readonly repo?: string | null;
+  readonly prNumber?: number | null;
+  readonly sessionRole?: string | null;
+  readonly eventKind: string;
+  readonly phase?: string | null;
+  readonly checkpointId?: string | null;
+  readonly toolName?: string | null;
+  readonly provider?: string | null;
+  readonly model?: string | null;
+  readonly ok?: boolean | null;
+  readonly failureCode?: string | null;
+  readonly detail?: Readonly<Record<string, unknown>>;
+};
 
 export type WorkSpanContext = {
   readonly workItemId: string;
@@ -39,6 +56,7 @@ export type LlmWorkSpan = WorkSpanBase & {
   readonly cacheReadTokens?: number;
   readonly cacheWriteTokens?: number;
   readonly cacheWrite1hTokens?: number;
+  readonly reasoningTokens?: number;
   readonly totalTokens?: number;
   readonly phase: string;
   readonly sessionRole?: string;
@@ -59,7 +77,7 @@ export type SpecialistWorkSpan = WorkSpanBase & {
   readonly phase: "specialist";
   readonly specialistId: string;
   readonly stage: "schema" | "validation" | "run";
-  readonly outcome: "accepted" | "rejected" | "report" | "empty" | "error";
+  readonly outcome: "accepted" | "rejected" | "complete" | "partial" | "failed";
   readonly submittedCount?: number;
   readonly acceptedCount?: number;
   readonly rejectedCount?: number;
@@ -112,6 +130,7 @@ export function projectWorkSpanToAgentEventRow(context: WorkSpanContext, span: W
           ...(span.cacheWrite1hTokens != null
             ? { cacheWrite1hTokens: span.cacheWrite1hTokens }
             : {}),
+          ...(span.reasoningTokens != null ? { reasoningTokens: span.reasoningTokens } : {}),
           ...(span.totalTokens != null ? { totalTokens: span.totalTokens } : {}),
         },
       });
@@ -185,6 +204,7 @@ export function llmSpanFromSession(input: {
   readonly cacheReadTokens?: number;
   readonly cacheWriteTokens?: number;
   readonly cacheWrite1hTokens?: number;
+  readonly reasoningTokens?: number;
   readonly totalTokens?: number;
   readonly latencyMs: number;
   readonly isError: boolean;
@@ -215,6 +235,7 @@ export function llmSpanFromSession(input: {
     ...(input.cacheReadTokens != null ? { cacheReadTokens: input.cacheReadTokens } : {}),
     ...(input.cacheWriteTokens != null ? { cacheWriteTokens: input.cacheWriteTokens } : {}),
     ...(input.cacheWrite1hTokens != null ? { cacheWrite1hTokens: input.cacheWrite1hTokens } : {}),
+    ...(input.reasoningTokens != null ? { reasoningTokens: input.reasoningTokens } : {}),
     ...(input.totalTokens != null ? { totalTokens: input.totalTokens } : {}),
     phase: input.phase,
     ...(input.sessionRole != null ? { sessionRole: input.sessionRole } : {}),
@@ -256,7 +277,7 @@ export function specialistSpanFromContext(input: {
     stage: input.stage,
     outcome: input.outcome,
     latencyMs: input.latencyMs,
-    isError: input.outcome === "error" || input.outcome === "rejected",
+    isError: input.outcome === "failed" || input.outcome === "rejected",
     ...(input.errorReason != null ? { errorReason: input.errorReason } : {}),
     ...(input.submittedCount != null ? { submittedCount: input.submittedCount } : {}),
     ...(input.acceptedCount != null ? { acceptedCount: input.acceptedCount } : {}),

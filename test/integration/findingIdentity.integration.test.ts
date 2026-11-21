@@ -2,18 +2,17 @@ import { randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { DatabaseSync } from "node:sqlite";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
-import { runMigrations } from "../../src/db/migrations.ts";
-import { openReviewArtifactStore } from "../../src/agentWork/reviewArtifactRepository.ts";
-import { createLeaseMutationBoundary } from "../../src/agentWork/leasedExecution.ts";
-import { getOperationIntent } from "../../src/agentWork/operationIntentRepository.ts";
-import { releasePrActorLease } from "../../src/agentWork/prActorLease.ts";
+import * as v from "valibot";
+import { readRow, readRows } from "../../src/state/db.ts";
+import { ensurePrState } from "../../src/state/intake.ts";
+import { createFeaturePublication, publishIntentFor } from "../../src/state/featurePublication.ts";
 import {
-  deterministicInlineBatchId,
+  createPublishMutationBoundary,
   reviewDuplicateOperationKey,
-  reviewInlineBatchOperationKey,
-} from "../../src/agentWork/publishOnce.ts";
+} from "../../src/state/publish.ts";
+import { bumpLaneEpoch, cancelWorkRun, insertWorkRun } from "../../src/state/workRuns.ts";
 import { renderObjectionAnswerMarker } from "../../src/review/findingIdentity/findingMarker.ts";
 import {
   createFakePrSurface,
@@ -21,7 +20,7 @@ import {
   type FakePrSurfaceControls,
   type PrSurface,
 } from "../../src/github/prSurface.ts";
-import { reviewVerdict } from "../../src/agentWork/reviewVerdict.ts";
+import { reviewVerdictSurfaces } from "../../src/review/publish/reviewVerdictSurfaces.ts";
 import { publishVerification } from "../../src/agent/verification/publishVerification.ts";
 import {
   loadFindingInventory,
@@ -49,8 +48,6 @@ import {
 import { publishFindingBatch } from "../../src/review/publish/publishFindingBatch.ts";
 import { createReviewPublishSession } from "../../src/review/publish/reviewPublishSession.ts";
 import { publishReviewSummaryOnly } from "../../src/review/publish/publishSummaryOnly.ts";
-import { createReviewArtifactBinding } from "../../src/review/recovery/reviewArtifacts.ts";
-import { openReviewRecovery } from "../../src/review/recovery/reviewRecovery.ts";
 import { reviewPayloadFromFindings, type ReviewFinding } from "../../src/review/reviewSchema.ts";
 import type { ReviewPublishSession } from "../../src/review/publish/reviewPublishSession.ts";
 import { FINDING_INVENTORY_UNAVAILABLE_NOTE } from "../../src/review/statusCopy.ts";
@@ -64,7 +61,7 @@ import {
   cachedDiffForLines,
   completeFindingInventory,
 } from "../helpers/reviewPublishTestHelpers.ts";
-import { hasDatabase, integrationPool } from "./db.ts";
+import { openSqliteAppState } from "./db.ts";
 
 const HEAD_SHA = "abc1234";
 const LEASE_EPOCH = 7;
@@ -80,16 +77,17 @@ const findings: readonly ReviewFinding[] = [10, 11].map((line) => ({
   fixPrompt: "Guard the payload before dereferencing it.",
 }));
 
-describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
-  let pool: Pool;
+describe("finding identity (integration)", () => {
+  let state: ReturnType<typeof openSqliteAppState>;
+  let db: DatabaseSync;
 
-  beforeAll(async () => {
-    pool = integrationPool();
-    await runMigrations(pool);
+  beforeAll(() => {
+    state = openSqliteAppState();
+    db = state.db;
   });
 
-  afterAll(async () => {
-    await pool.end();
+  afterAll(() => {
+    state.close();
   });
 
   const rerunCleanups: Array<() => Promise<void>> = [];
@@ -99,35 +97,34 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
     for (const cleanup of rerunCleanups.splice(0)) await cleanup();
   });
 
+  function makePublication(workItemId: string, resourceKey: string) {
+    return createFeaturePublication({
+      db,
+      workId: workItemId,
+      prKey: resourceKey,
+      laneEpoch: LEASE_EPOCH,
+      shutdownRequested: () => false,
+    });
+  }
+
   async function seedReviewPublication(cfg = makeTestConfig()) {
     const workItemId = randomUUID();
     const repo = `r-${workItemId}`;
     const resourceKey = `finding-identity-it/${repo}#1`;
-    await pool.query(
-      `INSERT INTO agent_work_items
-        (id, type, source, status, owner, repo, pr_number, installation_id, head_sha, review_lens, resource_key, payload, execution_epoch)
-       VALUES ($1, 'review', 'auto', 'running', 'finding-identity-it', $2, 1, 42, $3, 'review', $4, '{}', $5)`,
-      [workItemId, repo, HEAD_SHA, resourceKey, LEASE_EPOCH],
-    );
-    await pool.query(
-      `INSERT INTO pr_actor_leases (resource_key, work_type, lease_epoch, work_item_id, holder_id, expires_at)
-       VALUES ($1, 'review', $2, $3, 'finding-identity-it', now() + interval '5 minutes')`,
-      [resourceKey, LEASE_EPOCH, workItemId],
-    );
-    const binding = createReviewArtifactBinding(
-      {
-        workItemId,
-        resourceKey,
-        owner: "finding-identity-it",
-        repo,
-        prNumber: 1,
-        installationId: 42,
-        baseSha: "base",
-        headSha: HEAD_SHA,
-        mode: "review",
-      },
-      "a".repeat(64),
-    );
+    const now = Date.now();
+    ensurePrState(db, resourceKey, now);
+    db.prepare(
+      `UPDATE pr_state SET auto_review_epoch = ?, verification_epoch = ?, updated_at = ? WHERE pr_key = ?`,
+    ).run(LEASE_EPOCH, LEASE_EPOCH, now, resourceKey);
+    insertWorkRun(db, {
+      workId: workItemId,
+      prKey: resourceKey,
+      kind: "review",
+      laneEpoch: LEASE_EPOCH,
+      payloadJson: JSON.stringify({ headSha: HEAD_SHA }),
+      now,
+    });
+    db.prepare(`UPDATE work_runs SET status = 'running' WHERE work_id = ?`).run(workItemId);
     const { surface, controls } = createFakePrSurface({
       owner: "finding-identity-it",
       repo,
@@ -135,7 +132,7 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
     });
 
     const attempt = (
-      client: Pool,
+      _client: DatabaseSync,
       prSurface: PrSurface,
       observations: readonly ReviewFinding[] = [],
       findingInventory: FindingInventory = completeFindingInventory(),
@@ -174,10 +171,6 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
           content: read.content,
         });
       }
-      const recovery = openReviewRecovery(
-        binding,
-        openReviewArtifactStore(client, binding, LEASE_EPOCH),
-      );
       const session = createReviewPublishSession({
         cfg,
         ctx: {
@@ -188,24 +181,24 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
           hasDescriptionReviewMap: false,
         },
         workItemId,
-        recovery,
+        publish: { db, workItemId, resourceKey, laneEpoch: LEASE_EPOCH },
         prSurface,
         findingInventory,
         cachedDiffIndex: extra?.diff ?? cachedDiffForLines("src/a.ts", [10, 11]),
         resolveProgressCommentUrl: async () =>
           `https://github.com/finding-identity-it/${repo}/pull/1#issuecomment-99`,
-        operationIntent: { client, workItemId, resourceKey, leaseEpoch: LEASE_EPOCH },
       });
       return {
         session,
-        recovery,
         input: { source: "correctness" as const, ledger: createFindingLedger(), evidenceLedger },
       };
     };
 
     const cleanup = async () => {
-      await pool.query("DELETE FROM pr_actor_leases WHERE resource_key = $1", [resourceKey]);
-      await pool.query("DELETE FROM agent_work_items WHERE id = $1", [workItemId]);
+      db.prepare("DELETE FROM publish_intents WHERE work_id = ?").run(workItemId);
+      db.prepare("DELETE FROM publish_records WHERE work_id = ?").run(workItemId);
+      db.prepare("DELETE FROM work_runs WHERE work_id = ?").run(workItemId);
+      db.prepare("DELETE FROM pr_state WHERE pr_key = ?").run(resourceKey);
     };
 
     return { workItemId, resourceKey, surface, controls, attempt, cleanup };
@@ -220,7 +213,7 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
     const next = await seedReviewPublication(cfg);
     rerunCleanups.push(next.cleanup);
     return {
-      ...next.attempt(pool, surface, observations, findingInventory),
+      ...next.attempt(db, surface, observations, findingInventory),
       workItemId: next.workItemId,
       resourceKey: next.resourceKey,
     };
@@ -231,14 +224,13 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
     run: Awaited<ReturnType<typeof rerun>>,
     ledger: FindingLedger,
   ) {
-    const verdictTarget = {
-      pool,
-      workItemId: run.workItemId,
-      resourceKey: run.resourceKey,
-      leaseEpoch: LEASE_EPOCH,
-    };
-    await reviewVerdict({
-      ...verdictTarget,
+    await reviewVerdictSurfaces({
+      target: {
+        db,
+        workItemId: run.workItemId,
+        resourceKey: run.resourceKey,
+        laneEpoch: LEASE_EPOCH,
+      },
       prSurface: surface,
       owner: "finding-identity-it",
       repo: surface.repo,
@@ -247,10 +239,10 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
       headSha: HEAD_SHA,
       commitStatusEnabled: false,
     }).pending();
-    return publishReviewSummaryOnly(
-      { ...run.session, verdict: verdictTarget },
-      { payload: reviewPayloadFromFindings([]), ledger },
-    );
+    return publishReviewSummaryOnly(run.session, {
+      payload: reviewPayloadFromFindings([]),
+      ledger,
+    });
   }
 
   function lastSummaryBody(controls: FakePrSurfaceControls) {
@@ -339,7 +331,7 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
   }
 
   async function publishFirstRound(seeded: Awaited<ReturnType<typeof seedReviewPublication>>) {
-    const first = seeded.attempt(pool, seeded.surface);
+    const first = seeded.attempt(db, seeded.surface);
     const published = await publishFindingBatch(findings, first.session, first.input);
     if (published.kind !== "published") throw new Error("expected the first round to publish");
     const [reviewId] = published.delta.inlineReviewIds;
@@ -359,7 +351,7 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
     seeded: Awaited<ReturnType<typeof seedReviewPublication>>,
     copies: readonly ReviewFinding[],
   ) {
-    const first = seeded.attempt(pool, seeded.surface, copies);
+    const first = seeded.attempt(db, seeded.surface, copies);
     const published = await publishFindingBatch(copies, first.session, first.input);
     if (published.kind !== "published") throw new Error("expected the copies to publish");
     const [reviewId] = published.delta.inlineReviewIds;
@@ -421,92 +413,11 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
     });
   }
 
-  it("recovers a batch killed after GitHub accepted it by the finding markers GitHub returns", async () => {
-    const { workItemId, surface, controls, attempt, cleanup } = await seedReviewPublication();
-
-    try {
-      const killedPool = integrationPool();
-      const acceptPublish = surface.publishThreadBatch.bind(surface);
-      let markAccepted: () => void = () => undefined;
-      const accepted = new Promise<void>((resolve) => {
-        markAccepted = resolve;
-      });
-      vi.spyOn(surface, "publishThreadBatch").mockImplementationOnce(async (review) => {
-        await acceptPublish(review);
-        markAccepted();
-        return new Promise<never>(() => undefined);
-      });
-      const killed = attempt(killedPool, surface);
-      void publishFindingBatch(findings, killed.session, killed.input);
-      await accepted;
-      await killedPool.end();
-      vi.restoreAllMocks();
-
-      const reviewsBefore = await surface.listPullRequestReviews();
-      const threadsBefore = await surface.listInlineReviewThreads();
-      expect(controls.threadBatches).toHaveLength(1);
-      expect(reviewsBefore).toHaveLength(1);
-      const acceptedReviewId = reviewsBefore[0]?.id;
-
-      const retry = attempt(pool, surface);
-      const decisions = await retry.recovery.decisions();
-      expect(decisions).toHaveLength(1);
-      const [decision] = decisions;
-      const journaled =
-        decision?.prepared.artifact.canonical.kind === "threads"
-          ? decision.prepared.artifact.canonical.inline.map((placement) => placement.findingId)
-          : [];
-      expect(journaled).toHaveLength(2);
-      const operationKey = reviewInlineBatchOperationKey(
-        deterministicInlineBatchId({ workItemId, headSha: HEAD_SHA, findingIds: journaled }),
-      );
-      expect(decision?.prepared.artifact.operationKey).toBe(operationKey);
-      const pending = await getOperationIntent(pool, workItemId, operationKey);
-      expect(pending?.status).toBe("pending");
-
-      const recovered = await publishFindingBatch([], retry.session, {
-        ...retry.input,
-        recoveryDecision: decision,
-      });
-
-      expect(controls.threadBatches).toHaveLength(1);
-      expect(await surface.listPullRequestReviews()).toEqual(reviewsBefore);
-      expect((await surface.listInlineReviewThreads()).threads).toHaveLength(
-        threadsBefore.threads.length,
-      );
-      expect(recovered.kind).toBe("published");
-      if (recovered.kind !== "published") return;
-      const posted = recovered.delta.accepted.flatMap((entry) =>
-        entry.kind === "posted" ? [entry] : [],
-      );
-      expect(posted.map((entry) => entry.reviewId)).toEqual([acceptedReviewId, acceptedReviewId]);
-      expect(recovered.delta.inlineReviewIds).toEqual([acceptedReviewId]);
-
-      const botLogin = await surface.getBotLogin();
-      const markerIds = (await surface.listReviewComments()).comments
-        .filter((comment) => comment.pullRequestReviewId === acceptedReviewId)
-        .map(
-          (comment) =>
-            parseOwnedFindingMarker(
-              { body: comment.body, authorLogin: comment.authorLogin, isRoot: true },
-              botLogin,
-            )?.id,
-        );
-      expect(markerIds).toHaveLength(journaled.length);
-      expect(new Set(markerIds)).toEqual(new Set(journaled));
-      expect(posted.map((entry) => entry.findingId)).toHaveLength(markerIds.length);
-      expect(new Set(posted.map((entry) => entry.findingId))).toEqual(new Set(markerIds));
-      expect((await getOperationIntent(pool, workItemId, operationKey))?.status).toBe("reconciled");
-    } finally {
-      await cleanup();
-    }
-  });
-
   it("rebuilds the same finding ids from GitHub after database loss and posts no duplicate", async () => {
     const { workItemId, surface, controls, attempt, cleanup } = await seedReviewPublication();
 
     try {
-      const first = attempt(pool, surface);
+      const first = attempt(db, surface);
       const published = await publishFindingBatch(findings, first.session, first.input);
       expect(published.kind).toBe("published");
       if (published.kind !== "published") return;
@@ -514,19 +425,20 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
         entry.kind === "posted" ? [entry.findingId] : [],
       );
       expect(recordedIds).toHaveLength(findings.length);
-      const durableRows = async () =>
-        (
-          await pool.query<{ count: string }>(
-            `SELECT (SELECT count(*) FROM publish_records WHERE work_item_id = $1)
-                  + (SELECT count(*) FROM operation_intents WHERE work_item_id = $1)
-                  + (SELECT count(*) FROM review_run_artifacts WHERE work_item_id = $1) AS count`,
-            [workItemId],
-          )
-        ).rows[0]?.count;
-      expect(Number(await durableRows())).toBeGreaterThan(0);
+      const durableRows = () =>
+        readRow(
+          db
+            .prepare(
+              `SELECT (SELECT count(*) FROM publish_records WHERE work_id = ?)
+                    + (SELECT count(*) FROM publish_intents WHERE work_id = ?) AS count`,
+            )
+            .get(workItemId, workItemId),
+          v.object({ count: v.number() }),
+        )?.count ?? 0;
+      expect(durableRows()).toBeGreaterThan(0);
 
       await cleanup();
-      expect(Number(await durableRows())).toBe(0);
+      expect(durableRows()).toBe(0);
 
       const inventory = await loadFindingInventory(surface, noPathChanges);
       expect(inventory.completeness).toBe("complete");
@@ -562,7 +474,7 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
     const botUserId = 4242;
 
     try {
-      const first = attempt(pool, surface);
+      const first = attempt(db, surface);
       const published = await publishFindingBatch(findings, first.session, first.input);
       expect(published.kind).toBe("published");
       if (published.kind !== "published") return;
@@ -617,10 +529,9 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
       if (fixedThread == null || dismissedThread == null) throw new Error("expected two threads");
       const eventsBefore = controls.events.length;
       const result = await publishVerification({
-        pool,
+        publication: makePublication(workItemId, resourceKey),
         workItemId,
         resourceKey,
-        leaseEpoch: LEASE_EPOCH,
         installationId: 42,
         owner: "finding-identity-it",
         repo: surface.repo,
@@ -670,10 +581,9 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
       );
       if (silentlyFixed?.findingId == null) throw new Error("expected a complete candidate");
       const fixedResult = await publishVerification({
-        pool,
+        publication: makePublication(workItemId, resourceKey),
         workItemId,
         resourceKey,
-        leaseEpoch: LEASE_EPOCH,
         installationId: 42,
         owner: "finding-identity-it",
         repo: surface.repo,
@@ -968,7 +878,7 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
     });
 
     try {
-      const first = seeded.attempt(pool, surface, [quietFinding]);
+      const first = seeded.attempt(db, surface, [quietFinding]);
       const published = await publishFindingBatch([quietFinding], first.session, first.input);
       if (published.kind !== "published") throw new Error("expected the P2 finding to publish");
 
@@ -1034,14 +944,13 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
       controls.setThreadResolutionStatus("ok");
       const partialInventory = await loadFindingInventory(surface, noPathChanges);
       const partialRun = await rerun(surface, [], partialInventory, cfg);
-      const verdictTarget = {
-        pool,
-        workItemId: partialRun.workItemId,
-        resourceKey: partialRun.resourceKey,
-        leaseEpoch: LEASE_EPOCH,
-      };
-      await reviewVerdict({
-        ...verdictTarget,
+      await reviewVerdictSurfaces({
+        target: {
+          db,
+          workItemId: partialRun.workItemId,
+          resourceKey: partialRun.resourceKey,
+          laneEpoch: LEASE_EPOCH,
+        },
         prSurface: surface,
         owner: "finding-identity-it",
         repo: surface.repo,
@@ -1050,18 +959,15 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
         headSha: HEAD_SHA,
         commitStatusEnabled: false,
       }).pending();
-      const partialResult = await publishReviewSummaryOnly(
-        { ...partialRun.session, verdict: verdictTarget },
-        {
-          payload: reviewPayloadFromFindings([]),
-          ledger: partialRun.input.ledger,
-          coverage: {
-            kind: "partial",
-            failed: ["tests"],
-            note: "The tests specialist did not finish.",
-          },
+      const partialResult = await publishReviewSummaryOnly(partialRun.session, {
+        payload: reviewPayloadFromFindings([]),
+        ledger: partialRun.input.ledger,
+        coverage: {
+          kind: "partial",
+          failed: ["tests"],
+          note: "The tests specialist did not finish.",
         },
-      );
+      });
       expect(partialResult).toMatchObject({
         kind: "published",
         check: { conclusion: "failure", blockingCount: 1 },
@@ -1158,9 +1064,7 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
           canonicalId: declared.canonicalId,
           threadId,
         });
-        expect((await getOperationIntent(pool, run.workItemId, operationKey))?.status).toBe(
-          "reconciled",
-        );
+        expect(publishIntentFor(db, run.workItemId, operationKey)?.state).toBe("reconciled");
       }
 
       const mutationsBefore = controls.events.filter(
@@ -1209,7 +1113,7 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
       const [olderId, newerId] = ids;
       if (olderId == null || newerId == null) throw new Error("expected two copies");
 
-      const attempts = [0, 1].map(() => seeded.attempt(pool, surface, [], inventory));
+      const attempts = [0, 1].map(() => seeded.attempt(db, surface, [], inventory));
       const declared = await Promise.all(
         attempts.map((attempt) =>
           declareTool(attempt.session).executor({
@@ -1236,14 +1140,11 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
       ).threads;
 
       await Promise.all([
-        ...attempts.map((attempt) =>
-          attempt.session.duplicateCleanup.clean({ ...attempt.session, pool }),
-        ),
+        ...attempts.map((attempt) => attempt.session.duplicateCleanup.clean(attempt.session)),
         publishVerification({
-          pool,
+          publication: makePublication(workItemId, resourceKey),
           workItemId,
           resourceKey,
-          leaseEpoch: LEASE_EPOCH,
           installationId: 42,
           owner: "finding-identity-it",
           repo: surface.repo,
@@ -1309,7 +1210,7 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
       const inventory = await loadFindingInventory(surface, noPathChanges);
       const [olderId, newerId] = ids;
       if (olderId == null || newerId == null) throw new Error("expected two copies");
-      const attempts = [0, 1].map(() => seeded.attempt(pool, surface, [], inventory));
+      const attempts = [0, 1].map(() => seeded.attempt(db, surface, [], inventory));
       const declared = await Promise.all(
         attempts.map((attempt) =>
           declareTool(attempt.session).executor({
@@ -1360,14 +1261,11 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
       const listed = await surface.listInlineReviewThreads();
 
       await Promise.all([
-        ...attempts.map((attempt) =>
-          attempt.session.duplicateCleanup.clean({ ...attempt.session, pool }),
-        ),
+        ...attempts.map((attempt) => attempt.session.duplicateCleanup.clean(attempt.session)),
         publishVerification({
-          pool,
+          publication: makePublication(workItemId, resourceKey),
           workItemId,
           resourceKey,
-          leaseEpoch: LEASE_EPOCH,
           installationId: 42,
           owner: "finding-identity-it",
           repo: surface.repo,
@@ -1474,10 +1372,9 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
       ).threads;
       const listed = await surface.listInlineReviewThreads();
       const publish = {
-        pool,
+        publication: makePublication(workItemId, resourceKey),
         workItemId,
         resourceKey,
-        leaseEpoch: LEASE_EPOCH,
         installationId: 42,
         owner: "finding-identity-it",
         repo: surface.repo,
@@ -1556,20 +1453,23 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
     });
   }
 
-  async function intentRows(workItemId: string) {
-    const result = await pool.query<{
-      operation_key: string;
-      mutation_kind: string;
-      status: string;
-      detail: { errorMessage?: string; errorCode?: string; __mutating?: boolean };
-    }>(
-      `SELECT operation_key, mutation_kind, status, detail
-         FROM operation_intents
-        WHERE work_item_id = $1
-        ORDER BY created_at, operation_key`,
-      [workItemId],
+  function intentRows(workItemId: string) {
+    return readRows(
+      db
+        .prepare(
+          `SELECT operation_key, mutation_kind, state, identity_json
+             FROM publish_intents
+            WHERE work_id = ?
+            ORDER BY updated_at, operation_key`,
+        )
+        .all(workItemId),
+      v.object({
+        operation_key: v.string(),
+        mutation_kind: v.string(),
+        state: v.string(),
+        identity_json: v.string(),
+      }),
     );
-    return result.rows;
   }
 
   it("degrades a path-only rejection and keeps the usable finding", async () => {
@@ -1615,15 +1515,15 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
         }
         return original(review);
       });
-      const boundary = createLeaseMutationBoundary({
-        pool,
-        workItemId: seeded.workItemId,
-        resourceKey: seeded.resourceKey,
-        leaseEpoch: LEASE_EPOCH,
+      const boundary = createPublishMutationBoundary({
+        db,
+        workId: seeded.workItemId,
+        prKey: seeded.resourceKey,
+        laneEpoch: LEASE_EPOCH,
         signal: new AbortController().signal,
       });
       const wrapped = withPrSurfaceMutationBoundary(seeded.surface, boundary);
-      const run = seeded.attempt(pool, wrapped, [], completeFindingInventory(), {
+      const run = seeded.attempt(db, wrapped, [], completeFindingInventory(), {
         diff: cachedDiffForFiles([
           { file: "src/a.ts", lines: [10] },
           { file: "src/b.ts", lines: [4] },
@@ -1658,14 +1558,14 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
       expect(seeded.controls.threadBatches).toHaveLength(1);
       expect(seeded.surface.publishThreadBatch).toHaveBeenCalledTimes(3);
 
-      const intents = await intentRows(seeded.workItemId);
+      const intents = intentRows(seeded.workItemId);
       const surfaceIntents = intents.filter((row) =>
         row.mutation_kind.includes("publishThreadBatch"),
       );
-      expect(surfaceIntents.filter((row) => row.status === "failed")).toHaveLength(2);
-      expect(surfaceIntents.filter((row) => row.status === "reconciled")).toHaveLength(1);
-      expect(surfaceIntents.some((row) => row.status === "outcome_unknown")).toBe(false);
-      expect(intents.find((row) => row.operation_key.startsWith("review:inline:"))?.status).toBe(
+      expect(surfaceIntents.filter((row) => row.state === "mutation_failed")).toHaveLength(2);
+      expect(surfaceIntents.filter((row) => row.state === "reconciled")).toHaveLength(1);
+      expect(surfaceIntents.some((row) => row.state.startsWith("outcome_unknown"))).toBe(false);
+      expect(intents.find((row) => row.mutation_kind === "github.inline_review")?.state).toBe(
         "reconciled",
       );
       const comments = (await seeded.surface.listReviewComments()).comments.map((comment) => ({
@@ -1679,9 +1579,7 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
         intents: intents.map((row) => ({
           operationKey: row.operation_key,
           mutationKind: row.mutation_kind,
-          status: row.status,
-          errorCode: row.detail.errorCode ?? null,
-          errorMessage: row.detail.errorMessage ?? null,
+          state: row.state,
         })),
         visibleFindings: {
           posted: posted.map((entry) => ({
@@ -1702,7 +1600,9 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
         JSON.stringify(artifact, null, 2),
       );
       expect(artifact.remoteMutations).toBe(3);
-      expect(artifact.intents.filter((row) => row.status === "failed").length).toBeGreaterThan(0);
+      expect(
+        artifact.intents.filter((row) => row.state === "mutation_failed").length,
+      ).toBeGreaterThan(0);
     } finally {
       await seeded.cleanup();
     }
@@ -1721,20 +1621,20 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
         vi.spyOn(seeded.surface, "publishThreadBatch").mockImplementation(async () => {
           throw rejection;
         });
-        const boundary = createLeaseMutationBoundary({
-          pool,
-          workItemId: seeded.workItemId,
-          resourceKey: seeded.resourceKey,
-          leaseEpoch: LEASE_EPOCH,
+        const boundary = createPublishMutationBoundary({
+          db,
+          workId: seeded.workItemId,
+          prKey: seeded.resourceKey,
+          laneEpoch: LEASE_EPOCH,
           signal: new AbortController().signal,
         });
         const wrapped = withPrSurfaceMutationBoundary(seeded.surface, boundary);
-        const run = seeded.attempt(pool, wrapped);
+        const run = seeded.attempt(db, wrapped);
         await expect(publishFindingBatch(findings, run.session, run.input)).rejects.toThrow();
         expect(seeded.surface.publishThreadBatch).toHaveBeenCalledTimes(1);
-        const first = await intentRows(seeded.workItemId);
-        expect(first.some((row) => row.status === "outcome_unknown")).toBe(true);
-        expect(first.some((row) => row.status === "failed")).toBe(false);
+        const first = intentRows(seeded.workItemId);
+        expect(first.some((row) => row.state.startsWith("outcome_unknown"))).toBe(true);
+        expect(first.some((row) => row.state === "mutation_failed")).toBe(false);
         await expect(
           publishFindingBatch(findings, run.session, {
             ...run.input,
@@ -1749,127 +1649,46 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
     }
   });
 
-  it("stops the fallback when the lease is lost or the run is cancelled", async () => {
-    const cases = ["lease", "cancel"] as const;
+  it("stops the fallback when the lane epoch advances or the run is cancelled", async () => {
+    const cases = ["epoch", "cancel"] as const;
     for (const stop of cases) {
       const seeded = await seedReviewPublication();
       try {
         vi.spyOn(seeded.surface, "publishThreadBatch").mockImplementation(async () => {
-          if (stop === "lease") {
-            await releasePrActorLease(pool, {
-              resourceKey: seeded.resourceKey,
-              workType: "review",
-              leaseEpoch: LEASE_EPOCH,
-            });
+          if (stop === "epoch") {
+            bumpLaneEpoch(db, { prKey: seeded.resourceKey, lane: "review", now: Date.now() });
           } else {
-            await pool.query(
-              `UPDATE agent_work_items SET cancel_requested_at = now() WHERE id = $1`,
-              [seeded.workItemId],
-            );
+            cancelWorkRun(db, {
+              workId: seeded.workItemId,
+              reason: "cancelled",
+              now: Date.now(),
+            });
           }
           throw reviewAnchorError("Path could not be resolved", [
             { message: "Path could not be resolved", path: "src/a.ts", line: 10 },
           ]);
         });
-        const boundary = createLeaseMutationBoundary({
-          pool,
-          workItemId: seeded.workItemId,
-          resourceKey: seeded.resourceKey,
-          leaseEpoch: LEASE_EPOCH,
+        const boundary = createPublishMutationBoundary({
+          db,
+          workId: seeded.workItemId,
+          prKey: seeded.resourceKey,
+          laneEpoch: LEASE_EPOCH,
           signal: new AbortController().signal,
         });
         const wrapped = withPrSurfaceMutationBoundary(seeded.surface, boundary);
-        const run = seeded.attempt(pool, wrapped);
+        const run = seeded.attempt(db, wrapped);
         const error = await publishFindingBatch([findings[0]], run.session, run.input).then(
           () => null,
           (caught: unknown) => caught,
         );
         expect(error).toMatchObject({
-          code:
-            stop === "lease" ? "agent_work.pr_actor_lease_lost" : "agent_work.execution_aborted",
+          code: "operation_intent.mutation_gate_failed",
         });
         expect(seeded.controls.threadBatches).toHaveLength(0);
         expect(seeded.surface.publishThreadBatch).toHaveBeenCalledTimes(1);
       } finally {
         await seeded.cleanup();
       }
-    }
-  });
-
-  it("replays one accepted review when the degraded publish dies before the result is stored", async () => {
-    const seeded = await seedReviewPublication();
-    const rejected: ReviewFinding = {
-      ...findings[1],
-      file: "src/b.ts",
-      startLine: 4,
-      endLine: 4,
-      title: "Null dereference at line 4",
-    };
-    try {
-      const original = seeded.surface.publishThreadBatch.bind(seeded.surface);
-      let markAccepted: () => void = () => undefined;
-      const accepted = new Promise<void>((resolve) => {
-        markAccepted = resolve;
-      });
-      let calls = 0;
-      vi.spyOn(seeded.surface, "publishThreadBatch").mockImplementation(async (review) => {
-        calls += 1;
-        if (calls === 1) {
-          throw reviewAnchorError("Path could not be resolved", [
-            { message: "Path could not be resolved", path: "src/b.ts", line: 4 },
-          ]);
-        }
-        await original(review);
-        markAccepted();
-        return new Promise<never>(() => undefined);
-      });
-      const killedPool = integrationPool();
-      const boundary = createLeaseMutationBoundary({
-        pool: killedPool,
-        workItemId: seeded.workItemId,
-        resourceKey: seeded.resourceKey,
-        leaseEpoch: LEASE_EPOCH,
-        signal: new AbortController().signal,
-      });
-      const wrapped = withPrSurfaceMutationBoundary(seeded.surface, boundary);
-      const killed = seeded.attempt(killedPool, wrapped, [], completeFindingInventory(), {
-        diff: cachedDiffForFiles([
-          { file: "src/a.ts", lines: [10] },
-          { file: "src/b.ts", lines: [4] },
-        ]),
-        evidence: [rejected],
-        reads: [{ path: "src/b.ts", startLine: 4, endLine: 4, content: "bad path" }],
-      });
-      void publishFindingBatch([rejected, findings[0]], killed.session, killed.input);
-      await accepted;
-      await killedPool.end();
-      vi.restoreAllMocks();
-      expect(seeded.controls.threadBatches).toHaveLength(1);
-
-      const retryBoundary = createLeaseMutationBoundary({
-        pool,
-        workItemId: seeded.workItemId,
-        resourceKey: seeded.resourceKey,
-        leaseEpoch: LEASE_EPOCH,
-        signal: new AbortController().signal,
-      });
-      const retrySurface = withPrSurfaceMutationBoundary(seeded.surface, retryBoundary);
-      const retry = seeded.attempt(pool, retrySurface, [], completeFindingInventory(), {
-        diff: cachedDiffForFiles([
-          { file: "src/a.ts", lines: [10] },
-          { file: "src/b.ts", lines: [4] },
-        ]),
-        evidence: [rejected],
-        reads: [{ path: "src/b.ts", startLine: 4, endLine: 4, content: "bad path" }],
-      });
-      const recovered = await publishFindingBatch([rejected, findings[0]], retry.session, {
-        ...retry.input,
-        ledger: createFindingLedger(),
-      });
-      expect(seeded.controls.threadBatches).toHaveLength(1);
-      expect(recovered.kind).toBe("published");
-    } finally {
-      await seeded.cleanup();
     }
   });
 });

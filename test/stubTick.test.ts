@@ -1,14 +1,6 @@
-import type { Pool } from "pg";
+import type { DatabaseSync } from "node:sqlite";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createFakePrSurface } from "../src/github/prSurface.ts";
-
-vi.mock("../src/agentWork/ciProjection.ts", () => ({
-  loadRenderableHeadCi: vi.fn(async () => ({
-    summary: { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
-    version: 0,
-  })),
-  requestHeadCiProjection: vi.fn(async () => "skipped"),
-}));
 
 const summaryWrite = vi.hoisted(() =>
   vi.fn(async (_params: { readonly body: string; readonly [key: string]: unknown }) => ({
@@ -48,15 +40,17 @@ vi.mock("../src/evlog.ts", () => ({
 import { logWarn } from "../src/evlog.ts";
 import { tickProgressComment } from "../src/review/orchestrator/stubTick.ts";
 
-const pool = {} as Pool;
+const db = {} as DatabaseSync;
 
 function specialistTickArgs(
   prSurface = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
 ) {
   return {
-    pool,
-    workItemId: "wi-1",
-    resourceKey: "o/r#1",
+    coordination: {
+      db,
+      workItemId: "wi-1",
+      resourceKey: "o/r#1",
+    },
     owner: "o",
     repo: "r",
     prNumber: 1,
@@ -90,7 +84,7 @@ describe("tickProgressComment", () => {
 
     expect(summaryWrite).toHaveBeenCalledWith(
       expect.objectContaining({
-        pool,
+        db,
         workItemId: "wi-1",
         resourceKey: "o/r#1",
         reviewLens: "review",

@@ -255,8 +255,6 @@ class TraceRecorder {
 let recorder: TraceRecorder | undefined;
 
 export function initTraces(cfg: Config, capture?: AiCapture) {
-  if (cfg.runtime.role !== "worker")
-    return ((pinnedReturn: () => Promise<void>) => pinnedReturn)(async () => undefined);
   const token = cfg.posthog.projectToken.trim();
   if (!capture && token.length === 0)
     return ((pinnedReturn: () => Promise<void>) => pinnedReturn)(async () => undefined);

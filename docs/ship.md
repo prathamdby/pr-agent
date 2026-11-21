@@ -2,13 +2,13 @@
 
 ## Verify the real path
 
-Start with the smallest check that proves the changed contract, then run the repository gate before pushing. Read the actual output and inspect the final diff. A passing typecheck alone does not prove webhook intake, queue recovery, or GitHub publishing.
+Start with the smallest check that proves the changed contract, then run the repository gate before pushing. Read the actual output and inspect the final diff. A passing typecheck alone does not prove webhook intake, work run recovery, or GitHub publishing.
 
-Default to end-to-end or integration proof with a verifiable artifact. For durable work, webhooks, or database paths, run the integration suite as well as the backend gate. For prompt, policy, or output changes, inspect the generated prompt, published record, or other repeatable runtime output; do not add post-hoc unit tests or treat seam tests as the default substitute. Record any unavailable external dependency instead of treating an unrun check as a pass.
+Default to end-to-end or integration proof with a verifiable artifact. For durable work, webhooks, or SQLite paths, run the integration suite as well as the backend gate. For prompt, policy, or output changes, inspect the generated prompt, published record, or other repeatable runtime output; do not add post-hoc unit tests or treat seam tests as the default substitute. Record any unavailable external dependency instead of treating an unrun check as a pass.
 
 When test changes are already in scope, keep them proportional to the changed contract and aligned with the testing policy in [AGENTS.md](../AGENTS.md). Do not strengthen coverage by adding low-signal unit tests after the fact. Separate an environment or toolchain failure from a repository failure, and record the evidence for that distinction.
 
-Fault-injection tests that wait for a connection failure should await the connection's error event under the test deadline. A polling timeout equal to the database timeout races the fault it is meant to observe.
+Fault-injection tests that wait for a failure should await the failure's own event under the test deadline. A polling timeout equal to the operation's timeout, such as SQLite `busy_timeout` or the 20 s mutation timeout, races the fault it is meant to observe.
 
 ## Pull requests
 

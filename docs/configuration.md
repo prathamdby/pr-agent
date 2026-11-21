@@ -17,7 +17,7 @@ For behaviour, deployment, and developer scripts see [operations.md](operations.
 | **code**     | `src/settings/constants.ts`                                                                                                                                                                          |
 | **external** | Provider env; loaded into config but never logged                                                                                                                                                    |
 
-Import convention: `import { … } from "../settings/index.js"` for shared constants; `Config` from `config.ts` at runtime. Single-owner slash replies are private to `src/agentWork/intake/slashIntake.ts`; migration constants are private to `src/db/migrations.ts`.
+Import convention: `import { … } from "../settings/index.js"` for shared constants; `Config` from `config.ts` at runtime. Single-owner slash replies are private to `src/state/intake.ts`.
 
 ### When you change a knob
 
@@ -36,34 +36,34 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 
 ## Infra (required wiring and provider selection)
 
-| Name                       | Env var                          | Default                  | Notes                                                                                                                                                                                                                                                                                                                                                             |
-| -------------------------- | -------------------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| HTTP port                  | `PORT`                           | `3000` (7224 in Compose) | Process default is `3000`. Production Compose and `.env.example` pin web to `7224`. Maintainer-local Compose publishes web `7224` and worker `7225`.                                                                                                                                                                                                              |
-| Process role               | `ROLE`                           | `web`                    | `web` or `worker`                                                                                                                                                                                                                                                                                                                                                 |
-| GitHub App ID              | `GITHUB_APP_ID`                  | —                        | required                                                                                                                                                                                                                                                                                                                                                          |
-| App private key            | `GITHUB_APP_PRIVATE_KEY`         | —                        | required PEM                                                                                                                                                                                                                                                                                                                                                      |
-| Webhook HMAC secret        | `WEBHOOK_SECRET`                 | —                        | required                                                                                                                                                                                                                                                                                                                                                          |
-| Postgres URL               | `DATABASE_URL`                   | —                        | required. Host integration tests use `postgres://pr_agent:pr_agent@localhost:5432/pr_agent`. `docker-compose.dev.yml` publishes that port. Production Compose does not, and rewrites app containers to hostname `postgres`.                                                                                                                                       |
-| General LLM provider       | `PI_PROVIDER`                    | `openai`                 | Primary model provider for Specialist, Ask, Description, Triage, Verification, and CI-summary sessions (built-in slug or `models.json` key)                                                                                                                                                                                                                       |
-| General LLM model          | `PI_MODEL`                       | `gpt-4o-mini`            | Primary model id for general sessions                                                                                                                                                                                                                                                                                                                             |
-| Orchestrator provider      | `PI_ORCHESTRATOR_PROVIDER`       | empty                    | Optional override for Review orchestrator sessions; empty inherits `PI_PROVIDER`                                                                                                                                                                                                                                                                                  |
-| Orchestrator model         | `PI_ORCHESTRATOR_MODEL`          | empty                    | Optional override for Review orchestrator sessions; empty inherits `PI_MODEL`                                                                                                                                                                                                                                                                                     |
-| Fallback provider          | `PI_FALLBACK_PROVIDER`           | empty                    | Optional shared fallback provider; must be set with `PI_FALLBACK_MODEL`. Retry escalation runs attempt 2 and later on the fallback model                                                                                                                                                                                                                          |
-| Fallback model             | `PI_FALLBACK_MODEL`              | empty                    | Optional shared fallback model; empty disables fallback. When configured, retry escalation uses it from the second attempt onward                                                                                                                                                                                                                                 |
-| Thinking ceiling           | `PI_THINKING_CEILING`            | `high`                   | Max thinking level for phase-aware thinking (`off`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`). Recon, specialist, judgment, ask, and triage turns ask for `medium`; other phases ask for `low`. On `anthropic-messages`, one review orchestrator session holds the highest level of its phases, because a mid-session effort change rewrites the prompt cache |
-| Provider transport retries | `PI_PROVIDER_RETRY_MAX`          | `2`                      | Extra transport attempts per provider request on retryable 429/5xx/network failures; `0` disables provider transport retry, not Core turn retry after a retryable assistant error (`SESSION_TURN_RETRY_MAX`)                                                                                                                                                      |
-| Provider retry delay cap   | `PI_PROVIDER_MAX_RETRY_DELAY_MS` | `60000`                  | Bounds a provider-requested retry delay (e.g. `Retry-After`); must be strictly less than `PROVIDER_PROMPT_TIMEOUT_MS` (fail-fast at startup)                                                                                                                                                                                                                      |
-| Agent events enabled       | `AGENT_EVENTS_ENABLED`           | `true`                   | Persist metadata-only agent lifecycle and decision/publish events to `agent_events`; fail-soft when disabled or on writer errors. Accepts only `true`/`false` (empty → default); legacy `1`/`yes`/`TRUE` fail startup.                                                                                                                                            |
-| Agent events retention     | `AGENT_EVENTS_RETENTION_SECONDS` | `2592000`                | TTL delete for `agent_events` and `agent_feedback` by `recorded_at` (30d, same as work retention). `0` keeps rows forever. Work-item deletion still sets `work_item_id` null.                                                                                                                                                                                     |
-| Models catalog path        | `MODELS_JSON_PATH`               | empty                    | optional absolute/relative path to Pi `models.json`; when empty, looks for `models.json` at `process.cwd()` (Docker: `/app/models.json`)                                                                                                                                                                                                                          |
-| PostHog token              | `POSTHOG_PROJECT_TOKEN`          | empty                    | optional analytics and worker AI traces; empty token sends nothing and opens no trace client. Product events stay metadata. AI traces include credential-redacted repository text. Failed sink construction restores a no-op sink. OSS installs need no PostHog setup.                                                                                            |
-| PostHog host               | `POSTHOG_HOST`                   | empty                    | optional host override when token is set; empty uses posthog-node default                                                                                                                                                                                                                                                                                         |
+| Name                       | Env var                          | Default                         | Notes                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------- | -------------------------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| HTTP port                  | `PORT`                           | `3000` (7224 in Compose)        | Process default is `3000`. The image and every Compose file pin `7224`.                                                                                                                                                                                                                                                                                           |
+| GitHub App ID              | `GITHUB_APP_ID`                  | —                               | required                                                                                                                                                                                                                                                                                                                                                          |
+| App private key            | `GITHUB_APP_PRIVATE_KEY`         | —                               | required PEM                                                                                                                                                                                                                                                                                                                                                      |
+| Webhook HMAC secret        | `WEBHOOK_SECRET`                 | —                               | required                                                                                                                                                                                                                                                                                                                                                          |
+| SQLite directory           | `SQLITE_DIR`                     | `./data` (`/data` in the image) | Directory for `app_state.sqlite`, `pi_durable.sqlite`, the `pr-agent.lock.sqlite` single-writer lock, and `archive/` (reset `pi_durable.sqlite` copies). Created at boot. Exactly one process may use a directory; a second fails fast on the lock. Compose mounts a named volume here.                                                                           |
+| app_state path override    | `SQLITE_DB_PATH`                 | empty                           | Optional full path for `app_state.sqlite`. Empty keeps `${SQLITE_DIR}/app_state.sqlite`. The lock and `pi_durable.sqlite` stay in `SQLITE_DIR`.                                                                                                                                                                                                                   |
+| General LLM provider       | `PI_PROVIDER`                    | `openai`                        | Primary model provider for Specialist, Ask, Description, Triage, Verification, and CI-summary sessions (built-in slug or `models.json` key)                                                                                                                                                                                                                       |
+| General LLM model          | `PI_MODEL`                       | `gpt-4o-mini`                   | Primary model id for general sessions                                                                                                                                                                                                                                                                                                                             |
+| Orchestrator provider      | `PI_ORCHESTRATOR_PROVIDER`       | empty                           | Optional override for Review orchestrator sessions; empty inherits `PI_PROVIDER`                                                                                                                                                                                                                                                                                  |
+| Orchestrator model         | `PI_ORCHESTRATOR_MODEL`          | empty                           | Optional override for Review orchestrator sessions; empty inherits `PI_MODEL`                                                                                                                                                                                                                                                                                     |
+| Fallback provider          | `PI_FALLBACK_PROVIDER`           | empty                           | Optional shared fallback provider; must be set with `PI_FALLBACK_MODEL`. Retry escalation runs attempt 2 and later on the fallback model                                                                                                                                                                                                                          |
+| Fallback model             | `PI_FALLBACK_MODEL`              | empty                           | Optional shared fallback model; empty disables fallback. When configured, retry escalation uses it from the second attempt onward                                                                                                                                                                                                                                 |
+| Thinking ceiling           | `PI_THINKING_CEILING`            | `high`                          | Max thinking level for phase-aware thinking (`off`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`). Recon, specialist, judgment, ask, and triage turns ask for `medium`; other phases ask for `low`. On `anthropic-messages`, one review orchestrator session holds the highest level of its phases, because a mid-session effort change rewrites the prompt cache |
+| Provider transport retries | `PI_PROVIDER_RETRY_MAX`          | `2`                             | Extra transport attempts per provider request on retryable 429/5xx/network failures; `0` disables provider transport retry, not Core turn retry after a retryable assistant error (`SESSION_TURN_RETRY_MAX`)                                                                                                                                                      |
+| Provider retry delay cap   | `PI_PROVIDER_MAX_RETRY_DELAY_MS` | `60000`                         | Bounds a provider-requested retry delay (e.g. `Retry-After`); must be strictly less than `PROVIDER_PROMPT_TIMEOUT_MS` (fail-fast at startup)                                                                                                                                                                                                                      |
+| Agent events enabled       | `AGENT_EVENTS_ENABLED`           | `true`                          | Agent lifecycle events through the telemetry bridge to evlog; fail-soft when disabled or on writer errors. PostHog is enabled separately by its token. Accepts only `true`/`false` (empty → default); legacy `1`/`yes`/`TRUE` fail startup.                                                                                                                       |
+| Agent events retention     | `AGENT_EVENTS_RETENTION_SECONDS` | `2592000`                       | TTL delete for `agent_feedback` rows by `created_at` (30d, same as work retention). `0` keeps rows forever.                                                                                                                                                                                                                                                       |
+| Models catalog path        | `MODELS_JSON_PATH`               | empty                           | optional absolute/relative path to Pi `models.json`; when empty, looks for `models.json` at `process.cwd()` (Docker: `/app/models.json`)                                                                                                                                                                                                                          |
+| PostHog token              | `POSTHOG_PROJECT_TOKEN`          | empty                           | optional analytics and AI traces; empty token sends nothing and opens no trace client. Product events stay metadata. AI traces include credential-redacted repository text. Failed sink construction restores a no-op sink. OSS installs need no PostHog setup.                                                                                                   |
+| PostHog host               | `POSTHOG_HOST`                   | empty                           | optional host override when token is set; empty uses posthog-node default                                                                                                                                                                                                                                                                                         |
 
 ## Ops (deployment-varying tuning)
 
 `REVIEW_RECOVERY_ENABLED` is not a setting. A process that still has the name
-in its environment boots, and the name is not read. Recovery runs for every
-review with a base sha. Migration 037 is already applied by startup. See
+in its environment boots, and the name is not read. Every review resumes from
+its durable task checkpoint. See
 [rollout](operations.md#review-reliability-rollout).
 
 `REVIEW_TESTS_EVIDENCE` defaults to `false` and maps to `cfg.review.testsEvidence`.
@@ -79,19 +79,16 @@ Open findings at that rank or stricter fail the check. `P3` fails only when
 the threshold is `P3`. An empty string is not the default. It throws
 `config.invalid_enum`. There is no `off` value.
 
-Fixed store limits live in `src/agentWork/reviewArtifactRepository.ts`:
-`REVIEW_ARTIFACT_BUDGET_BYTES=1048576` (1 MiB of UTF-8 per work item) and
-`REVIEW_SETTLEMENT_RESERVE_BYTES=8192` (8 KiB per prepared decision, included in
-that budget). They are not env settings. Work-item retention cascades the
-artifact rows. Disabling scheduled retention leaves them.
+Review progress lives in the `reviewOrchestratorTask` checkpoint in
+`pi_durable.sqlite`, not in `app_state.sqlite`. It goes away with the next
+`pi_durable.sqlite` reset, which runs only when no task is live.
 
-`AGENT_EVENTS_ENABLED` controls local metadata audit persistence only.
-`POSTHOG_PROJECT_TOKEN` independently enables PostHog. Neither setting decides
-whether a review writes artifacts, and they do not change artifact retention.
+`AGENT_EVENTS_ENABLED` and `POSTHOG_PROJECT_TOKEN` are independent. Neither
+decides whether a review keeps its task checkpoint.
 
-AI traces are independent of agent events and of review artifacts. They are
-worker-only and require `POSTHOG_PROJECT_TOKEN`. The web process does not emit
-them. Each event is at most 1 MiB after redaction. The worker queues at most
+AI traces are independent of agent events. They require
+`POSTHOG_PROJECT_TOKEN`, and webhook intake does not emit them. Each event is
+at most 1 MiB after redaction. The process queues at most
 400 spans and 8 MiB, and flushes every 500 ms. A full queue, or an event that
 still does not fit, sends the event metadata-only through a separate reserve of
 50 events and 64 KiB. Past that reserve the event is dropped and logged. Neither
@@ -101,78 +98,63 @@ password are redacted before send. Content can still contain proprietary
 code. These limits are private constants in `src/traces/recorder.ts`, not env
 knobs.
 
-Migration 040 drops the old trace tables. That drop locks `agent_work_items`
-and fails after 3 seconds if the lock is busy. Retry when the lock clears.
-Upgrade web and worker together.
-
-| Name                          | Env var                                   | Default                     | Notes                                                                                                                                                                                                                                |
-| ----------------------------- | ----------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Provider prompt timeout       | `PROVIDER_PROMPT_TIMEOUT_MS`              | `300000`                    | inactivity cap: abort if no provider activity this long                                                                                                                                                                              |
-| Specialist timeout            | `REVIEW_SPECIALIST_TIMEOUT_MS`            | `900000`                    | total wall-clock budget for one specialist, including jitter, retries, and validation repair                                                                                                                                         |
-| Slash command allowlist       | `SLASH_ALLOWED_ASSOCIATIONS`              | `OWNER,MEMBER,COLLABORATOR` | comma-separated GitHub comment author associations allowed to run slash commands; valid values: `OWNER`, `MEMBER`, `COLLABORATOR`, `CONTRIBUTOR`, `FIRST_TIME_CONTRIBUTOR`, `FIRST_TIMER`, `NONE`, `MANNEQUIN`; set `*` to allow all |
-| Maintainer decision allowlist | `MAINTAINER_DECISION_ASSOCIATIONS`        | `OWNER,MEMBER,COLLABORATOR` | comma-separated GitHub author associations whose non-bot inline replies may support a dismissal; missing user or association metadata fails closed; `*` is not allowed                                                               |
-| Review worker concurrency     | `REVIEW_CONCURRENCY`                      | `2`                         | pg-boss review queue workers                                                                                                                                                                                                         |
-| Ask worker concurrency        | `ASK_CONCURRENCY`                         | `1`                         | pg-boss ask queue workers; worker parallelism only — same-mention deduplication across replicas comes from ask intake, not this knob                                                                                                 |
-| Ask actor outstanding         | `ASK_ACTOR_MAX_OUTSTANDING`               | `2`                         | maximum queued or running asks for one actor in one installation                                                                                                                                                                     |
-| Ask repository outstanding    | `ASK_REPOSITORY_MAX_OUTSTANDING`          | `8`                         | maximum queued or running asks for one repository                                                                                                                                                                                    |
-| Ask installation outstanding  | `ASK_INSTALLATION_MAX_OUTSTANDING`        | `32`                        | maximum queued or running asks across one installation                                                                                                                                                                               |
-| Ask actor burst               | `ASK_ACTOR_BURST`                         | `3`                         | token-bucket burst capacity for one actor                                                                                                                                                                                            |
-| Ask repository burst          | `ASK_REPOSITORY_BURST`                    | `12`                        | token-bucket burst capacity for one repository                                                                                                                                                                                       |
-| Ask installation burst        | `ASK_INSTALLATION_BURST`                  | `48`                        | token-bucket burst capacity for one installation                                                                                                                                                                                     |
-| Ask actor refill              | `ASK_ACTOR_REFILL_SECONDS`                | `60`                        | seconds per actor token                                                                                                                                                                                                              |
-| Ask repository refill         | `ASK_REPOSITORY_REFILL_SECONDS`           | `10`                        | seconds per repository token                                                                                                                                                                                                         |
-| Ask installation refill       | `ASK_INSTALLATION_REFILL_SECONDS`         | `1`                         | seconds per installation token                                                                                                                                                                                                       |
-| Ask provider budget           | `ASK_PROVIDER_BUDGET_TOKENS`              | `0`                         | installation-wide token budget per window; counts each distinct ask computation once; `0` disables this check                                                                                                                        |
-| Ask provider window           | `ASK_PROVIDER_BUDGET_WINDOW_SECONDS`      | `86400`                     | provider budget window in seconds; the window rolls on wall-clock time even while reservations are outstanding                                                                                                                       |
-| Ask provider reservation      | `ASK_PROVIDER_RESERVATION_TOKENS`         | `16384`                     | per-ask reservation when the provider does not report usage; must not exceed an enabled provider budget                                                                                                                              |
-| Description concurrency       | `DESCRIPTION_CONCURRENCY`                 | `1`                         | pg-boss description queue workers                                                                                                                                                                                                    |
-| Triage concurrency            | `TRIAGE_CONCURRENCY`                      | `1`                         | pg-boss triage queue workers                                                                                                                                                                                                         |
-| Verification concurrency      | `VERIFICATION_CONCURRENCY`                | `1`                         | pg-boss verification queue workers                                                                                                                                                                                                   |
-| Ack worker concurrency        | `ACK_CONCURRENCY`                         | `2`                         | reactions + progress stub; also `agent-work-ci-projection`                                                                                                                                                                           |
-| Installation group cap        | `INSTALLATION_GROUP_CONCURRENCY`          | `2`                         | pg-boss group policy                                                                                                                                                                                                                 |
-| Queue retry limit             | `QUEUE_RETRY_LIMIT`                       | `3`                         | pg-boss job retries per delivery; each work item admits at most `QUEUE_RETRY_LIMIT + 1` fresh work attempts, including substantive resumes; lifecycle claims and hops are free                                                       |
-| Queue retry delay             | `QUEUE_RETRY_DELAY_SECONDS`               | `30`                        |                                                                                                                                                                                                                                      |
-| Queue retry delay max         | `QUEUE_RETRY_DELAY_MAX_SECONDS`           | `300`                       |                                                                                                                                                                                                                                      |
-| Job expire                    | `QUEUE_EXPIRE_IN_SECONDS`                 | `3600`                      |                                                                                                                                                                                                                                      |
-| Job heartbeat                 | `QUEUE_HEARTBEAT_SECONDS`                 | `60`                        | min 10                                                                                                                                                                                                                               |
-| Queue polling interval        | `QUEUE_POLLING_INTERVAL_SECONDS`          | `0.5`                       | pg-boss worker poll interval in seconds; min 0.5                                                                                                                                                                                     |
-| Job retention                 | `QUEUE_RETENTION_SECONDS`                 | `1209600`                   |                                                                                                                                                                                                                                      |
-| Job delete after              | `QUEUE_DELETE_AFTER_SECONDS`              | `604800`                    |                                                                                                                                                                                                                                      |
-| Shutdown drain budget         | `SHUTDOWN_DRAIN_TIMEOUT_SECONDS`          | `25`                        | graceful pg-boss stop wait (s) on SIGTERM/SIGINT, then handlers settle and durable work dispatches get one more `SHUTDOWN_SETTLE_TIMEOUT_MS` window before the pool closes                                                           |
-| Webhook event retention       | `WEBHOOK_EVENTS_RETENTION_SECONDS`        | `2592000`                   | delete aged webhook_events and their replay rows, plus duplicate-arrival metadata by its own received_at (30d); disabled scheduled retention leaves evidence unpurged                                                                |
-| PR actor lease TTL            | `PR_ACTOR_LEASE_TTL_SECONDS`              | `900`                       | lease validity window; a crashed holder's lease becomes stealable after this                                                                                                                                                         |
-| PR actor lease renewal        | `PR_ACTOR_LEASE_RENEWAL_INTERVAL_SECONDS` | `120`                       | holder renewal cadence; must be less than `PR_ACTOR_LEASE_TTL_SECONDS` (startup validation)                                                                                                                                          |
-| Agent work retention          | `AGENT_WORK_RETENTION_SECONDS`            | `2592000`                   | delete terminal agent_work_items older than this; also bounds same-mention ask deduplication, since the retained ask row is the join evidence                                                                                        |
-| Retention schedule            | `RETENTION_CRON`                          | `17 3 * * *`                | cron for the worker cleanup sweep                                                                                                                                                                                                    |
-| Retention enabled             | `RETENTION_ENABLED`                       | `true`                      | toggle the scheduled cleanup sweep. Accepts only `true`/`false` (empty → default); legacy `1`/`yes`/`TRUE` fail startup.                                                                                                             |
-| Log level                     | `LOG_LEVEL`                               | `info`                      |                                                                                                                                                                                                                                      |
-| Pretty logs                   | `LOG_PRETTY`                              | dev `true`, prod `false`    | Accepts only `true`/`false` (empty → default); legacy `1`/`yes`/`TRUE` fail startup.                                                                                                                                                 |
-| Redact logs                   | `LOG_REDACT`                              | `true`                      | scrub secret-shaped substrings from emitted logs. Accepts only `true`/`false` (empty → default); legacy `1`/`yes`/`TRUE` fail startup.                                                                                               |
+| Name                          | Env var                              | Default                     | Notes                                                                                                                                                                                                                                          |
+| ----------------------------- | ------------------------------------ | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Provider prompt timeout       | `PROVIDER_PROMPT_TIMEOUT_MS`         | `300000`                    | inactivity cap: abort if no provider activity this long                                                                                                                                                                                        |
+| Specialist timeout            | `REVIEW_SPECIALIST_TIMEOUT_MS`       | `140000`                    | total wall-clock budget for one specialist, including jitter, retries, and validation repair; the effective deadline is the smallest of this knob, `REVIEW_SPECIALISTS_BUDGET_MS`, and the remaining attempt model window                      |
+| Slash command allowlist       | `SLASH_ALLOWED_ASSOCIATIONS`         | `OWNER,MEMBER,COLLABORATOR` | comma-separated GitHub comment author associations allowed to run slash commands; valid values: `OWNER`, `MEMBER`, `COLLABORATOR`, `CONTRIBUTOR`, `FIRST_TIME_CONTRIBUTOR`, `FIRST_TIMER`, `NONE`, `MANNEQUIN`; set `*` to allow all           |
+| Maintainer decision allowlist | `MAINTAINER_DECISION_ASSOCIATIONS`   | `OWNER,MEMBER,COLLABORATOR` | comma-separated GitHub author associations whose non-bot inline replies may support a dismissal; missing user or association metadata fails closed; `*` is not allowed                                                                         |
+| Review concurrency            | `REVIEW_CONCURRENCY`                 | `2`                         | dispatcher slots for `review` work runs                                                                                                                                                                                                        |
+| Ask concurrency               | `ASK_CONCURRENCY`                    | `1`                         | dispatcher slots for `ask` work runs; same-mention deduplication comes from ask intake, not this knob                                                                                                                                          |
+| Ask actor outstanding         | `ASK_ACTOR_MAX_OUTSTANDING`          | `2`                         | maximum queued or running asks for one actor in one installation                                                                                                                                                                               |
+| Ask repository outstanding    | `ASK_REPOSITORY_MAX_OUTSTANDING`     | `8`                         | maximum queued or running asks for one repository                                                                                                                                                                                              |
+| Ask installation outstanding  | `ASK_INSTALLATION_MAX_OUTSTANDING`   | `32`                        | maximum queued or running asks across one installation                                                                                                                                                                                         |
+| Ask actor burst               | `ASK_ACTOR_BURST`                    | `3`                         | token-bucket burst capacity for one actor                                                                                                                                                                                                      |
+| Ask repository burst          | `ASK_REPOSITORY_BURST`               | `12`                        | token-bucket burst capacity for one repository                                                                                                                                                                                                 |
+| Ask installation burst        | `ASK_INSTALLATION_BURST`             | `48`                        | token-bucket burst capacity for one installation                                                                                                                                                                                               |
+| Ask actor refill              | `ASK_ACTOR_REFILL_SECONDS`           | `60`                        | seconds per actor token                                                                                                                                                                                                                        |
+| Ask repository refill         | `ASK_REPOSITORY_REFILL_SECONDS`      | `10`                        | seconds per repository token                                                                                                                                                                                                                   |
+| Ask installation refill       | `ASK_INSTALLATION_REFILL_SECONDS`    | `1`                         | seconds per installation token                                                                                                                                                                                                                 |
+| Ask provider budget           | `ASK_PROVIDER_BUDGET_TOKENS`         | `0`                         | installation-wide token budget per window; counts each distinct ask computation once; `0` disables this check                                                                                                                                  |
+| Ask provider window           | `ASK_PROVIDER_BUDGET_WINDOW_SECONDS` | `86400`                     | provider budget window in seconds; the window rolls on wall-clock time even while reservations are outstanding                                                                                                                                 |
+| Ask provider reservation      | `ASK_PROVIDER_RESERVATION_TOKENS`    | `16384`                     | per-ask reservation when the provider does not report usage; must not exceed an enabled provider budget                                                                                                                                        |
+| Description concurrency       | `DESCRIPTION_CONCURRENCY`            | `1`                         | dispatcher slots for `description` work runs                                                                                                                                                                                                   |
+| Triage concurrency            | `TRIAGE_CONCURRENCY`                 | `1`                         | dispatcher slots for `triage` work runs                                                                                                                                                                                                        |
+| Verification concurrency      | `VERIFICATION_CONCURRENCY`           | `1`                         | dispatcher slots for `verification` work runs                                                                                                                                                                                                  |
+| Ack concurrency               | `ACK_CONCURRENCY`                    | `2`                         | dispatcher slots for `ack` (reactions and progress stub) and `ci_projection` work runs                                                                                                                                                         |
+| Installation group cap        | `INSTALLATION_GROUP_CONCURRENCY`     | `2`                         | per-installation cap on concurrently running work runs                                                                                                                                                                                         |
+| Work run retry limit          | `QUEUE_RETRY_LIMIT`                  | `3`                         | each work run admits at most `QUEUE_RETRY_LIMIT + 1` attempts (`work_run_attempts` rows); lifecycle claims and boot reconciliation are free                                                                                                    |
+| Work run retry delay          | `QUEUE_RETRY_DELAY_SECONDS`          | `30`                        | first `retry_scheduled` backoff; later retries back off exponentially                                                                                                                                                                          |
+| Work run retry delay max      | `QUEUE_RETRY_DELAY_MAX_SECONDS`      | `300`                       | cap on the `retry_scheduled` backoff                                                                                                                                                                                                           |
+| Shutdown grace                | `SHUTDOWN_GRACE_MS`                  | `25000`                     | on SIGTERM/SIGINT, `/webhooks` returns 503 and in-flight GitHub writes get this long (ms) to settle before the harness, `app_state.sqlite`, and the lock close. Keep Compose `stop_grace_period` at least 5 s above it                         |
+| pi_durable reset size         | `PI_DURABLE_RESET_MAX_BYTES`         | `2147483648`                | zero-503 reset threshold for `pi_durable.sqlite` (2 GiB). See [the reset runbook](agent-work-ops.md#pi_durable-reset)                                                                                                                          |
+| pi_durable reset age          | `PI_DURABLE_RESET_MAX_AGE_SECONDS`   | `2592000`                   | zero-503 reset threshold by file age (30 days)                                                                                                                                                                                                 |
+| Webhook event retention       | `WEBHOOK_EVENTS_RETENTION_SECONDS`   | `2592000`                   | delete aged `webhook_deliveries`, `webhook_body_replays`, and `webhook_rejections` rows, each by its own `created_at` (30d); disabled scheduled retention leaves evidence unpurged                                                             |
+| Agent work retention          | `AGENT_WORK_RETENTION_SECONDS`       | `2592000`                   | delete terminal `work_runs` (and their attempts), old ask quota rows, CI state without active work, and settled `publish_intents` older than this; also bounds same-mention ask deduplication, since the retained ask run is the join evidence |
+| Retention schedule            | `RETENTION_CRON`                     | `17 3 * * *`                | cron for the daily `app_state.sqlite` cleanup, followed by `PRAGMA wal_checkpoint(TRUNCATE)`                                                                                                                                                   |
+| Retention enabled             | `RETENTION_ENABLED`                  | `true`                      | toggle the scheduled cleanup sweep. Accepts only `true`/`false` (empty → default); legacy `1`/`yes`/`TRUE` fail startup.                                                                                                                       |
+| Log level                     | `LOG_LEVEL`                          | `info`                      |                                                                                                                                                                                                                                                |
+| Pretty logs                   | `LOG_PRETTY`                         | dev `true`, prod `false`    | Accepts only `true`/`false` (empty → default); legacy `1`/`yes`/`TRUE` fail startup.                                                                                                                                                           |
+| Redact logs                   | `LOG_REDACT`                         | `true`                      | scrub secret-shaped substrings from emitted logs. Accepts only `true`/`false` (empty → default); legacy `1`/`yes`/`TRUE` fail startup.                                                                                                         |
 
 Former env tuning knobs (tool-round caps, byte limits, timeouts, anchor-menu
 caps, CI-summary waits, workspace limits) are now code constants in
 `src/settings/*Constants.ts` — see the tables below.
 
 Progress ownership conflicts use the existing `warn` log level. No new setting
-is required. See [the queue runbook](agent-work-ops.md#inspect-queue-health).
-
-CI projection delivery attribution lives in pg-boss job JSON, independently of
-`AGENT_EVENTS_ENABLED`; no new setting is required. Job retention (14 days by
-default) and post-completion deletion (seven days) bound the evidence lifetime.
-Inspection and rollout:
-[the queue runbook](agent-work-ops.md#ci-projection-delivery-attribution).
+is required. See [work run health](agent-work-ops.md#inspect-work-run-health).
 
 ### Project `models.json` (optional Pi catalog)
 
-`loadConfig()` resolves an optional Pi `models.json` catalog path (strict subset parsed in [`src/agent/runtime/modelsJsonCatalog.ts`](../src/agent/runtime/modelsJsonCatalog.ts)). **`ROLE=worker`** validates that `PI_PROVIDER` / `PI_MODEL` (and orchestrator/fallback pairs when set) resolve against built-ins ∪ that file before any agent session starts. **`ROLE=web`** only resolves the path and keeps the env selection strings for boot logs. It does not construct Core sessions or overlay the catalog into a live `Models` collection. Selection stays in env; the file is only the catalog.
+`loadConfig()` resolves an optional Pi `models.json` catalog path (strict subset parsed in [`src/agent/runtime/durable/modelsJson.ts`](../src/agent/runtime/durable/modelsJson.ts)). The process validates that `PI_PROVIDER` / `PI_MODEL` (and orchestrator/fallback pairs when set) resolve against built-ins ∪ that file before boot opens `/webhooks`. Selection stays in env; the file is only the catalog.
 
 **Resolution order**
 
 1. `MODELS_JSON_PATH` when set (must exist; absolute or cwd-relative).
 2. Else `models.json` at `process.cwd()` (Docker image workdir: `/app/models.json`).
 
-- Missing catalog → today’s env + built-in provider path (`modelsJsonPath: null`). On **worker**, a non-built-in `PI_PROVIDER` fails with an error that includes the path that was looked for.
-- Present but invalid, or selection not found → **worker** `loadConfig()` throws; **web** accepts the env strings without catalog validation.
+- Missing catalog → today’s env + built-in provider path (`modelsJsonPath: null`). A non-built-in `PI_PROVIDER` fails startup with an error that includes the path that was looked for.
+- Present but invalid, or selection not found → `loadConfig()` throws and the process exits.
 - Prefer `$ENV_VAR` / `${ENV_VAR}` for `apiKey` values. Sample: [`models.json.example`](../models.json.example). Do not commit a real API-key-bearing catalog; keep injection operator-side. Model `cost` fields are USD per 1M tokens (`input` / `output` / `cacheRead` / `cacheWrite`). Use `0` only for free local models; billed proxies need real rates so cache accounting is not silently free.
 - **How the file reaches Docker `/app/models.json`:**
   - **Build context:** if repo-root `models.json` exists at `docker build` time (e.g. Dokploy patch), the image copies it to `/app/models.json`. Missing file → build succeeds, no catalog in the image.
@@ -199,17 +181,17 @@ Pi reference (upstream `earendil-works/pi`):
 - Built-in provider catalog code: [packages/ai](https://github.com/earendil-works/pi/tree/main/packages/ai).
 - Provider extensions (`registerProvider`, OAuth flows): [packages/coding-agent/docs/custom-provider.md](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/custom-provider.md). Those are code extensions, not catalog entries, so they do not apply to the `models.json` below.
 
-Base provider fields (parsed in [`src/agent/runtime/modelsJsonCatalog.ts`](../src/agent/runtime/modelsJsonCatalog.ts)):
+Base provider fields (parsed in [`src/agent/runtime/durable/modelsJson.ts`](../src/agent/runtime/durable/modelsJson.ts)):
 
-| Field        | Required | Notes                                                                                                                              |
-| ------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `baseUrl`    | Yes      | Server URL, for example `https://llm.example.com/v1` or `http://localhost:11434/v1`                                                |
-| `api`        | Yes      | Request shape; see known values below                                                                                              |
-| `apiKey`     | Yes      | Plain value, a dummy like `ollama` for keyless local servers, or a whole-value `$VAR` / `${VAR}` template resolved from worker env |
-| `authHeader` | No       | Set `true` when the server expects the key as an `Authorization` header                                                            |
-| `headers`    | No       | Extra per-request headers                                                                                                          |
-| `compat`     | No       | Request-shape flags for every model on the provider; see `compat` shape below                                                      |
-| `models`     | Yes      | Non-empty array; see model fields below                                                                                            |
+| Field        | Required | Notes                                                                                                                                   |
+| ------------ | -------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `baseUrl`    | Yes      | Server URL, for example `https://llm.example.com/v1` or `http://localhost:11434/v1`                                                     |
+| `api`        | Yes      | Request shape; see known values below                                                                                                   |
+| `apiKey`     | Yes      | Plain value, a dummy like `ollama` for keyless local servers, or a whole-value `$VAR` / `${VAR}` template resolved from the process env |
+| `authHeader` | No       | Set `true` when the server expects the key as an `Authorization` header                                                                 |
+| `headers`    | No       | Extra per-request headers                                                                                                               |
+| `compat`     | No       | Request-shape flags for every model on the provider; see `compat` shape below                                                           |
+| `models`     | Yes      | Non-empty array; see model fields below                                                                                                 |
 
 Model fields (every entry is an object; `models` must be a non-empty array):
 
@@ -330,18 +312,18 @@ PI_MODEL=internal-model
 MY_PROXY_API_KEY=secret
 ```
 
-Strict-subset notes. PR Agent parses a subset of the Pi catalog, and unknown fields throw (`unknown field <section>.<key>`). `oauth`, `modelOverrides`, `samplingParams`, and `promptCache` are not accepted; drop them from the file. `api` and `baseUrl` live on the provider only; per-model overrides of them are not accepted. Per-model `compat` and `thinkingLevelMap` are accepted (see above). `apiKey` templates are whole-value only: `$VAR` or `${VAR}`. Inline mixing and shell execution are not supported. The **worker** validates the selection at boot; **web** keeps the env strings without catalog validation. Deliver the file with one of the three paths above (build-context copy, runtime mount on both services, or `MODELS_JSON_PATH`).
+Strict-subset notes. PR Agent parses a subset of the Pi catalog, and unknown fields throw (`unknown field <section>.<key>`). `oauth`, `modelOverrides`, `samplingParams`, and `promptCache` are not accepted; drop them from the file. `api` and `baseUrl` live on the provider only; per-model overrides of them are not accepted. Per-model `compat` and `thinkingLevelMap` are accepted (see above). `apiKey` templates are whole-value only: `$VAR` or `${VAR}`. Inline mixing and shell execution are not supported. The process validates the selection at boot. Deliver the file with one of the three paths above (build-context copy, runtime mount, or `MODELS_JSON_PATH`).
 
 Verification:
 
-1. Recreate the worker so it picks up the catalog and env.
-2. Worker boot passes without a `models_json` or selection error.
+1. Recreate the pr-agent container so it picks up the catalog and env.
+2. Boot passes without a `models_json` or selection error.
 3. Open a small test PR and comment `/ask` as an allowed association. An answer proves the provider serves requests.
 4. `provider.model_not_found` means the provider and model pair was not found; check the spelling of `PI_PROVIDER` and `PI_MODEL` against the catalog.
 
 ---
 
-Work item retries are scheduled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RETRY_DELAY_SECONDS`, `QUEUE_RETRY_DELAY_MAX_SECONDS`; exponential backoff is always enabled). The durable `agent_work_items.attempt_count` advances at fresh work admission, not lifecycle claim. The total remains `QUEUE_RETRY_LIMIT + 1`. Fresh work resumed from `running` counts, including workspace preparation and triage bulk replay. A committed admission interrupted before the provider is not refunded. At the cap, recovery-only completion is allowed; another fresh admission fails with `agent_work.attempts_exhausted`. Pre-admission infrastructure failures retain the pg-boss delivery bound and their original cause, without spending work retries. Deterministic missing-submit/report failures keep their existing single escalated replay when budget permits.
+Work run retries are scheduled only by `src/state/workRuns.ts` (`retry_scheduled` with `next_retry_at` from `QUEUE_RETRY_DELAY_SECONDS`, backing off exponentially up to `QUEUE_RETRY_DELAY_MAX_SECONDS`). Each dispatcher claim of a due row inserts one `work_run_attempts` row; the total stays `QUEUE_RETRY_LIMIT + 1`. An attempt interrupted before the provider is not refunded. At the cap, recovery-only completion is allowed; another fresh admission fails with `agent_work.attempts_exhausted`. Boot Phase A adoption and projection never charge an attempt. Deterministic missing-submit/report failures keep their existing single escalated replay when budget permits.
 
 Completed mutation recovery without a usable result is terminal before budget
 exhaustion. Failed or incomplete evidence reads remain transient, and genuine failure budgets
@@ -351,55 +333,36 @@ and defaults are unchanged. There is no separate unknown-resolution knob.
 
 ## Code constants (`src/settings/*Constants.ts`, re-exported via `constants.ts`)
 
-### Agent work (queues)
+### Agent work
 
-| Symbol                                       | Value / role                                                                                                                                                                                                                                                               |
-| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ACK_QUEUE`                                  | `agent-work-ack`                                                                                                                                                                                                                                                           |
-| `CI_PROJECTION_QUEUE`                        | `agent-work-ci-projection` — worker renders CI cells from `pr_head_ci_state`. `check_run`, `status`, `workflow_run`, and `check_suite` intake send a 5s debounced job per head                                                                                             |
-| `REVIEW_QUEUE`                               | `agent-work-review`                                                                                                                                                                                                                                                        |
-| `ASK_QUEUE`                                  | `agent-work-ask`                                                                                                                                                                                                                                                           |
-| `DESCRIPTION_QUEUE`                          | `agent-work-description`                                                                                                                                                                                                                                                   |
-| `TRIAGE_QUEUE`                               | `agent-work-triage`                                                                                                                                                                                                                                                        |
-| `VERIFICATION_QUEUE`                         | `agent-work-verification`                                                                                                                                                                                                                                                  |
-| `ACK_DEAD_LETTER_QUEUE`                      | `agent-work-ack-dead`                                                                                                                                                                                                                                                      |
-| `REVIEW_DEAD_LETTER_QUEUE`                   | `agent-work-review-dead`                                                                                                                                                                                                                                                   |
-| `ASK_DEAD_LETTER_QUEUE`                      | `agent-work-ask-dead`                                                                                                                                                                                                                                                      |
-| `DESCRIPTION_DEAD_LETTER_QUEUE`              | `agent-work-description-dead`                                                                                                                                                                                                                                              |
-| `TRIAGE_DEAD_LETTER_QUEUE`                   | `agent-work-triage-dead`                                                                                                                                                                                                                                                   |
-| `VERIFICATION_DEAD_LETTER_QUEUE`             | `agent-work-verification-dead`                                                                                                                                                                                                                                             |
-| `CI_PROJECTION_DEAD_LETTER_QUEUE`            | `agent-work-ci-projection-dead`                                                                                                                                                                                                                                            |
-| `RETENTION_QUEUE`                            | `agent-work-retention` — scheduled cleanup sweep                                                                                                                                                                                                                           |
-| `RETENTION_QUEUE_POLLING_INTERVAL_SECONDS`   | 60                                                                                                                                                                                                                                                                         |
-| `DEFERRED_HEAD_SHA`                          | worker resolves head SHA                                                                                                                                                                                                                                                   |
-| `AUTOMATED_PR_ACTIONS`                       | opened, synchronize, reopened, closed — accepted intake actions, not the auto-enqueue map; effective close cancels reviews and persists a closed/merged intake gate; only a newer reopen restores admission                                                                |
-| `REVIEW_TRUSTED_AUTHOR_ASSOCIATIONS`         | `OWNER`, `MEMBER`, `COLLABORATOR`; trusted fork authors reviewed on open in approval mode (see [features.md](features.md))                                                                                                                                                 |
-| `REVIEW_WORKFLOW_START_UNGATED_ASSOCIATIONS` | `CONTRIBUTOR`, `NONE`, `FIRST_TIME_CONTRIBUTOR`, `FIRST_TIMER`; a fork author with one of those associations waits for a pull request approval or `/review`. A workflow start does not admit that row                                                                      |
-| `DESCRIPTION_PUBLISH_LENS`                   | `description`                                                                                                                                                                                                                                                              |
-| `ASK_PUBLISH_LENS`                           | `ask`                                                                                                                                                                                                                                                                      |
-| `TRIAGE_PUBLISH_LENS`                        | `triage`                                                                                                                                                                                                                                                                   |
-| `VERIFICATION_PUBLISH_LENS`                  | `verification`                                                                                                                                                                                                                                                             |
-| `VERIFICATION_STUB_MARKER`                   | `<!-- pr-agent:verification-stub -->` HTML marker in the single verification stub reply per finding thread                                                                                                                                                                 |
-| `VERIFICATION_FAILURE_START` / `_END`        | Start `<!-- pr-agent:verification-failure -->`. End `<!-- /pr-agent:verification-failure -->`.                                                                                                                                                                             |
-| `VERIFICATION_FAILURE_TEXT`                  | `Verification did not complete. Run \`/verify\` to try again.`                                                                                                                                                                                                             |
-| `publish_records.step` extras                | `ci_cell`, `commit_status`, `verification_failure` — CHECK values reserved for later writers                                                                                                                                                                               |
-| `MAX_STORED_COMMENT_TEXT_LEN`                | 16384                                                                                                                                                                                                                                                                      |
-| `RETENTION_DELETE_BATCH_SIZE`                | 5000, rows per batch in the retention sweep (each batch is its own transaction)                                                                                                                                                                                            |
-| `PR_ACTOR_LEASE_DEFER_SECONDS`               | 15, delay between lease attempts. Arming needs a created/retry successor. Terminal current/next slots are reconciled before one guarded resend, without an extra wait. Lives in `src/agentWork/prActorLease.ts`, not settings.                                             |
-| `STALE_QUEUED_WORK_GRACE_SECONDS`            | 300, queued dead-chain age for all five durable types when no lease/job is live (`agent_work_queued_stale`); the same tick then fails those rows with `queue_delivery_lost`. Added to `PR_ACTOR_LEASE_TTL_SECONDS` for lost-running marks, which recheck age and liveness. |
-| `ESCALATED_TOOL_ROUNDS_MULTIPLIER`           | 2, factor applied to a base structured-loop tool-round budget on an escalated attempt (attempt 2 and later)                                                                                                                                                                |
-| `ESCALATED_TOOL_ROUNDS_CAP`                  | 4000, ceiling on any escalated tool-round budget                                                                                                                                                                                                                           |
+| Symbol                                       | Value / role                                                                                                                                                                                                |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DEFERRED_HEAD_SHA`                          | the work run resolves the head SHA at execution                                                                                                                                                             |
+| `AUTOMATED_PR_ACTIONS`                       | opened, synchronize, reopened, closed — accepted intake actions, not the auto-enqueue map; effective close cancels reviews and persists a closed/merged intake gate; only a newer reopen restores admission |
+| `REVIEW_TRUSTED_AUTHOR_ASSOCIATIONS`         | `OWNER`, `MEMBER`, `COLLABORATOR`; trusted fork authors reviewed on open in approval mode (see [features.md](features.md))                                                                                  |
+| `REVIEW_WORKFLOW_START_UNGATED_ASSOCIATIONS` | `CONTRIBUTOR`, `NONE`, `FIRST_TIME_CONTRIBUTOR`, `FIRST_TIMER`; a fork author with one of those associations waits for a pull request approval or `/review`. A workflow start does not admit that row       |
+| `DESCRIPTION_PUBLISH_LENS`                   | `description`                                                                                                                                                                                               |
+| `ASK_PUBLISH_LENS`                           | `ask`                                                                                                                                                                                                       |
+| `TRIAGE_PUBLISH_LENS`                        | `triage`                                                                                                                                                                                                    |
+| `VERIFICATION_PUBLISH_LENS`                  | `verification`                                                                                                                                                                                              |
+| `VERIFICATION_STUB_MARKER`                   | `<!-- pr-agent:verification-stub -->` HTML marker in the single verification stub reply per finding thread                                                                                                  |
+| `VERIFICATION_FAILURE_START` / `_END`        | Start `<!-- pr-agent:verification-failure -->`. End `<!-- /pr-agent:verification-failure -->`.                                                                                                              |
+| `VERIFICATION_FAILURE_TEXT`                  | `Verification did not complete. Run \`/verify\` to try again.`                                                                                                                                              |
+| `publish_records.step` extras                | `ci_cell`, `commit_status`, `verification_failure` — CHECK values reserved for later writers                                                                                                                |
+| `MAX_STORED_COMMENT_TEXT_LEN`                | 16384                                                                                                                                                                                                       |
+| `ESCALATED_TOOL_ROUNDS_MULTIPLIER`           | 2, factor applied to a base structured-loop tool-round budget on an escalated attempt (attempt 2 and later)                                                                                                 |
+| `ESCALATED_TOOL_ROUNDS_CAP`                  | 4000, ceiling on any escalated tool-round budget                                                                                                                                                            |
 
 ### Review output
 
 Concurrent attempts to finish a review keep the first verdict, including acknowledgement and recovery. No new setting is required. A disabled commit status or an empty/deferred head needs no status write.
 
 Review check runs are configured on, but optional installation access determines
-their applicability for each run. When Checks write is available, the worker
+their applicability for each run. When Checks write is available, the review
 starts `PR Agent Review` as `in_progress`. Enabled `FEATURE_COMMIT_STATUS`
 independently starts `pr-agent/review` as `pending` when status write is available.
 A remote check belongs to `(owner, repo, head SHA, name, external ID)`, with the
-work-item ID as external ID. Duplicate recovery requires exactly one full-identity
+work run ID as external ID. Duplicate recovery requires exactly one full-identity
 match. Every terminal path uses `reviewVerdict(...).close`.
 Full coverage concludes `failure` for open findings at or above
 `REVIEW_CHECK_FAIL_SEVERITY` (default `P2`) and `success` when none block.
@@ -423,8 +386,8 @@ and reactions are run-scoped. Unknown CI-source reads stop after three persisted
 failures per observation; a newer review observation reopens them. Repository
 observation fanout touches at most 100 existing scoped heads per transaction;
 projection repair discovers the remainder. A two-second total budget bounds metadata plus a
-required cold mint/refresh. Unknown failures use a separate lease-fenced durable
-`QUEUE_RETRY_LIMIT + 1` counter, reset after success, without model attempts or
+required cold mint/refresh. Unknown failures retry within the work run's
+`QUEUE_RETRY_LIMIT + 1` attempt budget, without model calls or
 escalation. Shared-circuit deferral spends no probe count. No new environment
 flag is required. Receipt-only completion precedes new-output access checks.
 See [rollout](operations.md#review-reliability-rollout).
@@ -441,7 +404,7 @@ Operators using branch protection must replace required checks named `PR Agent S
 | `REVIEW_SIZES`                                                                                                                                     | Review size scale (`XS`–`XXL`) for the Size row and `size:` label                                  |
 | `REVIEW_OVERVIEW_ALERT` / `REVIEW_FAILURE_ALERT`                                                                                                   | GitHub alert types (`NOTE`, `CAUTION`)                                                             |
 | `REVIEW_PROGRESS_NOTE`                                                                                                                             | In-progress NOTE body                                                                              |
-| `REVIEW_PROGRESS_QUEUED_NOTE`                                                                                                                      | Queued progress stub NOTE body (before the review worker claims the work item)                     |
+| `REVIEW_PROGRESS_QUEUED_NOTE`                                                                                                                      | Queued progress stub NOTE body (before the dispatcher claims the work run)                         |
 | `REVIEW_PROGRESS_QUEUE_LABEL`                                                                                                                      | Queued progress stub table label for wait-queue rank (`Queue`)                                     |
 | `reviewProgressCancelledNote` / `reviewCancelLastError` / `reviewCancelAttributionForClosedPr` / `sanitizeGithubLogin` / `ReviewCancelAttribution` | Cancelled progress stub notice, work-item last_error, closed-PR attribution, and login sanitizer   |
 | `REVIEW_PROGRESS_SOURCE_AUTO` / `REVIEW_PROGRESS_SOURCE_SLASH`                                                                                     | Progress table source labels                                                                       |
@@ -478,7 +441,7 @@ Operators using branch protection must replace required checks named `PR Agent S
 | `MAX_INLINE_REVIEW_COMMENTS`                                                                                                                       | 50                                                                                                 |
 | `MAX_THREAD_PUBLISH_CALLS`                                                                                                                         | 8 incremental COMMENT reviews per orchestrated run; the terminal close-outcome review is extra     |
 | `REVIEW_FINALIZATION_WINDOW_MS`                                                                                                                    | 30000 reserved after model work for abort, durable writes, summary, checks, status, and labels     |
-| `REVIEW_CANCEL_POLL_INTERVAL_MS`                                                                                                                   | 2000; how often a leased durable execute observes cancel or hold-loss and aborts the host signal   |
+| `REVIEW_CANCEL_POLL_INTERVAL_MS`                                                                                                                   | 2000; how often a running attempt observes durable cancellation and aborts the host signal         |
 | `REVIEW_SEVERITY_RANK`                                                                                                                             | P0–P3 ordering                                                                                     |
 | Label prefixes                                                                                                                                     | `LABEL_REVIEW_SIZE_PREFIX`, `LABEL_SECURITY_CONCERN`, `LABEL_CATEGORY_PREFIX`                      |
 | `REPO_POLICY_DIRNAME`                                                                                                                              | `.pr-agent` directory at checkout root                                                             |
@@ -493,38 +456,29 @@ Operators using branch protection must replace required checks named `PR Agent S
 | `MAX_AGENT_INSTRUCTION_FILE_BYTES`                                                                                                                 | 32768                                                                                              |
 
 `REVIEW_CANCEL_POLL_INTERVAL_MS` remains the cooperative signal-observation
-backstop. Leased execution surfaces also reread durable cancellation in the final
-mutation callback and then reassert lease ownership. This adds no knob and blocks
-new feature output when cancellation is visible. Cancellation notices and verdict
-cleanup retain their existing fences; requests already in flight cannot be withdrawn.
+backstop. `publishOnce` also rereads the work run status and lane epoch inside
+the `reserved → mutating` transaction. This adds no knob and blocks new feature
+output when cancellation is visible. Cancellation notices and verdict cleanup
+keep their exemption; requests already in flight cannot be withdrawn.
 
 A failed stale review's pending replacement is cancelled even if its claim wins
-concurrently. This uses the replacement's recorded lease epoch, not a new setting.
-Queue deliveries cannot veto pending cancellation; successful handoff remains
-exempt. Unconfirmed cancellation is logged as an error.
+concurrently; the dispatcher's claim and the cancellation share one
+`work_runs` row and the sole status writer. Unconfirmed cancellation is logged
+as an error.
 
-Stale-head replacement creation shares the review intake lock and reads persistent
-lifecycle state after acquiring it. Accepted close/merge blocks replacement work
-and progress ownership transfer. This adds no mode, setting or polling interval.
-Retrying a stale review keeps changes already saved on its replacement.
-Incoming-only fields are added; stored values win collisions. This needs no new
-setting or polling interval.
-
-#### Per-repo policy rules (`.pr-agent/*.mdc`)
-
-Reviews bind `.pr-agent/*.mdc` from the pull request's recorded base commit. The workspace snapshot is `ok` when the base blobs passed the per-file cap, `absent` when the read succeeded and the allowlist was empty, or `unavailable` when the base sha was missing or the read failed. The `.mdc` per-file cap is 8192 bytes. The aggregate cap stays 32 KiB, with the existing file-count and frontmatter limits. Head copies are untrusted proposed changes. An over-cap blob is a drop, not a failed snapshot. Invalid policy warns and the review proceeds without binding rules. A failed base read binds nothing.
-
-| Frontmatter / body | Type               | Cap                   | Role                                                                                              |
-| ------------------ | ------------------ | --------------------- | ------------------------------------------------------------------------------------------------- |
-| `globs`            | string or string[] | 200 chars per pattern | Include rule when a changed file matches; omit with no `alwaysApply` to always apply              |
-| `alwaysApply`      | boolean            | optional              | `true` always includes the rule; omit both keys to always apply; `false` requires a matching glob |
-| body               | markdown           | 1000 chars            | Rule prose from the base snapshot, injected as trusted policy when the rule applies               |
+Stale-head replacement creation reads lifecycle state in the same transaction.
+Accepted close/merge blocks replacement work and progress ownership transfer.
+This adds no mode, setting or polling interval.
+------------------ | ------------------ | --------------------- | ------------------------------------------------------------------------------------------------- |
+| `globs` | string or string[] | 200 chars per pattern | Include rule when a changed file matches; omit with no `alwaysApply` to always apply |
+| `alwaysApply` | boolean | optional | `true` always includes the rule; omit both keys to always apply; `false` requires a matching glob |
+| body | markdown | 1000 chars | Rule prose from the base snapshot, injected as trusted policy when the rule applies |
 
 Legacy `.pr-agent.yml` is ignored. Rules augment prompts only. They never replace the structured specialist and summary contracts or change output schemas. No policy body may suppress, omit, or downgrade findings.
 
 #### Root agent instruction files (`AGENTS.md` / `CLAUDE.md` / `REVIEW.md`)
 
-On each review run, the worker loads `AGENTS.md`, `CLAUDE.md`, and `REVIEW.md` from the recorded base commit into a sibling trusted-context block. Head copies are untrusted proposed changes and are not binding. The per-file cap is 32768 bytes and the aggregate cap stays 64 KiB. Missing files are skipped and are not cited; oversized, unreadable, or empty files are skipped (warn logged). Bodies are injected raw — `@include` / pointer expansion is not performed. Ask, describe, and triage do not load these files. Verification reads `.mdc` rules from the same base snapshot and does not load these instruction files. Review prompts mention `AGENTS.md`, `CLAUDE.md`, or `REVIEW.md` only when that file was loaded.
+On each review run, the review loads `AGENTS.md`, `CLAUDE.md`, and `REVIEW.md` from the recorded base commit into a sibling trusted-context block. Head copies are untrusted proposed changes and are not binding. The per-file cap is 32768 bytes and the aggregate cap stays 64 KiB. Missing files are skipped and are not cited; oversized, unreadable, or empty files are skipped (warn logged). Bodies are injected raw — `@include` / pointer expansion is not performed. Ask, describe, and triage do not load these files. Verification reads `.mdc` rules from the same base snapshot and does not load these instruction files. Review prompts mention `AGENTS.md`, `CLAUDE.md`, or `REVIEW.md` only when that file was loaded.
 
 `REVIEW.md` holds review-only guidance, the convention other review agents read from the repository root. It loads last, so an existing `AGENTS.md` or `CLAUDE.md` keeps its budget; when the aggregate cap is already spent, `REVIEW.md` is skipped with a warning. Its instructions follow the same anti-suppression rule as every trusted file: they can add checks, but they cannot skip paths, suppress, omit, or downgrade findings.
 
@@ -542,11 +496,13 @@ Treat missing session checks as P1 minimum. Flag any new outbound HTTP without t
 
 ### Review orchestration and agent loops
 
-An orchestrated review computes its hard return deadline from the pg-boss job start time as `expireInSeconds * 0.8`. Model work stops `REVIEW_FINALIZATION_WINDOW_MS` before that deadline. Each specialist attempt uses the smaller of `REVIEW_SPECIALIST_TIMEOUT_MS` and the remaining model window.
+An orchestrated review computes its hard return deadline from the attempt start as `REVIEW_ATTEMPT_BUDGET_MS` (255000: 10000 intake/checkout + 40000 recon + 140000 specialists + 35000 synthesis/publish + 30000 finalization reserve). Model work stops `REVIEW_FINALIZATION_WINDOW_MS` before that deadline, and reconnaissance additionally stops at the intake + recon budget point. Each specialist attempt uses the smallest of `REVIEW_SPECIALIST_TIMEOUT_MS`, `REVIEW_SPECIALISTS_BUDGET_MS`, and the remaining model window. A specialist that hits `REVIEW_SPECIALIST_WRAP_UP_MS` (105000) or `REVIEW_SPECIALIST_WRAP_UP_TOOL_ROUNDS` (75% of `SPECIALIST_MAX_TOOL_ROUNDS`) gets a wrap-up steer turn bounded by the remaining tool rounds (`SPECIALIST_MAX_TOOL_ROUNDS` minus the investigation rounds already sent) to finish in-flight validation and call `submit_findings_report`, and can return a `partial` outcome; `complete`, `partial`, and `failed` are the specialist outcome kinds, and specialists auto-compact long sessions.
 
 | Symbol                                       | Default / role                                                                                                                                                  |
 | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MAX_TOOL_ROUNDS`                            | 2000 for orchestrator reconnaissance and specialist investigation. The specialist timeout and the review deadline stop the run first.                           |
+| `RECON_MAX_TOOL_ROUNDS`                      | 15 for orchestrator reconnaissance                                                                                                                              |
+| `SPECIALIST_MAX_TOOL_ROUNDS`                 | 30 for specialist investigation. The specialist timeout, the wrap-up steer, and the review deadline stop the run first                                          |
+| `GOVERNED_EVIDENCE_MAX_READS`                | 2000 governed evidence reads per review run                                                                                                                     |
 | `ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS`      | 4 evidence rounds per specialist judgment turn, plus one reserved publish round (at most one extra round; evidence gathering can never starve `publish_thread`) |
 | `MAX_PR_FILES_LISTED`                        | 300, within the GitHub API cap                                                                                                                                  |
 | `MAX_PR_FILES_PATCH_BYTES`                   | 500000                                                                                                                                                          |
@@ -643,28 +599,28 @@ Writing policy is computed once per description run from workspace size stats (`
 
 ### GitHub API
 
-| Symbol                                    | Default                                          |
-| ----------------------------------------- | ------------------------------------------------ |
-| `TOKEN_FRESHNESS_BUFFER_MS`               | 60000                                            |
-| `INSTALLATION_TOKEN_FALLBACK_TTL_MS`      | 1h                                               |
-| `PRIMARY_RATE_LIMIT_MAX_RETRIES`          | 2                                                |
-| `SECONDARY_RATE_LIMIT_MAX_RETRIES`        | 3                                                |
-| `SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS`   | 60000                                            |
-| `GITHUB_PULL_REQUEST_FILES_API_MAX_FILES` | 3000                                             |
-| `COMMENTS_PAGE_SIZE`                      | 100                                              |
-| `COMMENT_PAGINATION_MAX_PAGES`            | 20                                               |
-| `CHECK_RUNS_PAGE_SIZE`                    | 100                                              |
-| `CHECK_RUNS_MAX_PAGES`                    | 5                                                |
-| `PR_COMMITS_PAGE_SIZE`                    | 100                                              |
-| `PR_COMMITS_MAX_PAGES`                    | 20                                               |
-| `GITHUB_REACTION_EYES`                    | eyes                                             |
-| `GITHUB_REACTION_PLUS_ONE`                | +1                                               |
-| `GITHUB_REACTION_MINUS_ONE`               | -1                                               |
-| `GITHUB_INT32_ID_MAX`                     | 2147483647 (PR numbers; Postgres integer)        |
-| `GITHUB_SAFE_ID_MAX`                      | 9007199254740991 (installation/comment/user ids) |
-| `GITHUB_LOGIN_MAX_CHARS`                  | 39                                               |
-| `GITHUB_REPO_NAME_MAX_CHARS`              | 100                                              |
-| `GITHUB_SHA_MAX_CHARS`                    | 64                                               |
+| Symbol                                    | Default                                            |
+| ----------------------------------------- | -------------------------------------------------- |
+| `TOKEN_FRESHNESS_BUFFER_MS`               | 60000                                              |
+| `INSTALLATION_TOKEN_FALLBACK_TTL_MS`      | 1h                                                 |
+| `PRIMARY_RATE_LIMIT_MAX_RETRIES`          | 2                                                  |
+| `SECONDARY_RATE_LIMIT_MAX_RETRIES`        | 3                                                  |
+| `SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS`   | 60000                                              |
+| `GITHUB_PULL_REQUEST_FILES_API_MAX_FILES` | 3000                                               |
+| `COMMENTS_PAGE_SIZE`                      | 100                                                |
+| `COMMENT_PAGINATION_MAX_PAGES`            | 20                                                 |
+| `CHECK_RUNS_PAGE_SIZE`                    | 100                                                |
+| `CHECK_RUNS_MAX_PAGES`                    | 5                                                  |
+| `PR_COMMITS_PAGE_SIZE`                    | 100                                                |
+| `PR_COMMITS_MAX_PAGES`                    | 20                                                 |
+| `GITHUB_REACTION_EYES`                    | eyes                                               |
+| `GITHUB_REACTION_PLUS_ONE`                | +1                                                 |
+| `GITHUB_REACTION_MINUS_ONE`               | -1                                                 |
+| `GITHUB_INT32_ID_MAX`                     | 2147483647 (PR numbers; GitHub 32-bit integer IDs) |
+| `GITHUB_SAFE_ID_MAX`                      | 9007199254740991 (installation/comment/user ids)   |
+| `GITHUB_LOGIN_MAX_CHARS`                  | 39                                                 |
+| `GITHUB_REPO_NAME_MAX_CHARS`              | 100                                                |
+| `GITHUB_SHA_MAX_CHARS`                    | 64                                                 |
 
 ### Local PR workspace
 
@@ -718,8 +674,8 @@ Pinned searches run on the fff host with `git grep` for the remainder; writable 
 
 | Symbol                                 | Default                                                                                             |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `CODE_MODE_INTERRUPT_CHECKS`           | 50000                                                                                               |
-| `CODE_MODE_CPU_BUDGET_MS`              | 80                                                                                                  |
+| `CODE_MODE_INTERRUPT_CHECKS`           | 250000                                                                                              |
+| `CODE_MODE_CPU_BUDGET_MS`              | 2000                                                                                                |
 | `CODE_MODE_MAX_TOOL_CALLS`             | 25                                                                                                  |
 | `CODE_MODE_HOST_IN_FLIGHT`             | 4                                                                                                   |
 | `CODE_MODE_TIMEOUT_MS`                 | 15000                                                                                               |
@@ -746,54 +702,26 @@ Review, ask, and verification expose one model-visible `execute` tool. Scripts c
 
 `CODE_INDEX_MODE`, `CODE_INDEX_WAIT_MS`, and `CODE_INDEX_RETENTION_SECONDS` are not settings.
 
-### Postgres pool
-
-`POSTGRES_LOCK_TIMEOUT_MS` also bounds waits on slash conflict rows held through
-intake commit. A timeout remains a real intake failure (`503` and redelivery),
-not an already-in-progress acknowledgement. No timeout defaults change.
-
-Lost-running recovery alone uses transaction-local 1,000 ms statement and
-idle-in-transaction limits. Its locks use NOWAIT; contention or protected-query
-cancellation leaves the candidate unchanged for a later pass. These private
-limits do not change the pool defaults below or add an environment setting.
-
-| Symbol                                    | Default | Role                                                                                                           |
-| ----------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------- |
-| `POSTGRES_POOL_MAX`                       | 10      | app pool size                                                                                                  |
-| `PG_BOSS_POOL_MAX_WEB`                    | 4       | pg-boss pool size for `ROLE=web`                                                                               |
-| `PG_BOSS_POOL_MAX_WORKER`                 | 8       | pg-boss pool size for `ROLE=worker`                                                                            |
-| `POSTGRES_IDLE_TIMEOUT_MS`                | 30000   | idle client reap                                                                                               |
-| `POSTGRES_CONNECTION_TIMEOUT_MS`          | 5000    | connect timeout                                                                                                |
-| `POSTGRES_STATEMENT_TIMEOUT_MS`           | 60000   | per-statement timeout                                                                                          |
-| `POSTGRES_KEEPALIVE_INITIAL_DELAY_MS`     | 10000   | TCP keepalive initial delay                                                                                    |
-| `POSTGRES_LOCK_TIMEOUT_MS`                | 10000   | per-statement lock acquisition timeout                                                                         |
-| `POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT_MS` | 60000   | idle-in-transaction session timeout                                                                            |
-| `PG_BOSS_EVENT_LOG_WINDOW_MS`             | 60000   | one pg-boss error/warning log per key per window; repeats are counted                                          |
-| `SHUTDOWN_SETTLE_TIMEOUT_MS`              | 5000    | wait for in-flight queue handlers after pg-boss drain; also the extra durable-work-only window that follows it |
-| `ANALYTICS_SHUTDOWN_TIMEOUT_MS`           | 5000    | PostHog flush bound during shutdown; on the worker it runs concurrently with the durable dispatch window       |
-
 ### Other
 
-The `SLASH_*` rows below live in `src/agentWork/intake/slashIntake.ts`.
-The `MIGRATIONS_DIR_NAME` and `MIGRATION_ADVISORY_LOCK_KEY` rows live in
-`src/db/migrations.ts`. Both are private owner settings, not barrel exports.
+The `SLASH_*` rows below live in `src/state/intake.ts` as private owner
+settings, not barrel exports.
 
-| Symbol                                              | Role                                                          |
-| --------------------------------------------------- | ------------------------------------------------------------- |
-| `MAX_LOG_MESSAGE_LEN`                               | 2000                                                          |
-| `MAX_LOG_REDACTION_SCAN_LEN`                        | 8000                                                          |
-| `SLASH_HELP_BODY`                                   | `/help` text                                                  |
-| `SLASH_CANCEL_NONE_BODY` / `SLASH_CANCEL_DONE_BODY` | `/cancel` ack replies when no review is active / after cancel |
-| `SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY`             | `/review` ack reply when a run is already active              |
-| `SLASH_VERIFY_ALREADY_IN_PROGRESS_BODY`             | `/verify` ack reply when a run is already active              |
-| `SLASH_REVIEW_FORCE_RESTARTED_BODY`                 | `/review force` ack reply after a force restart               |
-| `MIGRATIONS_DIR_NAME`                               | `migrations`                                                  |
-| `MIGRATION_ADVISORY_LOCK_KEY`                       | runMigrations cross-process lock                              |
-| `GITHUB_WEBHOOK_RESPONSE_MARGIN_MS`                 | 2000ms margin before GitHub's webhook timeout                 |
-| `WEBHOOK_MAX_BODY_BYTES`                            | 25000000 (GitHub payload cap)                                 |
-| `WEBHOOK_TIMEOUT_MS`                                | 10000 (intake 503 budget)                                     |
-| `LOG_MAX_WIDE_EVENTS`                               | 128                                                           |
-| `HEALTH_DB_PING_TIMEOUT_MS`                         | 2000 (`/ready` Postgres ping budget)                          |
+| Symbol                                              | Role                                                                   |
+| --------------------------------------------------- | ---------------------------------------------------------------------- |
+| `MAX_LOG_MESSAGE_LEN`                               | 2000                                                                   |
+| `MAX_LOG_REDACTION_SCAN_LEN`                        | 8000                                                                   |
+| `SLASH_HELP_BODY`                                   | `/help` text                                                           |
+| `SLASH_CANCEL_NONE_BODY` / `SLASH_CANCEL_DONE_BODY` | `/cancel` ack replies when no review is active / after cancel          |
+| `SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY`             | `/review` ack reply when a run is already active                       |
+| `SLASH_VERIFY_ALREADY_IN_PROGRESS_BODY`             | `/verify` ack reply when a run is already active                       |
+| `SLASH_REVIEW_FORCE_RESTARTED_BODY`                 | `/review force` ack reply after a force restart                        |
+| `GITHUB_WEBHOOK_RESPONSE_MARGIN_MS`                 | 2000ms margin before GitHub's webhook timeout                          |
+| `WEBHOOK_MAX_BODY_BYTES`                            | 25000000 (GitHub payload cap)                                          |
+| `WEBHOOK_TIMEOUT_MS`                                | 10000 (intake 503 budget)                                              |
+| `LOG_MAX_WIDE_EVENTS`                               | 128                                                                    |
+| `HEALTH_DB_PING_TIMEOUT_MS`                         | 2000 (`/health` and `/ready` app_state ping budget)                    |
+| `ANALYTICS_SHUTDOWN_TIMEOUT_MS`                     | 5000 (PostHog flush bound during shutdown, inside `SHUTDOWN_GRACE_MS`) |
 
 Prompt prose lives in `src/prompts/shared/` and `src/prompts/<role>/prompt.ts`, including review personas and description prose.
 
@@ -802,7 +730,12 @@ Private specialist orchestration constants (not exported from `src/settings/`): 
 ### Removed session snapshot settings
 
 `AGENT_RESUME_SNAPSHOT_KEY` and `AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS` are ignored.
-Sessions run in memory. Durable work, operation intents, and publish records
-still own retries and publication recovery. Migration 036 drops only the unread
-agent checkpoint and session snapshot tables. Migration 037 adds the separate
-validated review artifact store (`review_run_artifacts`), not replacement sessions.
+Conversations persist in `pi_durable.sqlite`; work runs, publish intents, and
+publish records in `app_state.sqlite` own retries and publication recovery.
+
+### Removed with the SQLite cutover
+
+The role, database, queue, lease, and drain settings of the previous topology
+are gone. `SQLITE_DIR` replaces the database URL and `SHUTDOWN_GRACE_MS`
+replaces the drain budget. The full list is in the
+[cutover runbook](operations.md#one-time-clean-break-cutover-runbook).

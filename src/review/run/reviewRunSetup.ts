@@ -3,11 +3,12 @@ import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.ts
 import type { Config } from "../../settings/index.ts";
 import type { PrSurface } from "../../github/prSurface.ts";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.ts";
-import { hideWorkspaceToolsBehindCodeMode } from "../../agent/codemode/assembleExplorationTools.ts";
 import {
   buildWorkspaceTools,
+  hideWorkspaceToolsBehindCodeMode,
   type ReviewThreadSource,
-} from "../../agent/tools/workspaceToolset.ts";
+  type WorkspaceToolBundle,
+} from "../../agent/runtime/durable/piTools.ts";
 import {
   createCachedPrDiffIndex,
   type CachedPrDiffIndex,
@@ -27,6 +28,8 @@ export type ReviewRunSetup = {
   readonly workspaceTools: {
     readonly piTools: PiTool[];
     readonly executors: Record<string, AgentRunnerToolExecutor>;
+    readonly durableTools: WorkspaceToolBundle["durableTools"];
+    readonly toolMeta: WorkspaceToolBundle["toolMeta"];
   };
   readonly createSpecialistWorkspaceTools: (
     specialist: SpecialistId,
@@ -34,6 +37,8 @@ export type ReviewRunSetup = {
   ) => {
     readonly piTools: PiTool[];
     readonly executors: Record<string, AgentRunnerToolExecutor>;
+    readonly durableTools: WorkspaceToolBundle["durableTools"];
+    readonly toolMeta: WorkspaceToolBundle["toolMeta"];
   };
   readonly disposeSpillFiles: () => Promise<readonly string[]>;
   readonly cachedDiffIndex: CachedPrDiffIndex;
@@ -66,25 +71,13 @@ function wrapReviewToolExecutors(executors: Record<string, AgentRunnerToolExecut
   );
 }
 
-function codeModeWorkspaceView(
-  localTools: {
-    readonly piTools: readonly PiTool[];
-    readonly executors: Record<string, AgentRunnerToolExecutor>;
-  },
-  options: {
-    readonly executorKind: Config["codeMode"]["executorKind"];
-    readonly evidenceLedger: EvidenceLedger;
-    readonly headSha: string;
-  },
-) {
-  const bundle = hideWorkspaceToolsBehindCodeMode(localTools, {
-    executorKind: options.executorKind,
-    evidenceLedger: options.evidenceLedger,
-    headSha: options.headSha,
-  });
+function codeModeWorkspaceView(localTools: WorkspaceToolBundle) {
+  const bundle = hideWorkspaceToolsBehindCodeMode(localTools);
   return {
     piTools: [...bundle.piTools],
     executors: wrapReviewToolExecutors(wrapExecutorsWithRateLimitCircuit(bundle.executors)),
+    durableTools: bundle.durableTools,
+    toolMeta: bundle.toolMeta,
   };
 }
 
@@ -133,7 +126,7 @@ export function buildReviewRunSetup(params: {
   workspace: LocalPrWorkspace;
   workItemId?: string;
 }) {
-  const { cfg, prSurface, owner, repo, prNumber, headSha, userSupplement, trustedContext } = params;
+  const { prSurface, owner, repo, prNumber, headSha, userSupplement, trustedContext } = params;
 
   const cachedDiffIndex: CachedPrDiffIndex =
     params.workspace.reader.diffIndex ?? createCachedPrDiffIndex();
@@ -143,8 +136,13 @@ export function buildReviewRunSetup(params: {
   ) as Record<SpecialistId, EvidenceLedger>;
   const reviewThreadSource: { current: ReviewThreadSource } = { current: () => [] };
   const specialistDisposals: Array<() => Promise<readonly string[]>> = [];
-  const investigationOptions = (toolCall: string, reviewThreads: ReviewThreadSource) => ({
+  const investigationOptions = (
+    toolCall: string,
+    reviewThreads: ReviewThreadSource,
+    ledger: EvidenceLedger,
+  ) => ({
     headSha,
+    evidenceLedger: ledger,
     reviewThreads,
     ...(params.workItemId != null
       ? { spillScope: { workItemId: params.workItemId, toolCall } }
@@ -152,13 +150,9 @@ export function buildReviewRunSetup(params: {
   });
   const localTools = buildWorkspaceTools(
     params.workspace.reader,
-    investigationOptions("readWorkspaceFile", () => reviewThreadSource.current()),
+    investigationOptions("read_pinned", () => reviewThreadSource.current(), evidenceLedger),
   );
-  const workspaceTools = codeModeWorkspaceView(localTools, {
-    executorKind: cfg.codeMode.executorKind,
-    evidenceLedger,
-    headSha,
-  });
+  const workspaceTools = codeModeWorkspaceView(localTools);
 
   return ((pinnedReturn: ReviewRunSetup) => pinnedReturn)({
     orchestratorUserContent: buildOrchestratorUserContent({
@@ -175,14 +169,10 @@ export function buildReviewRunSetup(params: {
       const specialistLedger = specialistLedgers[specialist];
       const tools = buildWorkspaceTools(
         params.workspace.reader,
-        investigationOptions(`readWorkspaceFile:${specialist}`, reviewThreads),
+        investigationOptions(`read_pinned:${specialist}`, reviewThreads, specialistLedger),
       );
       specialistDisposals.push(tools.disposeSpillFiles);
-      return codeModeWorkspaceView(tools, {
-        executorKind: cfg.codeMode.executorKind,
-        evidenceLedger: specialistLedger,
-        headSha,
-      });
+      return codeModeWorkspaceView(tools);
     },
     disposeSpillFiles: async () => {
       const own = await localTools.disposeSpillFiles();

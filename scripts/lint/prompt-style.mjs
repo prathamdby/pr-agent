@@ -184,7 +184,7 @@ export default {
     const tool =
       file.startsWith("src/") &&
       (file.startsWith("src/agent/tools/") || /(?:Tool|Tools|Toolset|Schema)\.ts$/.test(file));
-    const catalogue = file === "src/agent/codemode/guestCatalogue.ts";
+    const catalogue = file === "src/prompts/shared/tools.ts";
     if (!prompt && !tool && !catalogue) return {};
 
     function definition(identifier) {

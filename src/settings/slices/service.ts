@@ -8,7 +8,10 @@ import {
   DEFAULT_POSTHOG_PROJECT_TOKEN,
   DEFAULT_PORT,
   DEFAULT_REVIEW_SPECIALIST_TIMEOUT_MS,
-  DEFAULT_ROLE,
+  DEFAULT_PI_DURABLE_RESET_MAX_AGE_SECONDS,
+  DEFAULT_PI_DURABLE_RESET_MAX_BYTES,
+  DEFAULT_SHUTDOWN_GRACE_MS,
+  DEFAULT_SQLITE_DIR,
 } from "../defaults.ts";
 import { ENV } from "../envKeys.ts";
 import {
@@ -17,15 +20,18 @@ import {
   readEnum,
   readNonNegativeNumber,
   readPositiveNumber,
+  readPositiveInteger,
   readStrictBoolean,
-  requireEnv,
 } from "../envReaders.ts";
 import { MAX_INLINE_REVIEW_COMMENTS, MAX_THREAD_PUBLISH_CALLS } from "../reviewConstants.ts";
 
 export type RuntimeSlice = {
   readonly port: number;
-  readonly databaseUrl: string;
-  readonly role: "web" | "worker";
+  readonly sqliteDir: string;
+  readonly sqliteDbPath: string | null;
+  readonly shutdownGraceMs: number;
+  readonly piDurableResetMaxBytes: number;
+  readonly piDurableResetMaxAgeSeconds: number;
 };
 
 export type AgentEventsSlice = {
@@ -58,9 +64,22 @@ export type LoggingSlice = {
 
 export function readRuntimeSlice() {
   const port = readPositiveNumber(ENV.PORT, DEFAULT_PORT);
-  const databaseUrl = requireEnv(ENV.DATABASE_URL);
-  const role = readEnum(ENV.ROLE, ["web", "worker"] as const, DEFAULT_ROLE);
-  return ((pinnedReturn: RuntimeSlice) => pinnedReturn)({ port, databaseUrl, role });
+  const sqliteDir = optionalEnv(ENV.SQLITE_DIR, DEFAULT_SQLITE_DIR).trim() || DEFAULT_SQLITE_DIR;
+  const sqliteDbPath = optionalEnv(ENV.SQLITE_DB_PATH, "").trim() || null;
+  return ((pinnedReturn: RuntimeSlice) => pinnedReturn)({
+    port,
+    sqliteDir,
+    sqliteDbPath,
+    shutdownGraceMs: readPositiveInteger(ENV.SHUTDOWN_GRACE_MS, DEFAULT_SHUTDOWN_GRACE_MS),
+    piDurableResetMaxBytes: readPositiveInteger(
+      ENV.PI_DURABLE_RESET_MAX_BYTES,
+      DEFAULT_PI_DURABLE_RESET_MAX_BYTES,
+    ),
+    piDurableResetMaxAgeSeconds: readPositiveInteger(
+      ENV.PI_DURABLE_RESET_MAX_AGE_SECONDS,
+      DEFAULT_PI_DURABLE_RESET_MAX_AGE_SECONDS,
+    ),
+  });
 }
 
 export function readAgentEventsSlice() {

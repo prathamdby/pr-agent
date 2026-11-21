@@ -192,15 +192,18 @@ export function promptCacheSections(input: {
   readonly systemText: string;
   readonly tools: unknown;
   readonly history: unknown;
+  readonly sharedHead?: string;
 }) {
-  const prefix = specialistSharedPrefix;
-  const separatorAt = prefix.length;
-  const rest = input.systemText.slice(separatorAt);
-  const splitAtPrefix =
-    prefix.length > 0 && (input.systemText.startsWith(prefix) || rest.startsWith("\n\n"));
-  const sharedPrefix = splitAtPrefix ? input.systemText.slice(0, prefix.length) : "";
-  let roleBody = splitAtPrefix ? rest : input.systemText;
-  if (splitAtPrefix && roleBody.startsWith("\n\n")) roleBody = roleBody.slice(2);
+  const head =
+    input.sharedHead != null && input.sharedHead.length > 0
+      ? input.sharedHead
+      : specialistSharedPrefix;
+  const rest = input.systemText.slice(head.length);
+  const splitAtHead =
+    head.length > 0 && (input.systemText.startsWith(head) || rest.startsWith("\n\n"));
+  const sharedPrefix = splitAtHead ? input.systemText.slice(0, head.length) : "";
+  let roleBody = splitAtHead ? rest : input.systemText;
+  if (splitAtHead && roleBody.startsWith("\n\n")) roleBody = roleBody.slice(2);
   return ((pinnedReturn: PromptCacheSections) => pinnedReturn)({
     shared_prefix: sharedPrefix,
     role_body: roleBody,
@@ -259,4 +262,29 @@ function sanitizeSessionCacheIdPart(part: string) {
     .replace(/[^A-Za-z0-9._-]+/g, "-")
     .replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, "");
   return ((pinnedReturn: string) => pinnedReturn)(cleaned.length > 0 ? cleaned : "x");
+}
+
+export type PromptCacheTrackerInput = {
+  readonly role: AgentSessionRole;
+  readonly systemText: string;
+  readonly tools: unknown;
+  readonly sharedHead?: string;
+  readonly record: (observed: PromptCacheBreak) => void;
+};
+
+export function createPromptCacheTracker(input: PromptCacheTrackerInput) {
+  let previous: PromptCacheSections | null = null;
+  return ((pinnedReturn: (history: unknown) => void) => pinnedReturn)((history) => {
+    if (!sessionRecordsPromptCacheBreak(input.role)) return;
+    const sections = promptCacheSections({
+      systemText: input.systemText,
+      tools: input.tools,
+      history,
+      ...(input.sharedHead !== undefined ? { sharedHead: input.sharedHead } : {}),
+    });
+    if (previous !== null) {
+      input.record(comparePromptCacheSections(previous, sections));
+    }
+    previous = sections;
+  });
 }

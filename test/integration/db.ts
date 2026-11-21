@@ -1,12 +1,22 @@
-import { Pool } from "pg";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { openAppState } from "../../src/state/db.ts";
+import { applyAppStateSchema } from "../../src/state/schema.ts";
 
-const DATABASE_URL = process.env.DATABASE_URL;
-
-export const hasDatabase = typeof DATABASE_URL === "string" && DATABASE_URL.length > 0;
-
-export function integrationPool() {
-  if (!DATABASE_URL) throw new Error("DATABASE_URL is required for integration tests");
-  return ((pinnedReturn: Pool) => pinnedReturn)(
-    new Pool({ connectionString: DATABASE_URL, max: 4 }),
-  );
+export function openSqliteAppState() {
+  const sqliteDir = mkdtempSync(join(tmpdir(), "pr-agent-sqlite-it-"));
+  const handle = openAppState({ sqliteDir, applySchema: applyAppStateSchema });
+  return ((pinnedReturn: {
+    readonly sqliteDir: string;
+    readonly db: typeof handle.db;
+    readonly close: () => void;
+  }) => pinnedReturn)({
+    sqliteDir,
+    db: handle.db,
+    close: () => {
+      handle.close();
+      rmSync(sqliteDir, { recursive: true, force: true });
+    },
+  });
 }

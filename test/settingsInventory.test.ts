@@ -24,7 +24,17 @@ describe("settings inventory", () => {
   it("ENV keys match loadConfig surface", () => {
     const envValues = Object.values(ENV);
     expect(envValues).toContain("PORT");
-    expect(envValues).toContain("DATABASE_URL");
+    expect(envValues).toContain("SQLITE_DIR");
+    expect(envValues).toContain("SQLITE_DB_PATH");
+    expect(envValues).toContain("SHUTDOWN_GRACE_MS");
+    expect(envValues).toContain("PI_DURABLE_RESET_MAX_BYTES");
+    expect(envValues).toContain("PI_DURABLE_RESET_MAX_AGE_SECONDS");
+    expect(envValues).not.toContain("DATABASE_URL");
+    expect(envValues).not.toContain("ROLE");
+    expect(envValues).not.toContain("QUEUE_HEARTBEAT_SECONDS");
+    expect(envValues).not.toContain("PR_ACTOR_LEASE_TTL_SECONDS");
+    expect(envValues).not.toContain("SHUTDOWN_DRAIN_TIMEOUT_SECONDS");
+    expect(envValues).not.toContain("INSTALLATION_GROUP_CONCURRENCY");
     expect(envValues).toContain("POSTHOG_PROJECT_TOKEN");
     expect(envValues).toContain("POSTHOG_HOST");
     expect(envValues).toContain("REVIEW_SPECIALIST_TIMEOUT_MS");
@@ -47,7 +57,7 @@ describe("settings inventory", () => {
     expect(envValues).not.toContain("TRACES_RETENTION_SECONDS");
     expect(envValues).not.toContain("TRACES_BUFFER_MAX_SPANS");
     expect(envValues).not.toContain("CONTEXT7_API_KEY");
-    expect(envValues.length).toBe(72);
+    expect(envValues.length).toBe(65);
     expect(envValues).toContain("REVIEW_TESTS_EVIDENCE");
     expect(envValues).toContain("REVIEW_CHECK_FAIL_SEVERITY");
   });

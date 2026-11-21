@@ -27,6 +27,7 @@ export type AgentAuditRecord = {
   readonly cacheReadTokens?: number;
   readonly cacheWriteTokens?: number;
   readonly cacheWrite1hTokens?: number;
+  readonly reasoningTokens?: number;
   readonly totalTokens?: number;
   readonly admittedHostCalls?: number;
   readonly completedHostCalls?: number;
@@ -86,6 +87,7 @@ export function agentAuditRecordFromLifecycleEvent(
         ...(event.cacheWrite1hTokens != null
           ? { cacheWrite1hTokens: event.cacheWrite1hTokens }
           : {}),
+        ...(event.reasoningTokens != null ? { reasoningTokens: event.reasoningTokens } : {}),
         ...(event.totalTokens != null ? { totalTokens: event.totalTokens } : {}),
       });
     case "cancellation":
@@ -105,6 +107,7 @@ export function agentAuditRecordFromLifecycleEvent(
         ...(event.cacheWrite1hTokens != null
           ? { cacheWrite1hTokens: event.cacheWrite1hTokens }
           : {}),
+        ...(event.reasoningTokens != null ? { reasoningTokens: event.reasoningTokens } : {}),
         ...(event.totalTokens != null ? { totalTokens: event.totalTokens } : {}),
       });
     case "failure":
@@ -124,6 +127,7 @@ export function agentAuditRecordFromLifecycleEvent(
         ...(event.cacheWrite1hTokens != null
           ? { cacheWrite1hTokens: event.cacheWrite1hTokens }
           : {}),
+        ...(event.reasoningTokens != null ? { reasoningTokens: event.reasoningTokens } : {}),
         ...(event.totalTokens != null ? { totalTokens: event.totalTokens } : {}),
       });
     case "execution":

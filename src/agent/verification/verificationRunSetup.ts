@@ -3,12 +3,12 @@ import type { Config } from "../../settings/index.ts";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.ts";
 import type { PullRequestDiscussion } from "../discussion/pullRequestDiscussion.ts";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.ts";
-import { hideWorkspaceToolsBehindCodeMode } from "../codemode/assembleExplorationTools.ts";
+import { hideWorkspaceToolsBehindCodeMode } from "../runtime/durable/piTools.ts";
 import {
   verificationSystemPrompt,
   buildVerificationUserContent,
 } from "../../prompts/verification/prompt.ts";
-import { buildWorkspaceTools } from "../tools/workspaceToolset.ts";
+import { buildWorkspaceTools, type WorkspaceToolBundle } from "../runtime/durable/piTools.ts";
 import {
   buildSubmitVerificationTool,
   createSubmitVerificationState,
@@ -20,6 +20,8 @@ export type VerificationRunSetup = {
   readonly userContent: string;
   readonly piTools: PiTool[];
   readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
+  readonly durableTools: WorkspaceToolBundle["durableTools"];
+  readonly toolMeta: WorkspaceToolBundle["toolMeta"];
   readonly submitState: SubmitVerificationState;
 };
 
@@ -42,7 +44,6 @@ export function buildVerificationRunSetup(params: {
   const submitState = createSubmitVerificationState();
   const workspaceTools = hideWorkspaceToolsBehindCodeMode(
     buildWorkspaceTools({ profile: "verification", reader: params.workspace.reader }),
-    { executorKind: params.cfg.codeMode.executorKind },
   );
   const submitTool = buildSubmitVerificationTool({
     owner: params.owner,
@@ -67,6 +68,8 @@ export function buildVerificationRunSetup(params: {
     }),
     piTools: [...workspaceTools.piTools, submitTool.piTool],
     executors: { ...workspaceTools.executors, submitVerification: submitTool.executor },
+    durableTools: workspaceTools.durableTools,
+    toolMeta: workspaceTools.toolMeta,
     submitState,
   });
 }

@@ -1,15 +1,14 @@
 ---
 globs:
   - "src/effect/**"
+  - "src/state/**"
+  - "src/agent/runtime/durable/**"
   - "src/agentWork/**"
   - "src/index.ts"
-  - "src/worker.ts"
-  - "src/settings/queueConstants.ts"
-  - "migrations/**"
   - "docker-compose.yml"
   - "docker-compose.dev.yml"
   - "docs/topology.md"
   - "README.md"
 ---
 
-The Mermaid flowchart under How it works in `docs/topology.md` is the only topology diagram; `docs/development.md` (Runtime topology diagram) points at it and `README.md` never gets one. Its boxes are runtime edges: `POST /webhooks` in `src/effect/server.ts`, `webhook_events` and `agent_work_items` written by `src/agentWork/intake/`, the pg-boss queues in `src/settings/queueConstants.ts`, the consumers in `src/agentWork/worker.ts`, `src/agentWork/prActorLease.ts`, the executors in `src/agentWork/executors/`, the Pi runtime, and `PrSurface`. When a change adds, removes, or re-owns one of those (a new `*_QUEUE`, a queue entering or leaving `leasedWorkQueues()`, a new `*Executor.ts`, a new route, a table that becomes a durable hand-off, a `docker-compose.yml` service), the same PR must update the boxes or arrows and the prose right after the fence. Do not flag prompt, publish-copy, retry-budget, or constant changes that leave every box and arrow true.
+The Mermaid flowchart under How it works in `docs/topology.md` is the only topology diagram; `docs/development.md` (Runtime topology diagram) points at it and `README.md` never gets one. Its boxes are runtime edges: `POST /webhooks` in `src/effect/server.ts`, `app_state.sqlite` written by `src/state/intake.ts`, the dispatcher (`src/agent/runtime/durable/dispatcher.ts`), per-PR mutex (`src/state/prMutex.ts`), `reviewOrchestratorTask` and `featureAttemptTask`, `pi_durable.sqlite`, the publish state machine (`src/state/publish.ts`), and `PrSurface`. When a change adds, removes, or re-owns one of those (a new work kind, a kind entering or leaving `PR_SERIALIZED_KINDS`, a new `*Executor.ts`, a new route, a durable table hand-off, or a `docker-compose.yml` service), the same PR must update the boxes or arrows and the prose right after the fence. Do not flag prompt, publish-copy, retry-budget, or constant changes that leave every box and arrow true.

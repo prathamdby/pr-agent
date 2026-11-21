@@ -275,7 +275,7 @@ Use this skill when someone asks what PR Agent is, how to install it, or whether
 
 - Do not invent a hosted signup. PR Agent is self-hosted.
 - Do not send credentials to this origin. /auth.md says these endpoints are public.
-- Do not treat this site as a running PR Agent deployment. Webhooks, worker health, and model keys are on the operator's host.
+- Do not treat this site as a running PR Agent deployment. Webhooks, service health, and model keys are on the operator's host.
 `);
 }
 

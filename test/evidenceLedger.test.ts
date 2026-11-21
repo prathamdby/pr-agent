@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { recordMarshalledEvidence } from "../src/agent/execution/marshal.ts";
+import { recordDeliveredFileRead } from "../src/review/findings/evidenceLedger.ts";
+import { recordDiffEvidence } from "../src/agent/runtime/durable/piTools.ts";
 import {
   createEvidenceLedger,
   hashNormalizedLineText,
@@ -113,14 +114,20 @@ describe("evidenceLedger", () => {
 
   it("counts a deletion-only diff and an emptied file as opened", () => {
     const ledger = createEvidenceLedger(headSha);
-    recordMarshalledEvidence(
-      { path: "src/a.ts", diff: "@@ -1,1 +1,0 @@\n-old\n" },
-      { tool: "getWorkspaceDiff", ledger, headSha },
-    );
-    recordMarshalledEvidence(
-      { path: "src/empty.ts", content: "" },
-      { tool: "readWorkspaceFile", ledger, headSha },
-    );
+    recordDiffEvidence(ledger, {
+      path: "src/a.ts",
+      headSha,
+      tool: "getWorkspaceDiff",
+      diff: "@@ -1,1 +1,0 @@\n-old\n",
+    });
+    recordDeliveredFileRead(ledger, {
+      path: "src/empty.ts",
+      content: "",
+      tool: "read_pinned",
+      headSha,
+      startLine: 0,
+      endLine: 0,
+    });
     expect(ledger.hasOpened("src/a.ts")).toBe(true);
     expect(ledger.hasOpened("src/empty.ts")).toBe(true);
     expect(ledger.covers("src/a.ts", 1, 1)).toBe(false);
