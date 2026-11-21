@@ -69,11 +69,12 @@ export async function findCompletedPublishRecordId(
   }
 
   const values: unknown[] = [workItemId, step];
-  let query = `SELECT id, detail
-                 FROM publish_records
-                WHERE work_item_id = $1
-                  AND step = $2
-                  AND status = 'completed'`;
+  let query = `
+    SELECT id, detail
+    FROM publish_records
+    WHERE work_item_id = $1
+      AND step = $2
+      AND status = 'completed'`;
 
   const reviewLens = detail.reviewLens;
   if (typeof reviewLens === "string") {

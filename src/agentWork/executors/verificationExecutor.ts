@@ -329,14 +329,11 @@ export function createVerificationWorkExecution({
 
       const compareFilesTruncated = pushDeltaFiles?.truncated === true;
       const changedMembershipComplete = payload.pushBeforeSha != null && !compareFilesTruncated;
-      const changedFilePaths =
-        pushDeltaFiles != null
-          ? compareFilesTruncated
-            ? [...new Set([...pushDeltaFiles.files, ...prFiles.files.map((file) => file.filename)])]
-            : pushDeltaFiles.files
-          : [];
+      let changedFilePaths = pushDeltaFiles?.files ?? [];
 
-      if (compareFilesTruncated) {
+      if (pushDeltaFiles?.truncated === true) {
+        const prPaths = prFiles.files.map((file) => file.filename);
+        changedFilePaths = [...new Set([...pushDeltaFiles.files, ...prPaths])];
         logWarn("verification_compare_files_truncated", {
           owner: item.owner,
           repo: item.repo,

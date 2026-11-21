@@ -30,7 +30,8 @@ export function sessionCacheIdFromIdentity(identity: AgentSessionCacheIdentity) 
     .join(".");
   if (raw.length <= SESSION_CACHE_ID_MAX_LENGTH)
     return ((pinnedReturn: string) => pinnedReturn)(raw);
-  const digest = createHash("sha256").update(raw).digest("hex").slice(0, 8);
+  const hash = createHash("sha256").update(raw).digest("hex");
+  const digest = hash.slice(0, 8);
   const prefixBudget = SESSION_CACHE_ID_MAX_LENGTH - digest.length - 1;
   const prefix = raw.slice(0, Math.max(prefixBudget, 0)).replace(/[._-]+$/g, "");
   const clamped = prefix.length > 0 ? `${prefix}.${digest}` : digest;

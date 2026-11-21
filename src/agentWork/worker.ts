@@ -109,6 +109,57 @@ export async function stopWorkerConsumers(boss: PgBoss) {
   await Promise.all([...WORKER_CONSUMER_QUEUES].map((q) => boss.offWork(q, { wait: false })));
 }
 
+async function runDiagnosticSweep(event: string, sweep: () => Promise<unknown>) {
+  try {
+    await sweep();
+  } catch (error) {
+    logWarn(event, { message: errorMessage(error), ...errorLogFields(error) });
+  }
+}
+
+async function runWorkerDiagnostics(cfg: Config, pool: Pool, boss: PgBoss, now: Date) {
+  const report = await collectQueueDiagnostics({
+    boss,
+    pool,
+    now,
+    lostRunningMinAgeSeconds: cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS,
+  });
+  logQueueDiagnosticsReport(report);
+  await runDiagnosticSweep("lost_running_work_sweep_failed", () =>
+    reconcileLostRunningWork({
+      cfg,
+      pool,
+      items: report.lostRunningWorkItems,
+    }),
+  );
+  await runDiagnosticSweep("stale_queued_work_sweep_failed", () =>
+    reconcileStaleQueuedWork({
+      cfg,
+      pool,
+      items: report.staleQueuedWorkItems,
+    }),
+  );
+  await runDiagnosticSweep("local_pr_workspace_sweep_failed", () =>
+    cleanupStaleLocalPrWorkspaces(),
+  );
+  try {
+    const repair = await scanProjectionRepairPending({ boss, pool });
+    if (repair.pendingScanned > 0 || repair.enqueued > 0 || repair.unreachable > 0) {
+      logDebug("ci_projection_repair_scan", {
+        pendingScanned: repair.pendingScanned,
+        enqueued: repair.enqueued,
+        unreachable: repair.unreachable,
+        skippedNoInstallation: repair.skippedNoInstallation,
+      });
+    }
+  } catch (e) {
+    logWarn("ci_projection_repair_scan_failed", {
+      message: errorMessage(e),
+      ...errorLogFields(e),
+    });
+  }
+}
+
 export const AgentWorkerLive = (
   cfg: Config,
   pool: Pool,
@@ -193,64 +244,7 @@ export const AgentWorkerLive = (
             verificationConcurrency: cfg.concurrency.verification,
           });
 
-          const runDiagnostics = async (now: Date) => {
-            const report = await collectQueueDiagnostics({
-              boss,
-              pool,
-              now,
-              lostRunningMinAgeSeconds:
-                cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS,
-            });
-            logQueueDiagnosticsReport(report);
-            try {
-              await reconcileLostRunningWork({
-                cfg,
-                pool,
-                items: report.lostRunningWorkItems,
-              });
-            } catch (e) {
-              logWarn("lost_running_work_sweep_failed", {
-                message: errorMessage(e),
-                ...errorLogFields(e),
-              });
-            }
-            try {
-              await reconcileStaleQueuedWork({
-                cfg,
-                pool,
-                items: report.staleQueuedWorkItems,
-              });
-            } catch (e) {
-              logWarn("stale_queued_work_sweep_failed", {
-                message: errorMessage(e),
-                ...errorLogFields(e),
-              });
-            }
-            try {
-              await cleanupStaleLocalPrWorkspaces();
-            } catch (e) {
-              logWarn("local_pr_workspace_sweep_failed", {
-                message: errorMessage(e),
-                ...errorLogFields(e),
-              });
-            }
-            try {
-              const repair = await scanProjectionRepairPending({ boss, pool });
-              if (repair.pendingScanned > 0 || repair.enqueued > 0 || repair.unreachable > 0) {
-                logDebug("ci_projection_repair_scan", {
-                  pendingScanned: repair.pendingScanned,
-                  enqueued: repair.enqueued,
-                  unreachable: repair.unreachable,
-                  skippedNoInstallation: repair.skippedNoInstallation,
-                });
-              }
-            } catch (e) {
-              logWarn("ci_projection_repair_scan_failed", {
-                message: errorMessage(e),
-                ...errorLogFields(e),
-              });
-            }
-          };
+          const runDiagnostics = (now: Date) => runWorkerDiagnostics(cfg, pool, boss, now);
           await runDiagnostics(new Date());
 
           const diagnostics = startPeriodicQueueDiagnostics({

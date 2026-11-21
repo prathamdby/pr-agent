@@ -63,19 +63,17 @@ export function mintFindingId() {
   return ((pinnedReturn: FindingId) => pinnedReturn)(findingId("f", crypto.randomBytes(16)));
 }
 
+function findingIdFromMaterial(prefix: "f" | "l", material: string) {
+  const digest = crypto.createHash("sha256").update(material).digest();
+  return findingId(prefix, digest.subarray(0, 16));
+}
+
 export function derivedFindingId(material: readonly string[]) {
-  return ((pinnedReturn: FindingId) => pinnedReturn)(
-    findingId(
-      "f",
-      crypto.createHash("sha256").update(material.join("\0")).digest().subarray(0, 16),
-    ),
-  );
+  return findingIdFromMaterial("f", material.join("\0"));
 }
 
 export function legacyFindingId(threadNodeId: string) {
-  return ((pinnedReturn: FindingId) => pinnedReturn)(
-    findingId("l", crypto.createHash("sha256").update(threadNodeId).digest().subarray(0, 16)),
-  );
+  return findingIdFromMaterial("l", threadNodeId);
 }
 
 function isFindingSeverity(value: string): value is FindingSeverity {

@@ -41,18 +41,20 @@ function errorChain(error: unknown) {
   return ((pinnedReturn: readonly unknown[]) => pinnedReturn)(chain);
 }
 
+function hasAcceptanceMarker(value: Record<string, unknown>) {
+  return value.accepted === true || value.mutationAccepted === true;
+}
+
 function markedAccepted(error: unknown) {
-  if (!isRecord(error)) return ((pinnedReturn: boolean) => pinnedReturn)(false);
-  if (error.accepted === true || error.mutationAccepted === true)
-    return ((pinnedReturn: boolean) => pinnedReturn)(true);
+  if (!isRecord(error)) return false;
+  if (hasAcceptanceMarker(error)) return true;
+
   const response = isRecord(error.response) ? error.response : undefined;
-  if (response == null) return ((pinnedReturn: boolean) => pinnedReturn)(false);
-  if (response.accepted === true || response.mutationAccepted === true)
-    return ((pinnedReturn: boolean) => pinnedReturn)(true);
+  if (!response) return false;
+  if (hasAcceptanceMarker(response)) return true;
+
   const data = isRecord(response.data) ? response.data : undefined;
-  return ((pinnedReturn: boolean) => pinnedReturn)(
-    data != null && (data.accepted === true || data.mutationAccepted === true),
-  );
+  return data != null && hasAcceptanceMarker(data);
 }
 
 function anchorValidationMessage(message: string) {

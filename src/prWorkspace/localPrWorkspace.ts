@@ -267,31 +267,23 @@ function sparseCheckoutPatterns(changedFiles: readonly LocalPrChangedFile[]) {
 
 const PI_AGENT_DIR_PREFIX = "pr-agent-pi-";
 
-async function cleanupStalePiAgentDirs(staleAgeSeconds: number) {
+async function cleanupStaleTemporaryEntries(kind: "session" | "spill", staleAgeSeconds: number) {
   const now = Date.now();
   for (const entry of await readdir(tmpdir(), { withFileTypes: true })) {
-    if (!entry.isDirectory() || !entry.name.startsWith(PI_AGENT_DIR_PREFIX)) continue;
-    const full = join(tmpdir(), entry.name);
-    const entryStat = await statIfPresent(full);
-    if (!entryStat) continue;
-    const ageMs = now - entryStat.mtimeMs;
-    if (ageMs > staleAgeSeconds * 1000) {
-      await rm(full, { recursive: true, force: true }).catch(() => undefined);
-    }
-  }
-}
+    const matches =
+      kind === "session"
+        ? entry.isDirectory() && entry.name.startsWith(PI_AGENT_DIR_PREFIX)
+        : entry.isFile() && entry.name.startsWith(READ_SPILL_FILENAME_PREFIX);
+    if (!matches) continue;
 
-async function cleanupStaleReadSpillFiles(staleAgeSeconds: number) {
-  const now = Date.now();
-  for (const entry of await readdir(tmpdir(), { withFileTypes: true })) {
-    if (!entry.isFile() || !entry.name.startsWith(READ_SPILL_FILENAME_PREFIX)) continue;
     const full = join(tmpdir(), entry.name);
     const entryStat = await statIfPresent(full);
-    if (!entryStat?.isFile()) continue;
-    const ageMs = now - entryStat.mtimeMs;
-    if (ageMs > staleAgeSeconds * 1000) {
-      await rm(full).catch(() => undefined);
-    }
+    if (!entryStat || (kind === "spill" && !entryStat.isFile())) continue;
+    const stale = now - entryStat.mtimeMs > staleAgeSeconds * 1000;
+    if (!stale) continue;
+
+    const removal = kind === "session" ? rm(full, { recursive: true, force: true }) : rm(full);
+    await removal.catch(() => undefined);
   }
 }
 
@@ -299,8 +291,8 @@ export async function cleanupStaleLocalPrWorkspaces(
   options: { readonly staleAgeSeconds?: number } = {},
 ) {
   const staleAgeSeconds = options.staleAgeSeconds ?? LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS;
-  await cleanupStalePiAgentDirs(staleAgeSeconds);
-  await cleanupStaleReadSpillFiles(staleAgeSeconds);
+  await cleanupStaleTemporaryEntries("session", staleAgeSeconds);
+  await cleanupStaleTemporaryEntries("spill", staleAgeSeconds);
   await sweepStaleOwnedWorkspaces({ staleAgeSeconds });
 }
 

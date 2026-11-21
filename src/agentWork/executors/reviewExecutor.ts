@@ -110,10 +110,11 @@ export function createReviewWorkExecution({
       const weOwnStub = owner == null || owner.workItemId === item.id;
       let commentId: number | null = null;
       if (weOwnStub) {
-        const accessSuffix =
-          isAppError(error) && error.code === "github.essential_access_denied"
-            ? "\n\nGitHub installation access is missing for this review. Restore the repository grants, then run `/review`."
-            : "";
+        const missingInstallationAccess =
+          isAppError(error) && error.code === "github.essential_access_denied";
+        const accessSuffix = missingInstallationAccess
+          ? "\n\nGitHub installation access is missing for this review. Restore the repository grants, then run `/review`."
+          : "";
         const findingView = buildFindingView(
           await loadFindingInventoryOrUnavailable(prSurface, {
             renames: new Map(),

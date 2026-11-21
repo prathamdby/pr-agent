@@ -906,29 +906,26 @@ export async function runDurableWorkItem<T extends WorkType>(spec: DurableJobSpe
     }
 
     async function completeDurableExecution(result: DurableExecutionResult) {
-      switch (result.kind) {
-        case "rescheduled":
-          await completeRescheduledResult(result);
-          return;
-        case "completed": {
-          if (await recheckSkippableAndCancel("skipped_after_execute", false)) return;
-          const degradation = result.degradation ?? [];
-          if (degradation.length) await opened.mark.degraded(item.id);
-          if (!(await opened.mark.completed(item.id))) {
-            await recheckSkippableAndCancel("completion_race", false);
-            return;
-          }
-          if (result.completion) await recordCompletion(result.completion);
-          logInfo("agent_work_completed", { type: spec.type, workItemId: item.id });
-          await publishOutcomeReaction(GITHUB_REACTION_PLUS_ONE);
-          return;
-        }
-        default: {
-          const exhaustive: never = result;
-          void exhaustive;
-          return;
-        }
+      if (result.kind === "rescheduled") {
+        await completeRescheduledResult(result);
+        return;
       }
+
+      if (result.kind !== "completed") {
+        result satisfies never;
+        return;
+      }
+
+      if (await recheckSkippableAndCancel("skipped_after_execute", false)) return;
+      const degradation = result.degradation ?? [];
+      if (degradation.length) await opened.mark.degraded(item.id);
+      if (!(await opened.mark.completed(item.id))) {
+        await recheckSkippableAndCancel("completion_race", false);
+        return;
+      }
+      if (result.completion) await recordCompletion(result.completion);
+      logInfo("agent_work_completed", { type: spec.type, workItemId: item.id });
+      await publishOutcomeReaction(GITHUB_REACTION_PLUS_ONE);
     }
 
     async function markRetryingOrCancel(

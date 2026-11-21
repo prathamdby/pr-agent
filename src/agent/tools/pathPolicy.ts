@@ -24,8 +24,10 @@ export function createPathPolicy(
     profile.kind === "investigation" ? path.replace(/\\/g, "/") : normalizeRepoRelativePath(path);
   const allows = (path: string) => {
     if (profile.kind === "investigation") return pathAllowedForAsk(path, profile.gate);
-    if (profile.kind === "triage") return !isTriageControlPath(normalize(path));
-    return !isSensitivePath(normalize(path));
+    const normalized = normalize(path);
+    return profile.kind === "triage"
+      ? !isTriageControlPath(normalized)
+      : !isSensitivePath(normalized);
   };
   const assertDiff = (path: string) => {
     const normalized = normalize(path);

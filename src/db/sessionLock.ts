@@ -28,6 +28,48 @@ type WaitSessionLockOptions = {
   readonly onUnlockError: (error: unknown) => void;
 };
 
+async function tryAcquireSessionLock(
+  pool: Pool,
+  lockKey: string,
+  options: TrySessionLockOptions | WaitSessionLockOptions,
+  deadline: number,
+  reservation: { count: number },
+) {
+  reservation.count++;
+  let client: PoolClient | undefined;
+  let locked = false;
+  let destroy = true;
+  let acquireFailure: { readonly error: unknown } | undefined;
+  try {
+    client = await pool.connect();
+    if (options.mode === "wait" && performance.now() >= deadline) throw options.timeoutError;
+    const result = await client.query<{ locked: boolean }>(
+      "SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS locked",
+      [lockKey],
+    );
+    if (options.mode === "wait" && performance.now() >= deadline) throw options.timeoutError;
+    destroy = false;
+    locked = result.rows[0]?.locked ?? false;
+    if (!locked && options.mode === "try") {
+      await options.onContended(client);
+    }
+  } catch (error) {
+    acquireFailure = { error };
+  } finally {
+    if (!locked) {
+      try {
+        client?.release(destroy ? true : undefined);
+      } catch (error) {
+        acquireFailure ??= { error };
+      } finally {
+        reservation.count--;
+      }
+    }
+  }
+  if (acquireFailure != null) throw acquireFailure.error;
+  return locked ? client : undefined;
+}
+
 export function withSessionLock<T>(
   pool: Pool,
   key: Extract<SessionLockKey, { kind: "progress" }>,
@@ -71,40 +113,7 @@ export async function withSessionLock<T>(
   try {
     do {
       if (reservation.count < capacity) {
-        reservation.count++;
-        let client: PoolClient | undefined;
-        let locked = false;
-        let destroy = true;
-        let acquireFailure: { readonly error: unknown } | undefined;
-        try {
-          client = await pool.connect();
-          if (options.mode === "wait" && performance.now() >= deadline) throw options.timeoutError;
-          const result = await client.query<{ locked: boolean }>(
-            "SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS locked",
-            [lockKey],
-          );
-          if (options.mode === "wait" && performance.now() >= deadline) throw options.timeoutError;
-          destroy = false;
-          locked = result.rows[0]?.locked ?? false;
-          if (locked) {
-            retained = client;
-          } else if (options.mode === "try") {
-            await options.onContended(client);
-          }
-        } catch (error) {
-          acquireFailure = { error };
-        } finally {
-          if (!locked) {
-            try {
-              client?.release(destroy ? true : undefined);
-            } catch (error) {
-              acquireFailure ??= { error };
-            } finally {
-              reservation.count--;
-            }
-          }
-        }
-        if (acquireFailure != null) throw acquireFailure.error;
+        retained = await tryAcquireSessionLock(pool, lockKey, options, deadline, reservation);
       }
       if (retained != null || options.mode === "try") break;
       const remaining = deadline - performance.now();

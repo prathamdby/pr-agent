@@ -194,11 +194,8 @@ export async function createReviewRescheduleWorkItem(
           [item.id, marker],
         );
         if ((updateResult.rowCount ?? 0) === 0) {
-          const refreshed = await getWorkItem(client, item.id);
-          const persistedId =
-            refreshed?.type === "review"
-              ? refreshed.payload.staleHeadReplacement?.replacementWorkItemId
-              : undefined;
+          const refreshed = await readReviewPayload(client, item.id);
+          const persistedId = refreshed?.staleHeadReplacement?.replacementWorkItemId;
           if (!persistedId) {
             throw new AppError({
               domain: "agent_work",
@@ -385,6 +382,11 @@ export async function enqueueReviewReschedule(
   });
 }
 
+async function readReviewPayload(client: PoolClient, workItemId: string) {
+  const work = await getWorkItem(client, workItemId);
+  return work?.type === "review" ? work.payload : undefined;
+}
+
 const PUSH_FOLLOW_UP_ID_SQL = `payload->'pushFollowUp'->>'replacementWorkItemId'`;
 
 function pushFollowUpChildPayload(payload: ReviewWorkPayload) {
@@ -568,11 +570,8 @@ async function createPushFollowUpWorkItem(
           [item.id, marker],
         );
         if ((updateResult.rowCount ?? 0) === 0) {
-          const refreshed = await getWorkItem(client, item.id);
-          const persistedId =
-            refreshed?.type === "review"
-              ? refreshed.payload.pushFollowUp?.replacementWorkItemId
-              : undefined;
+          const refreshed = await readReviewPayload(client, item.id);
+          const persistedId = refreshed?.pushFollowUp?.replacementWorkItemId;
           if (!persistedId) return null;
           replacementWorkItemId = persistedId;
         } else {

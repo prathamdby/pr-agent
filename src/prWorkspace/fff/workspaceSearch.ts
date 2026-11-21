@@ -239,6 +239,22 @@ export function createFffWorkspaceSearch(params: {
     let file: FileHandle | undefined;
     let currentPath: string | undefined;
     let fileSize = 0;
+
+    async function openCandidateFile(path: string) {
+      await file?.close();
+      file = undefined;
+      const fullPath = join(root, path);
+      if (!(await lstat(fullPath)).isFile()) invalidSearchHit();
+      file = await open(fullPath, "r");
+      const info = await file.stat();
+      if (!info.isFile() || info.size > LOCAL_WORKSPACE_FFF_MAX_FILE_BYTES) {
+        invalidSearchHit();
+      }
+      fileSize = info.size;
+      currentPath = path;
+      buffer.length = 0;
+    }
+
     try {
       for (const candidate of candidates) {
         if (matches.length >= request.maxResults)
@@ -253,20 +269,7 @@ export function createFffWorkspaceSearch(params: {
         if ("text" in candidate) {
           text = candidate.text;
         } else {
-          if (candidate.path !== currentPath) {
-            await file?.close();
-            file = undefined;
-            const fullPath = join(root, candidate.path);
-            if (!(await lstat(fullPath)).isFile()) invalidSearchHit();
-            file = await open(fullPath, "r");
-            const info = await file.stat();
-            if (!info.isFile() || info.size > LOCAL_WORKSPACE_FFF_MAX_FILE_BYTES) {
-              invalidSearchHit();
-            }
-            fileSize = info.size;
-            currentPath = candidate.path;
-            buffer.length = 0;
-          }
+          if (candidate.path !== currentPath) await openCandidateFile(candidate.path);
           if (file == null || candidate.byteOffset >= fileSize) invalidSearchHit();
           const line = await readMatchedLine(file, candidate.byteOffset, remainingBytes, buffer);
           if ("truncated" in line)

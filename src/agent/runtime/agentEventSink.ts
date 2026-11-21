@@ -48,23 +48,28 @@ export function lifecycleAuditToInsertRow(
   if (record.specialistId != null) detail.specialistId = record.specialistId;
   if (context.executionId != null) detail.executionId = context.executionId;
   if (context.attemptCount != null) detail.attemptCount = context.attemptCount;
+
   if (record.attempt != null) detail.attempt = record.attempt;
   if (record.reason != null) detail.reason = record.reason;
   if (record.failureDomain != null) detail.failureDomain = record.failureDomain;
   if (record.errorKind != null) detail.errorKind = record.errorKind;
+
   if (record.outcome != null) detail.outcome = record.outcome;
   if (record.end != null) detail.end = record.end;
   if (record.durationMs != null) detail.durationMs = record.durationMs;
+
   if (record.inputTokens != null) detail.inputTokens = record.inputTokens;
   if (record.outputTokens != null) detail.outputTokens = record.outputTokens;
   if (record.cacheReadTokens != null) detail.cacheReadTokens = record.cacheReadTokens;
   if (record.cacheWriteTokens != null) detail.cacheWriteTokens = record.cacheWriteTokens;
   if (record.cacheWrite1hTokens != null) detail.cacheWrite1hTokens = record.cacheWrite1hTokens;
   if (record.totalTokens != null) detail.totalTokens = record.totalTokens;
+
   if (record.admittedHostCalls != null) detail.admittedHostCalls = record.admittedHostCalls;
   if (record.completedHostCalls != null) detail.completedHostCalls = record.completedHostCalls;
   if (record.transferredBytes != null) detail.transferredBytes = record.transferredBytes;
   if (record.outputBytes != null) detail.outputBytes = record.outputBytes;
+
   if (record.failureCode != null && record.kind === "execution") {
     detail.errorCode = record.failureCode;
   }

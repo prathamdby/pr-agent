@@ -132,9 +132,8 @@ export function deterministicInlineBatchId(params: {
   readonly findingIds: readonly string[];
 }) {
   const material = [params.workItemId, params.headSha, ...params.findingIds.toSorted()].join("\0");
-  return ((pinnedReturn: string) => pinnedReturn)(
-    crypto.createHash("sha256").update(material).digest("hex").slice(0, 32),
-  );
+  const digest = crypto.createHash("sha256").update(material).digest("hex");
+  return digest.slice(0, 32);
 }
 
 export function reviewDuplicateOperationKey(step: {
@@ -177,7 +176,8 @@ export function verificationObjectionAnswerOperationKey(
   objectionCommentId: number,
   updatedAt: string,
 ) {
-  const revision = crypto.createHash("sha256").update(updatedAt).digest("hex").slice(0, 16);
+  const digest = crypto.createHash("sha256").update(updatedAt).digest("hex");
+  const revision = digest.slice(0, 16);
   return ((pinnedReturn: string) => pinnedReturn)(
     `verification:objection:${rootCommentId}:${objectionCommentId}:${revision}`,
   );
@@ -926,34 +926,34 @@ async function recordPublishStep(
 				               lease_epoch = COALESCE(EXCLUDED.lease_epoch, publish_records.lease_epoch),
 			               detail = CASE
 			                 WHEN EXCLUDED.step = 'inline_review'
-			                      AND jsonb_typeof(EXCLUDED.detail->'batches') = 'array'
-			                 THEN jsonb_set(
-			                   COALESCE(publish_records.detail, '{}'::jsonb),
-			                   '{batches}',
-			                   CASE
-			                     WHEN COALESCE(publish_records.detail->'batches', '[]'::jsonb) @>
-			                          jsonb_build_array(jsonb_build_object(
-			                            'batchId', EXCLUDED.detail #>> '{batches,0,batchId}'
-			                          ))
-			                     THEN COALESCE(publish_records.detail->'batches', '[]'::jsonb)
-			                     ELSE COALESCE(publish_records.detail->'batches', '[]'::jsonb) ||
-			                          (EXCLUDED.detail->'batches')
-			                   END,
-			                   true
-			                 )
-			                 WHEN EXCLUDED.step = 'progress_comment'
-			                 THEN COALESCE(publish_records.detail, '{}'::jsonb) || EXCLUDED.detail
-			                 ELSE EXCLUDED.detail
-			               END,
-				               updated_at = now()
-				         WHERE (publish_records.step <> 'progress_comment'
-				            OR publish_records.work_item_id = EXCLUDED.work_item_id)
-				           AND (EXCLUDED.lease_epoch IS NULL OR EXISTS (
-				             SELECT 1 FROM pr_actor_leases
-				              WHERE work_item_id = EXCLUDED.work_item_id
-				                AND lease_epoch = EXCLUDED.lease_epoch
-				                AND expires_at > now()
-				           ))`,
+                         AND jsonb_typeof(EXCLUDED.detail->'batches') = 'array'
+                    THEN jsonb_set(
+                      COALESCE(publish_records.detail, '{}'::jsonb),
+                      '{batches}',
+                      CASE
+                        WHEN COALESCE(publish_records.detail->'batches', '[]'::jsonb) @>
+                             jsonb_build_array(jsonb_build_object(
+                               'batchId', EXCLUDED.detail #>> '{batches,0,batchId}'
+                             ))
+                        THEN COALESCE(publish_records.detail->'batches', '[]'::jsonb)
+                        ELSE COALESCE(publish_records.detail->'batches', '[]'::jsonb) ||
+                             (EXCLUDED.detail->'batches')
+                      END,
+                      true
+                    )
+                    WHEN EXCLUDED.step = 'progress_comment'
+                    THEN COALESCE(publish_records.detail, '{}'::jsonb) || EXCLUDED.detail
+                    ELSE EXCLUDED.detail
+                  END,
+                   updated_at = now()
+             WHERE (publish_records.step <> 'progress_comment'
+                OR publish_records.work_item_id = EXCLUDED.work_item_id)
+               AND (EXCLUDED.lease_epoch IS NULL OR EXISTS (
+                 SELECT 1 FROM pr_actor_leases
+                  WHERE work_item_id = EXCLUDED.work_item_id
+                    AND lease_epoch = EXCLUDED.lease_epoch
+                    AND expires_at > now()
+               ))`,
         [
           crypto.randomUUID(),
           params.workItemId,

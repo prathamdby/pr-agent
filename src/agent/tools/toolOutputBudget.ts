@@ -119,22 +119,26 @@ function formatClampedLinesNote(clampedLines: readonly number[]) {
   );
 }
 
+function emptyFileReadOutput(size: number, note?: string) {
+  const output: FileReadOutput = {
+    content: "",
+    size,
+    startLine: 0,
+    endLine: 0,
+    truncated: false,
+    returnedBytes: 0,
+    ...(note !== undefined ? { note } : {}),
+  };
+  return output;
+}
+
 export function readTextWithOutputBudget(
   text: string,
   maxResponseBytes: number,
   window?: FileReadWindowParams,
 ) {
   const size = Buffer.byteLength(text, "utf8");
-  if (size === 0) {
-    return ((pinnedReturn: FileReadOutput) => pinnedReturn)({
-      content: "",
-      size,
-      startLine: 0,
-      endLine: 0,
-      truncated: false,
-      returnedBytes: 0,
-    });
-  }
+  if (size === 0) return emptyFileReadOutput(size);
   const hasLineWindow = window?.startLine != null || window?.maxLines != null;
   const lines = splitLines(text);
 
@@ -173,16 +177,10 @@ export function readTextWithOutputBudget(
   }
 
   if (window.startLine != null && window.startLine > lines.length) {
-    return ((pinnedReturn: FileReadOutput) => pinnedReturn)({
-      content: "",
-      size,
-      startLine: 0,
-      endLine: 0,
-      truncated: false,
-      returnedBytes: 0,
-      note: `startLine ${window.startLine} is beyond the end of the file (${lines.length} lines total). Retry with startLine <= ${lines.length}.`,
-    });
+    const note = `startLine ${window.startLine} is beyond the end of the file (${lines.length} lines total). Retry with startLine <= ${lines.length}.`;
+    return emptyFileReadOutput(size, note);
   }
+
   const singleLineRequest = window.maxLines === 1;
   const clamped = singleLineRequest ? null : clampLongLines(lines);
   const budgetedLines = clamped?.lines ?? lines;

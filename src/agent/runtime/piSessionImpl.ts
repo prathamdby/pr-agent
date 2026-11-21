@@ -227,66 +227,47 @@ export async function createPiSessionImpl(params: PiSessionCreateParams) {
         messages: sessionMessages,
         tools,
       };
+      const getApiKey: NonNullable<AgentLoopConfig["getApiKey"]> = async (provider) => {
+        try {
+          const auth = await models.getAuth(provider);
+          trace.addSecret(auth?.auth.apiKey);
+          return auth?.auth.apiKey;
+        } catch {
+          return undefined;
+        }
+      };
+      const finishTurn: NonNullable<AgentLoopConfig["finishTurn"]> = async (turn) => {
+        const budgetDecision = await budget.finishTurn(turn);
+        if (!executeRepeat) return budgetDecision ?? undefined;
+        const action = executeRepeat.observe({
+          refused: turn.message.rawStopReason === "refusal",
+          calls: specialistExecuteCalls({
+            calls: turn.message.content.flatMap((part) =>
+              part.type === "toolCall"
+                ? [{ id: part.id, name: part.name, arguments: part.arguments }]
+                : [],
+            ),
+            results: turn.toolResults.map((result) => ({
+              toolCallId: result.toolCallId,
+              text: contentText(result.content),
+            })),
+          }),
+        });
+        if (action !== "stop") return budgetDecision ?? undefined;
+        repeatedExecuteStop = true;
+        return { action: "end" };
+      };
       const config: AgentLoopConfig = {
         model,
         convertToLlm,
-        getApiKey: async (provider) => {
-          try {
-            const auth = await models.getAuth(provider);
-            trace.addSecret(auth?.auth.apiKey);
-            return auth?.auth.apiKey;
-          } catch {
-            return undefined;
-          }
-        },
+        getApiKey,
         cacheRetention: params.promptCachePolicy.retention,
         sessionId: sessionCacheId,
         timeoutMs: params.cfg.provider.promptTimeoutMs,
         maxRetries: params.cfg.provider.retryMax,
         maxRetryDelayMs: params.cfg.provider.maxRetryDelayMs,
         ...(thinking === "off" ? {} : { reasoning: thinking }),
-        finishTurn: async (turn) => {
-          const budgetDecision = await budget.finishTurn(turn);
-          if (!executeRepeat)
-            return ((
-              pinnedReturn:
-                | ({ action: "continue" } | { action: "end" } | undefined)
-                | Promise<{ action: "continue" } | { action: "end" } | undefined>,
-            ) => pinnedReturn)(budgetDecision ?? undefined);
-          const action = executeRepeat.observe({
-            refused: turn.message.rawStopReason === "refusal",
-            calls: specialistExecuteCalls({
-              calls: turn.message.content.flatMap((part) =>
-                part.type === "toolCall"
-                  ? [{ id: part.id, name: part.name, arguments: part.arguments }]
-                  : [],
-              ),
-              results: turn.toolResults.map((result) => ({
-                toolCallId: result.toolCallId,
-                text: contentText(result.content),
-              })),
-            }),
-          });
-          if (action === "stop") {
-            repeatedExecuteStop = true;
-            return ((
-              pinnedReturn:
-                | ({ action: "continue" } | { action: "end" } | undefined)
-                | Promise<{ action: "continue" } | { action: "end" } | undefined>,
-            ) => pinnedReturn)({ action: "end" });
-          }
-          if (budgetDecision == null)
-            return ((
-              pinnedReturn:
-                | ({ action: "continue" } | { action: "end" } | undefined)
-                | Promise<{ action: "continue" } | { action: "end" } | undefined>,
-            ) => pinnedReturn)(undefined);
-          return ((
-            pinnedReturn:
-              | ({ action: "continue" } | { action: "end" } | undefined)
-              | Promise<{ action: "continue" } | { action: "end" } | undefined>,
-          ) => pinnedReturn)(budgetDecision);
-        },
+        finishTurn,
         ...(compaction.prepareNextTurn || executeRepeat
           ? {
               prepareNextTurn: async (
@@ -328,6 +309,39 @@ export async function createPiSessionImpl(params: PiSessionCreateParams) {
         },
       };
 
+      const recordAssistantTurn = (assistant: AssistantMessage) => {
+        if (!sessionMessages.includes(assistant)) sessionMessages.push(assistant);
+        if (isProviderRefusal(assistant)) refused = true;
+        if (assistant.stopReason === "error" && assistant.errorMessage?.trim()) {
+          terminalProviderError = assistant.errorMessage;
+        } else if (assistant.stopReason !== "error") {
+          terminalProviderError = undefined;
+        }
+        if (!assistant.usage) return;
+
+        const turnUsage = exactUsageFromProviderUsage(assistant.usage);
+        aggregatedUsage = mergeExactUsage(aggregatedUsage, turnUsage);
+        emit({
+          kind: "usage",
+          role: params.role,
+          phase: opts.phase,
+          provider: model.provider,
+          model: model.id,
+          ...(turnUsage?.inputTokens != null ? { inputTokens: turnUsage.inputTokens } : {}),
+          ...(turnUsage?.outputTokens != null ? { outputTokens: turnUsage.outputTokens } : {}),
+          ...(turnUsage?.cacheReadTokens != null
+            ? { cacheReadTokens: turnUsage.cacheReadTokens }
+            : {}),
+          ...(turnUsage?.cacheWriteTokens != null
+            ? { cacheWriteTokens: turnUsage.cacheWriteTokens }
+            : {}),
+          ...(turnUsage?.cacheWrite1hTokens != null
+            ? { cacheWrite1hTokens: turnUsage.cacheWrite1hTokens }
+            : {}),
+          ...(turnUsage?.totalTokens != null ? { totalTokens: turnUsage.totalTokens } : {}),
+        });
+      };
+
       const handleEvent = (event: AgentEvent) => {
         trace.event(event);
         if (
@@ -352,40 +366,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams) {
         }
         if (event.type !== "turn_end") return;
         const assistant = asAssistantMessage(event.message);
-        if (assistant && !sessionMessages.includes(assistant)) {
-          sessionMessages.push(assistant);
-        }
-        if (assistant) {
-          if (isProviderRefusal(assistant)) refused = true;
-          if (assistant.stopReason === "error" && assistant.errorMessage?.trim()) {
-            terminalProviderError = assistant.errorMessage;
-          } else if (assistant.stopReason !== "error") {
-            terminalProviderError = undefined;
-          }
-          if (assistant.usage) {
-            const turnUsage = exactUsageFromProviderUsage(assistant.usage);
-            aggregatedUsage = mergeExactUsage(aggregatedUsage, turnUsage);
-            emit({
-              kind: "usage",
-              role: params.role,
-              phase: opts.phase,
-              provider: model.provider,
-              model: model.id,
-              ...(turnUsage?.inputTokens != null ? { inputTokens: turnUsage.inputTokens } : {}),
-              ...(turnUsage?.outputTokens != null ? { outputTokens: turnUsage.outputTokens } : {}),
-              ...(turnUsage?.cacheReadTokens != null
-                ? { cacheReadTokens: turnUsage.cacheReadTokens }
-                : {}),
-              ...(turnUsage?.cacheWriteTokens != null
-                ? { cacheWriteTokens: turnUsage.cacheWriteTokens }
-                : {}),
-              ...(turnUsage?.cacheWrite1hTokens != null
-                ? { cacheWrite1hTokens: turnUsage.cacheWrite1hTokens }
-                : {}),
-              ...(turnUsage?.totalTokens != null ? { totalTokens: turnUsage.totalTokens } : {}),
-            });
-          }
-        }
+        if (assistant) recordAssistantTurn(assistant);
         if (event.toolResults.length === 0) finalText = assistantMessageText(event.message);
         budget.observeTurn(event.toolResults);
       };
@@ -466,11 +447,9 @@ export async function createPiSessionImpl(params: PiSessionCreateParams) {
         }
         const promptMeta = promptMetadataFromText(prompt);
         const durationMs = sendStartedAt !== undefined ? Date.now() - sendStartedAt : undefined;
-        const end: TurnEnd = budget.stopped
-          ? "tool_budget"
-          : lastAssistant(sessionMessages)?.stopReason === "length"
-            ? "output_limit"
-            : "completed";
+        let end: TurnEnd = "completed";
+        if (budget.stopped) end = "tool_budget";
+        else if (lastAssistant(sessionMessages)?.stopReason === "length") end = "output_limit";
         traceSpanId = trace.endSend(end);
         emit({
           kind: "completion",

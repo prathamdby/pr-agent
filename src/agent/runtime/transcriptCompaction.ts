@@ -112,19 +112,21 @@ function estimateTokens(message: AgentMessage) {
 function serializeForSummary(messages: readonly AgentMessage[]) {
   const lines: string[] = [];
   for (const message of messages) {
-    if (message.role === "user") {
-      const text =
-        typeof message.content === "string" ? message.content : contentText(message.content);
-      lines.push(`User: ${text}`);
-      continue;
-    }
-    if (message.role === "assistant") {
-      const text = contentText(message.content);
-      if (text) lines.push(`Assistant: ${text}`);
-      continue;
-    }
-    if (message.role === "toolResult") {
-      lines.push(`Tool ${message.toolName}: ${contentText(message.content)}`);
+    switch (message.role) {
+      case "user": {
+        const text =
+          typeof message.content === "string" ? message.content : contentText(message.content);
+        lines.push(`User: ${text}`);
+        break;
+      }
+      case "assistant": {
+        const text = contentText(message.content);
+        if (text) lines.push(`Assistant: ${text}`);
+        break;
+      }
+      case "toolResult":
+        lines.push(`Tool ${message.toolName}: ${contentText(message.content)}`);
+        break;
     }
   }
   return ((pinnedReturn: string) => pinnedReturn)(lines.join("\n"));

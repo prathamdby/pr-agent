@@ -79,6 +79,10 @@ function replyTargetKind(value: unknown) {
   );
 }
 
+function operationMarkerFromBody(body: unknown) {
+  return firstOperationIntentMarker(typeof body === "string" ? body : "");
+}
+
 export function extractPrSurfaceRecoverDetail(
   method: keyof PrSurfaceMutationMethods,
   args: readonly unknown[],
@@ -86,8 +90,7 @@ export function extractPrSurfaceRecoverDetail(
   switch (method) {
     case "replyAt": {
       const target = args[0];
-      const body = typeof args[1] === "string" ? args[1] : "";
-      const marker = firstOperationIntentMarker(body);
+      const marker = operationMarkerFromBody(args[1]);
       const kind = replyTargetKind(target);
       return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)({
         ...(kind != null ? { replyTargetKind: kind } : {}),
@@ -100,9 +103,8 @@ export function extractPrSurfaceRecoverDetail(
       });
     }
     case "upsertProgressComment": {
-      const body = typeof args[0] === "string" ? args[0] : "";
       const sentinel = typeof args[1] === "string" ? args[1] : undefined;
-      const marker = firstOperationIntentMarker(body);
+      const marker = operationMarkerFromBody(args[0]);
       const knownExistingId =
         isRecord(args[2]) && typeof args[2].id === "number" ? args[2].id : undefined;
       return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)({
@@ -114,8 +116,7 @@ export function extractPrSurfaceRecoverDetail(
     case "editComment":
     case "editReviewComment": {
       const commentId = typeof args[0] === "number" ? args[0] : undefined;
-      const body = typeof args[1] === "string" ? args[1] : "";
-      const marker = firstOperationIntentMarker(body);
+      const marker = operationMarkerFromBody(args[1]);
       return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)({
         ...(commentId != null ? { commentId } : {}),
         ...(marker != null ? { operationMarker: marker } : {}),

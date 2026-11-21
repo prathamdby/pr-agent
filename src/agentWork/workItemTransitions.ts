@@ -206,7 +206,10 @@ export async function transition<K extends TransitionColumn = never>(
   const predicates: string[] = [];
   if (spec.lockPrior) {
     prior = `WITH prior AS (
-       SELECT id, status FROM agent_work_items WHERE id = ${bind(spec.lockPrior.id)} FOR UPDATE
+       SELECT id, status
+       FROM agent_work_items
+       WHERE id = ${bind(spec.lockPrior.id)}
+       FOR UPDATE
      )
      `;
     from = "FROM prior";
