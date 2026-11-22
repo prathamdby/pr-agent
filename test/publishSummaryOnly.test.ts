@@ -525,20 +525,39 @@ describe("publishReviewSummaryOnly", () => {
     expect(ordinary).toContain("Bug at line 10");
     expect(ordinary).not.toContain(REVIEW_GATE_PROSE_UNASSESSED);
     expect(ordinary).toContain("Easy to revert:");
-    expect(ordinary).toContain("Narrow spread:");
+    expect(ordinary).toContain("unmatched name is not proof");
+    expect(ordinary).not.toContain("Narrow spread:");
+
+    const payments = await publishedSummaryBody({
+      payload: makeReviewPayload(),
+      cachedDiffIndex: diffIndex(["src/payments/charge.ts"]),
+    });
+    expect(payments).toContain("Wide spread:");
+    expect(payments).toContain("payments");
+    expect(payments).not.toContain("unmatched name is not proof");
+
+    const secrets = await publishedSummaryBody({
+      payload: makeReviewPayload(),
+      cachedDiffIndex: diffIndex(["keys/service.key"]),
+    });
+    expect(secrets).toContain("secret material");
+    expect(secrets).not.toContain("Narrow spread:");
 
     const truncated = await publishedSummaryBody({
       payload: makeReviewPayload(),
       cachedDiffIndex: diffIndex(["src/review/run.ts"], true),
     });
     expect(truncated).not.toContain(REVIEW_GATE_PROSE_UNASSESSED);
-    expect(truncated).not.toContain("Narrow spread:");
+    expect(truncated).not.toContain("Easy to revert:");
+    expect(truncated).toContain("Reversibility is unknown:");
     expect(truncated).toContain("truncated");
 
     const missingList = await publishedSummaryBody({
       payload: makeReviewPayload(),
     });
     expect(missingList).not.toContain(REVIEW_GATE_PROSE_UNASSESSED);
+    expect(missingList).not.toContain("Easy to revert:");
+    expect(missingList).toContain("Reversibility is unknown:");
     expect(missingList).toContain("changed-file list was unavailable");
   });
 
