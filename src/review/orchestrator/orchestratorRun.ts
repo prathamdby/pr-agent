@@ -889,6 +889,7 @@ function submitSpecialist(
     stage: kind === "investigate" ? "investigating" : kind === "wrap_up" ? "wrap_up" : "repair",
     repairs: kind === "repair" ? track.repairs + 1 : track.repairs,
     startedAt: track.startedAt ?? now,
+    settledKeyExpired: false,
   });
   return ((pinnedReturn: ReviewPhaseStep) => pinnedReturn)({
     kind: "submit",
@@ -1234,22 +1235,24 @@ export async function waitSpecialistsPhase(
   }
   const lead = SPECIALIST_IDS[0];
   const leadTrack = checkpoint.specialists[lead];
-  const leadResponded =
-    leadTrack.warmupReleasePending === true &&
-    leadTrack.turnNo > 0 &&
-    (await io.warmupReleased(leadTrack.turnNo - 1));
-  const leadView =
-    leadTrack.stage === "settled" || leadTrack.turnNo === 0
-      ? undefined
-      : await io.settled(lead, leadTrack.turnNo - 1);
-  const leadSettled =
-    leadTrack.stage === "settled" ||
-    leadView?.status === "done" ||
-    leadView?.status === "unanswered";
-  if (leadResponded || leadSettled || now >= (checkpoint.warmup.releaseAt ?? now)) {
-    const idle = SPECIALIST_IDS.find((id) => checkpoint.specialists[id].stage === "idle");
-    if (idle !== undefined) return submitSpecialist(live, checkpoint, idle, "investigate", now);
-    checkpoint = { ...checkpoint, warmup: { ...checkpoint.warmup, released: true } };
+  if (!checkpoint.warmup.released) {
+    const leadResponded =
+      leadTrack.warmupReleasePending === true &&
+      leadTrack.turnNo > 0 &&
+      (await io.warmupReleased(leadTrack.turnNo - 1));
+    const leadView =
+      leadTrack.stage === "settled" || leadTrack.turnNo === 0
+        ? undefined
+        : await io.settled(lead, leadTrack.turnNo - 1);
+    const leadSettled =
+      leadTrack.stage === "settled" ||
+      leadView?.status === "done" ||
+      leadView?.status === "unanswered";
+    if (leadResponded || leadSettled || now >= (checkpoint.warmup.releaseAt ?? now)) {
+      const idle = SPECIALIST_IDS.find((id) => checkpoint.specialists[id].stage === "idle");
+      if (idle !== undefined) return submitSpecialist(live, checkpoint, idle, "investigate", now);
+      checkpoint = { ...checkpoint, warmup: { ...checkpoint.warmup, released: true } };
+    }
   }
   let ticked = false;
   for (const specialist of SPECIALIST_IDS) {

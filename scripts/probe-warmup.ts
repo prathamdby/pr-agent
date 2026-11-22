@@ -352,6 +352,15 @@ async function main() {
   if (settled.state.status === "terminal") {
     const outcome = settled.state.outcome;
     console.log("outcome:", JSON.stringify(outcome).slice(0, 2000));
+    if (outcome.status !== "completed") {
+      console.error(`probe FAILED: expected completed, got ${outcome.status}`);
+      app.close();
+      process.exit(1);
+    }
+  } else {
+    console.error(`probe FAILED: expected terminal, got ${JSON.stringify(settled.state.status)}`);
+    app.close();
+    process.exit(1);
   }
   app.close();
   process.exit(0);
