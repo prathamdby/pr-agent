@@ -67,8 +67,9 @@ After an interrupted publish, PR Agent checks the saved result and available evi
 
 Recovering a run does not use another retry unless PR Agent starts another work attempt. An interrupted work attempt still counts. Previously failed runs are not reopened automatically.
 
-A restart can reuse a validated brief or report. Evidence is read again.
-Publication uses the normal gates. It does not restore a conversation. See
+A restart continues the same review conversations at the recorded head and
+policy base. The remaining tool budget, evidence already shown, and accepted
+findings survive. Publication still checks the live pull request. See
 [operations.md](docs/operations.md#review-reliability-rollout).
 
 After PR Agent accepts a close or merge, automated review requests and `/review`

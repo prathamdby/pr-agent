@@ -269,8 +269,9 @@ function bindEvidenceSession(conversationId: ConversationId) {
     executors: {},
     evidence: {
       attempts: new Map(),
-      requestVisible: new Map(),
-      bindings: [],
+      visible: [],
+      bound: [],
+      credited: new Set(),
       reconLines: [],
       spillRoots: new Set(),
       spillBytes: 0,
@@ -280,9 +281,8 @@ function bindEvidenceSession(conversationId: ConversationId) {
     aborted: false,
     currentSend: {
       opts: { phase: "specialist", checkpointId: "test" },
-      rounds: 0,
       countedCalls: new Set(),
-      budgetBlockedCalls: 0,
+      blockedCalls: new Set(),
       stopped: false,
       reservedFired: false,
       lastActivityAt: 0,
@@ -776,7 +776,7 @@ describe("local workspace tools", () => {
         ],
       });
       expect(JSON.stringify(out)).not.toContain("not this path");
-      const attempt = [...state.evidence.attempts.values()][0];
+      const attempt = state.evidence.attempts.get("threads-1")?.[0];
       expect(attempt?.contentHash).toBe(hashNormalizedLineText(expectedContent));
       expect(attempt?.content).not.toContain(title);
       expect(attempt?.content).not.toContain(detail);
@@ -3279,11 +3279,15 @@ describe("local workspace tools", () => {
           expected,
         );
 
-        const { stdout } = await exec("ps", ["-o", "pid=,args=", "--ppid", String(process.pid)]);
-        const hostPids = stdout
-          .split("\n")
-          .filter((line) => line.includes("prWorkspace/fff/host"))
-          .map((line) => Number.parseInt(line.trim(), 10));
+        const { stdout } = await exec("ps", ["-ax", "-o", "ppid=,pid=,command="]);
+        const hostPids = stdout.split("\n").flatMap((line) => {
+          const match = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
+          return match &&
+            Number(match[1]) === process.pid &&
+            match[3].includes("prWorkspace/fff/host")
+            ? [Number(match[2])]
+            : [];
+        });
         expect(hostPids.length).toBeGreaterThan(0);
         for (const pid of hostPids) process.kill(pid, "SIGKILL");
 

@@ -7,9 +7,9 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { defineTask } from "@earendil-works/pi-durable";
 import {
   awaitAttemptAdmission,
-  FeatureAttemptTask,
-  startAttemptTask,
-  startFeatureAttempt,
+  createFeatureAttemptTask,
+  startClaimedAttempt,
+  type FeatureAttemptExecutorFor,
   type AttemptStamp,
 } from "../../src/agent/runtime/durable/featureAttemptTask.ts";
 import {
@@ -21,8 +21,6 @@ import {
   startDurableService,
   type DurableService,
 } from "../../src/agent/runtime/durable/boot.ts";
-import type { DispatcherHandlers } from "../../src/agent/runtime/durable/dispatcher.ts";
-import type { WorkerDeps } from "../../src/agent/runtime/durable/workerDeps.ts";
 import { openAppState, type AppStateHandle } from "../../src/state/db.ts";
 import { applyAppStateSchema } from "../../src/state/schema.ts";
 import { openInstallationSurface } from "../../src/agentWork/installationSurface.ts";
@@ -295,48 +293,49 @@ describe("stale queued work fencing (sqlite)", () => {
   });
 });
 
-let reviewTaskDb: AppStateHandle["db"] | undefined;
-
-const TestReviewTask = defineTask<AttemptStamp, { readonly phase: "run" }, null>({
-  name: "test.review_attempt",
-  version: 1,
-  initial: () => ({ phase: "run" }),
-  phases: {
-    run: async (task, runtime, ctx) => {
-      const db = reviewTaskDb;
-      if (db !== undefined && (await awaitAttemptAdmission(db, task.input))) {
-        immediate(db, () =>
-          markWorkRunCompleted(db, {
-            workId: task.input.workId,
-            attemptNo: task.input.attemptNo,
-            now: Date.now(),
+function scenarioReviewTask(db: AppStateHandle["db"], reviewed: string[]) {
+  return defineTask<AttemptStamp, { readonly phase: "run" }, null>({
+    name: "test.review_attempt",
+    version: 1,
+    initial: () => ({ phase: "run" }),
+    phases: {
+      run: async (task, runtime, ctx) => {
+        if (await awaitAttemptAdmission(db, task.input)) {
+          reviewed.push(task.input.workId);
+          immediate(db, () =>
+            markWorkRunCompleted(db, {
+              workId: task.input.workId,
+              attemptNo: task.input.attemptNo,
+              now: Date.now(),
+            }),
+          );
+        }
+        await runtime.commit(
+          () => ({
+            status: "terminal" as const,
+            outcome: { status: "completed" as const, result: null },
           }),
+          ctx,
         );
-      }
+      },
+    },
+    abort: async (_task, runtime, ctx) => {
       await runtime.commit(
-        () => ({
-          status: "terminal" as const,
-          outcome: { status: "completed" as const, result: null },
-        }),
+        () => ({ status: "terminal" as const, outcome: { status: "aborted" as const } }),
         ctx,
       );
     },
-  },
-  abort: async (_task, runtime, ctx) => {
-    await runtime.commit(
-      () => ({ status: "terminal" as const, outcome: { status: "aborted" as const } }),
-      ctx,
-    );
-  },
-});
-
-const TASKS = [FeatureAttemptTask, TestReviewTask];
+  });
+}
 
 type BootScenario = {
   readonly dir: string;
   readonly cfg: ReturnType<typeof makeTestConfig>;
   readonly appState: AppStateHandle;
   readonly calls: { feature: string[]; review: string[]; ack: string[] };
+  readonly reviewTask: ReturnType<typeof scenarioReviewTask>;
+  readonly featureTask: ReturnType<typeof createFeatureAttemptTask>;
+  readonly feature: FeatureAttemptExecutorFor;
 };
 
 const scenarios: BootScenario[] = [];
@@ -356,39 +355,23 @@ function bootScenario(queue: { readonly retryLimit?: number } = {}) {
     retention: { enabled: false },
   });
   const appState = openAppState({ sqliteDir: dir, applySchema: applyAppStateSchema });
-  reviewTaskDb = appState.db;
-  const scenario = { dir, cfg, appState, calls: { feature: [], review: [], ack: [] } };
+  const calls: BootScenario["calls"] = { feature: [], review: [], ack: [] };
+  const feature: FeatureAttemptExecutorFor =
+    () =>
+    async ({ run, attempt }) => {
+      calls.feature.push(`${run.work_id}#${String(attempt.attempt_no)}`);
+    };
+  const scenario = {
+    dir,
+    cfg,
+    appState,
+    calls,
+    feature,
+    reviewTask: scenarioReviewTask(appState.db, calls.review),
+    featureTask: createFeatureAttemptTask({ cfg, db: appState.db, executorFor: feature }),
+  };
   scenarios.push(scenario);
   return scenario;
-}
-
-function scenarioHandlers(scenario: BootScenario, deps: WorkerDeps) {
-  return ((pinnedReturn: DispatcherHandlers) => pinnedReturn)({
-    review: async (claim) => {
-      scenario.calls.review.push(claim.run.work_id);
-      const runtime = deps.runtime;
-      const started = await startAttemptTask({
-        harness: runtime.handle.harness,
-        context: BACKGROUND_CONTEXT,
-        db: scenario.appState.db,
-        claim,
-        task: TestReviewTask,
-        input: {
-          workId: claim.run.work_id,
-          attemptNo: claim.attempt.attempt_no,
-          attemptId: claim.attempt.attempt_id,
-        },
-      });
-      if (started.markedRunning)
-        await runtime.handle.harness.waitForTask(started.taskId, BACKGROUND_CONTEXT);
-    },
-    feature: () => async (ctx) => {
-      scenario.calls.feature.push(`${ctx.run.work_id}#${String(ctx.attempt.attempt_no)}`);
-    },
-    ack: async (claim) => {
-      scenario.calls.ack.push(claim.run.work_id);
-    },
-  });
 }
 
 async function startService(scenario: BootScenario, runtime: DurableRuntime) {
@@ -396,10 +379,15 @@ async function startService(scenario: BootScenario, runtime: DurableRuntime) {
     appState: scenario.appState,
     cfg: scenario.cfg,
     runtime,
-    reopenRuntime: () => openDurableRuntime(scenario.cfg, { tasks: TASKS }),
+    reopenRuntime: () => openDurableRuntime(scenario.cfg),
     installationSurface: openInstallationSurface(),
-    reviewTaskName: TestReviewTask.definition.name,
-    createHandlers: (deps) => scenarioHandlers(scenario, deps),
+    createHandlers: () => ({
+      review: { task: scenario.reviewTask, restore: async () => true, close: async () => {} },
+      feature: scenario.feature,
+      ack: async (claim) => {
+        scenario.calls.ack.push(claim.run.work_id);
+      },
+    }),
     intervals: { dispatcherIdleWakeMs: 20 },
   });
   services.push(service);
@@ -455,9 +443,9 @@ describe("boot barrier and dispatcher (sqlite + pi durable)", () => {
   it("retries an interrupted feature attempt as attempt_no + 1 and aborts the old task", async () => {
     const scenario = bootScenario();
     seedRun(scenario, "boot-feature-1", "description");
-    const first = await openDurableRuntime(scenario.cfg, { tasks: TASKS });
+    const first = await openDurableRuntime(scenario.cfg, { tasks: [scenario.featureTask] });
     const claim = claimRun(scenario, "boot-feature-1");
-    const started = await startFeatureAttempt({
+    const started = await startClaimedAttempt(scenario.featureTask, {
       harness: first.handle.harness,
       context: BACKGROUND_CONTEXT,
       db: scenario.appState.db,
@@ -466,7 +454,7 @@ describe("boot barrier and dispatcher (sqlite + pi durable)", () => {
     expect(started.markedRunning).toBe(true);
     await crash(first);
 
-    const second = await openDurableRuntime(scenario.cfg, { tasks: TASKS });
+    const second = await openDurableRuntime(scenario.cfg);
     const service = await startService(scenario, second);
     expect(service.phaseA.schedulingDuringPhaseA).toEqual(["paused", "paused"]);
     expect(service.phaseA.interrupted).toBe(1);
@@ -497,7 +485,7 @@ describe("boot barrier and dispatcher (sqlite + pi durable)", () => {
       payloadJson: "{}",
       now: Date.now(),
     });
-    await startService(scenario, await openDurableRuntime(scenario.cfg, { tasks: TASKS }));
+    await startService(scenario, await openDurableRuntime(scenario.cfg));
     await eventually(() => workRunById(db, "boot-lane-new")?.status === "completed");
     expect(scenario.calls.review).toEqual(["boot-lane-new"]);
     expect(workRunById(db, "boot-lane-old")?.status).toBe("pending_dispatch");
@@ -508,12 +496,12 @@ describe("boot barrier and dispatcher (sqlite + pi durable)", () => {
     const scenario = bootScenario();
     const db = scenario.appState.db;
     seedRun(scenario, "boot-orphan-superseded", "review");
-    const first = await openDurableRuntime(scenario.cfg, { tasks: TASKS });
+    const first = await openDurableRuntime(scenario.cfg, { tasks: [scenario.reviewTask] });
     const claim = claimRun(scenario, "boot-orphan-superseded");
     const orphan = await first.handle.harness.commit(async (tx) => {
       const conversation = await tx.createConversation({ ownership: { kind: "ownerless" } });
       return tx.createTask(
-        TestReviewTask,
+        scenario.reviewTask,
         {
           workId: claim.run.work_id,
           attemptNo: claim.attempt.attempt_no,
@@ -527,12 +515,12 @@ describe("boot barrier and dispatcher (sqlite + pi durable)", () => {
       supersedeWorkRun(db, { workId: "boot-orphan-superseded", now: Date.now() }),
     );
 
-    const second = await openDurableRuntime(scenario.cfg, { tasks: TASKS });
+    const second = await openDurableRuntime(scenario.cfg, { tasks: [scenario.reviewTask] });
     const phaseA = await runBootPhaseA({
       db,
       cfg: scenario.cfg,
       runtime: second,
-      reviewTaskName: TestReviewTask.definition.name,
+      reviewTaskName: scenario.reviewTask.definition.name,
     });
     expect(phaseA.toAbort).toEqual([orphan]);
     expect((await second.handle.harness.inspect(BACKGROUND_CONTEXT)).scheduling).toBe("paused");
@@ -541,7 +529,7 @@ describe("boot barrier and dispatcher (sqlite + pi durable)", () => {
     ).not.toBe("terminal");
     await crash(second);
 
-    const third = await openDurableRuntime(scenario.cfg, { tasks: TASKS });
+    const third = await openDurableRuntime(scenario.cfg);
     const service = await startService(scenario, third);
     expect(service.phaseA.toAbort).toEqual([orphan]);
     const settled = await third.handle.harness.waitForTask(orphan, BACKGROUND_CONTEXT);
@@ -565,18 +553,15 @@ describe("boot barrier and dispatcher (sqlite + pi durable)", () => {
       },
       resolveAskQuotaConfig({}),
     );
-    const first = await openDurableRuntime(scenario.cfg, { tasks: TASKS });
-    await startFeatureAttempt({
+    const first = await openDurableRuntime(scenario.cfg, { tasks: [scenario.featureTask] });
+    await startClaimedAttempt(scenario.featureTask, {
       harness: first.handle.harness,
       context: BACKGROUND_CONTEXT,
       db,
       claim: claimRun(scenario, "boot-ask-quota"),
     });
     await crash(first);
-    const service = await startService(
-      scenario,
-      await openDurableRuntime(scenario.cfg, { tasks: TASKS }),
-    );
+    const service = await startService(scenario, await openDurableRuntime(scenario.cfg));
     expect(service.phaseA.interrupted).toBe(1);
     expect(workRunById(db, "boot-ask-quota")?.status).toBe("failed");
     expect(
@@ -594,12 +579,12 @@ describe("boot barrier and dispatcher (sqlite + pi durable)", () => {
     const scenario = bootScenario();
     const db = scenario.appState.db;
     seedRun(scenario, "boot-orphan-adopt", "review");
-    const first = await openDurableRuntime(scenario.cfg, { tasks: TASKS });
+    const first = await openDurableRuntime(scenario.cfg, { tasks: [scenario.reviewTask] });
     const claim = claimRun(scenario, "boot-orphan-adopt");
     const orphan = await first.handle.harness.commit(async (tx) => {
       const conversation = await tx.createConversation({ ownership: { kind: "ownerless" } });
       return tx.createTask(
-        TestReviewTask,
+        scenario.reviewTask,
         {
           workId: claim.run.work_id,
           attemptNo: claim.attempt.attempt_no,
@@ -611,7 +596,7 @@ describe("boot barrier and dispatcher (sqlite + pi durable)", () => {
     await crash(first);
     expect(attemptFor(db, "boot-orphan-adopt", 1)?.status).toBe("starting");
 
-    const second = await openDurableRuntime(scenario.cfg, { tasks: TASKS });
+    const second = await openDurableRuntime(scenario.cfg);
     const service = await startService(scenario, second);
     expect(service.phaseA.schedulingDuringPhaseA).toEqual(["paused", "paused"]);
     expect(service.phaseA.adopted).toBe(1);
@@ -623,6 +608,6 @@ describe("boot barrier and dispatcher (sqlite + pi durable)", () => {
     expect(settled.state.outcome.status).toBe("completed");
     await eventually(() => workRunById(db, "boot-orphan-adopt")?.status === "completed");
     expect(workRunById(db, "boot-orphan-adopt")?.current_attempt_no).toBe(1);
-    expect(scenario.calls.review).toEqual([]);
+    expect(scenario.calls.review).toEqual(["boot-orphan-adopt"]);
   });
 });

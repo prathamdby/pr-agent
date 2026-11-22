@@ -2,6 +2,11 @@
 
 ## Hit every runtime surface
 
+For review recovery, interrupt a real provider request, start a fresh process
+on the same disposable volume, and compare the child ID, submission ID,
+checkout revision, tools, remaining budget and visible evidence before the
+provider runs. A terminal parent task alone does not prove these survived.
+
 Before calling a behavior change complete, check the surfaces that can carry it:
 
 - **Process phases.** Webhook intake, the dispatcher, boot Phase A (Pi paused and read-only), boot Phase B, shutdown, and the zero-503 `pi_durable.sqlite` reset have different failure modes. A change that works while serving may still be missing from boot reconciliation or the reset quiesce. Resumed reviews count against the same slots as new review attempts.

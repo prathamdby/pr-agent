@@ -2,7 +2,14 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { getCurrentTools } from "@earendil-works/pi-ai/utils/transcript";
+import { createScriptedModels, scriptedText } from "../helpers/executorDurableHarness.ts";
+import { mockLocalPrWorkspace } from "../helpers/mockWorkspace.ts";
+import * as views from "../../src/prWorkspace/prRepositoryView.ts";
+import { createReviewRunner } from "../../src/agent/runtime/durable/reviewOrchestratorTask.ts";
+import { sessionStateFor } from "../../src/agent/runtime/durable/sessionState.ts";
+import { DEFERRED_HEAD_SHA } from "../../src/settings/index.ts";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import {
   defineTask,
@@ -40,11 +47,7 @@ import {
   startDurableService,
 } from "../../src/agent/runtime/durable/boot.ts";
 import { createDispatcher } from "../../src/agent/runtime/durable/dispatcher.ts";
-import {
-  FeatureAttemptTask,
-  WorkAttemptDoc,
-  startAttemptTask,
-} from "../../src/agent/runtime/durable/featureAttemptTask.ts";
+import { startAttemptTask } from "../../src/agent/runtime/durable/featureAttemptTask.ts";
 import { openDurableRuntime } from "../../src/agent/runtime/durable/runtime.ts";
 import { openInstallationSurface } from "../../src/agentWork/installationSurface.ts";
 import { initEvlog } from "../../src/evlog.ts";
@@ -275,6 +278,160 @@ describe("durable review recovery, PR mutex, and publish fence (sqlite integrati
     }
   });
 
+  it("restores the production review's tools, evidence, spent budget and pinned policy before retrying its interrupted request", async () => {
+    const sqliteDir = tempDir("review-restore-");
+    const headSha = "a".repeat(40);
+    const baseSha = "b".repeat(40);
+    const cfg = makeTestConfig({
+      runtime: { sqliteDir, shutdownGraceMs: 50 },
+      models: { provider: "stub", model: "stub-model" },
+      retention: { enabled: false },
+    });
+    const pr = { owner: "o", repo: "r", prNumber: 1 };
+    const surface = createFakePrSurface(pr, {
+      headSha,
+      pullRequest: {
+        title: "",
+        body: null,
+        additions: 1,
+        deletions: 0,
+        changed_files: 1,
+        base: { sha: baseSha },
+        head: { sha: headSha },
+      },
+    }).surface;
+    const installationSurface = {
+      ...openInstallationSurface(),
+      create: async () => surface,
+      botIdentity: async () => ({ login: "pr-agent[bot]", userId: 999 }),
+    };
+    const acquire = vi.spyOn(views, "openPrRepositoryView").mockImplementation(async () => {
+      const agentCwd = tempDir("pinned-review-");
+      writeFileSync(join(agentCwd, "source.ts"), "pinned line\n");
+      const workspace = mockLocalPrWorkspace(agentCwd, {
+        headSha,
+        checkoutPaths: new Set(["source.ts"]),
+      });
+      return {
+        workspace: {
+          ...workspace,
+          reader: { ...workspace.reader, isPathInCheckout: (p) => p === "source.ts" },
+        },
+        agentCwd,
+        reused: false,
+        preflight: {
+          files: [{ filename: "source.ts" }],
+          truncated: false,
+          fileCount: 1,
+          totalChanges: 1,
+        },
+        release: async () => {},
+      };
+    });
+    const attempts: string[] = [];
+    const submissions: number[] = [];
+    const spentCalls: number[][] = [];
+    const toolsets: string[][] = [];
+    try {
+      for (const stage of ["start", "restart"]) {
+        const appState = openAppState({ sqliteDir, applySchema: applyAppStateSchema });
+        const { db } = appState;
+        if (stage === "start") {
+          ensurePrState(db, "o/r#1", Date.now());
+          insertWorkRun(db, {
+            workId: "review",
+            prKey: "o/r#1",
+            kind: "review",
+            laneEpoch: 0,
+            payloadJson: JSON.stringify({
+              ...pr,
+              installationId: 1,
+              headSha: DEFERRED_HEAD_SHA,
+              source: "slash",
+            }),
+            now: Date.now(),
+          });
+        }
+        const runtime = await openDurableRuntime(cfg);
+        const requested = deferred<string[]>();
+        const stub = createScriptedModels(async (_model, transcript) => {
+          if (!transcript.messages.some((m) => m.role === "toolResult")) {
+            return {
+              message: {
+                ...scriptedText("").message,
+                stopReason: "toolUse",
+                content: [
+                  {
+                    type: "toolCall",
+                    id: "read-source",
+                    name: "read_pinned",
+                    arguments: { path: "source.ts" },
+                  },
+                ],
+              },
+            };
+          }
+          requested.resolve(getCurrentTools(transcript.messages).map((tool) => tool.name));
+          return new Promise(() => {});
+        }).getProvider("stub");
+        if (!stub) throw new Error("missing scripted provider");
+        runtime.models.models.setProvider(stub);
+        const service = await startDurableService({
+          appState,
+          cfg,
+          runtime,
+          installationSurface,
+          reopenRuntime: () => openDurableRuntime(cfg),
+          createHandlers: (deps) => ({
+            review: createReviewRunner(deps),
+            feature: () => async () => {},
+            ack: async () => {},
+          }),
+        });
+        try {
+          toolsets.push(await requested.promise);
+          const attempt = attemptFor(db, "review", 1);
+          if (!attempt) throw new Error("missing attempt");
+          attempts.push(attempt.attempt_id);
+          const inspection = await runtime.handle.harness.inspect(BACKGROUND_CONTEXT);
+          const submission = inspection.submissions.find(
+            (s) => s.requestId === `${attempt.attempt_id}:orchestrator:0`,
+          );
+          if (!submission) throw new Error("missing recon submission");
+          submissions.push(submission.id);
+          const state = sessionStateFor(submission.conversationId);
+          const child = await runtime.handle.harness.conversation(
+            submission.conversationId,
+            BACKGROUND_CONTEXT,
+          );
+          expect((await child?.agent(BACKGROUND_CONTEXT))?.cwd).toEqual(
+            (await acquire.mock.results.at(-1)?.value)?.agentCwd,
+          );
+          const counted = [...(state?.currentSend?.countedCalls ?? [])];
+          expect(counted).toHaveLength(1);
+          spentCalls.push(counted);
+          expect(state?.evidence.attempts.get("read-source")?.[0]?.content).toContain(
+            "pinned line",
+          );
+          expect(service.phaseA.resumedReviews).toHaveLength(stage === "start" ? 0 : 1);
+        } finally {
+          await service.shutdown("test restart");
+        }
+      }
+      expect(new Set(attempts).size).toBe(1);
+      expect(new Set(submissions).size).toBe(1);
+      expect(spentCalls[1]).toEqual(spentCalls[0]);
+      expect(toolsets[0]).toContain("codemode");
+      expect(toolsets[1]).toEqual(toolsets[0]);
+      expect(acquire.mock.calls.map(([input]) => [input.headSha, input.baseSha])).toEqual([
+        [headSha, baseSha],
+        [headSha, baseSha],
+      ]);
+    } finally {
+      acquire.mockRestore();
+    }
+  });
+
   it("recovers a multi-phase durable review task across crash mid-recon, mid-specialist with deleted checkout, and mid-synthesis", async () => {
     const sqliteDir = tempDir("pr-agent-durable-crash-");
     const checkoutDir = tempDir("pr-agent-checkout-");
@@ -348,11 +505,8 @@ describe("durable review recovery, PR mutex, and publish fence (sqlite integrati
       const dispatcher2 = createDispatcher({
         db,
         cfg,
-        handlers: {
-          review: async () => {},
-          feature: () => async () => {},
-          ack: async () => {},
-        },
+        startAttempt: async () => undefined,
+        ack: async () => {},
         runtime: () => runtime2,
       });
       await runBootPhaseB({ runtime: runtime2, phaseA: phaseA2, dispatcher: dispatcher2 });
@@ -499,10 +653,6 @@ describe("durable review recovery, PR mutex, and publish fence (sqlite integrati
       const runtime1 = await openDurableRuntime(cfg, { tasks: [DurableReviewTask] });
       const adoptStarted = await runtime1.handle.harness.commit(async (tx) => {
         const conversation = await tx.createConversation({ ownership: { kind: "ownerless" } });
-        const doc = await tx.doc(WorkAttemptDoc, conversation.id);
-        doc.workId = adoptClaim.run.work_id;
-        doc.attemptNo = adoptClaim.attempt.attempt_no;
-        doc.attemptId = adoptClaim.attempt.attempt_id;
         const taskId = await tx.createTask(
           DurableReviewTask,
           {
@@ -549,15 +699,13 @@ describe("durable review recovery, PR mutex, and publish fence (sqlite integrati
       expect(phaseA.resumedReviews).toEqual([{ prKey: "acme/app#1", taskId: adoptStarted.taskId }]);
       expect(attemptFor(db, "w-adopt", 1)?.task_id).toBe(String(adoptStarted.taskId));
       expect(attemptFor(db, "w-superseded", 1)?.status).toBe("cancelled");
+      expect(workRunById(db, "w-superseded")?.status).toBe("superseded");
 
       const dispatcher = createDispatcher({
         db,
         cfg,
-        handlers: {
-          review: async () => {},
-          feature: () => async () => {},
-          ack: async () => {},
-        },
+        startAttempt: async () => undefined,
+        ack: async () => {},
         runtime: () => runtime2,
       });
       try {
@@ -688,13 +836,11 @@ describe("durable review recovery, PR mutex, and publish fence (sqlite integrati
         db,
         cfg,
         runtime: () => after,
-        handlers: {
-          review: async (claim) => {
-            dispatched.resolve(claim.run.work_id);
-          },
-          feature: () => async () => {},
-          ack: async () => {},
+        startAttempt: async (claim) => {
+          dispatched.resolve(claim.run.work_id);
+          return undefined;
         },
+        ack: async () => {},
       });
       try {
         const phaseA = await runBootPhaseA({
@@ -835,16 +981,15 @@ describe("durable review recovery, PR mutex, and publish fence (sqlite integrati
       },
       retention: { enabled: false },
     });
-    const runtime = await openDurableRuntime(cfg, { tasks: [FeatureAttemptTask] });
+    const runtime = await openDurableRuntime(cfg);
     const service = await startDurableService({
       appState,
       cfg,
       runtime,
-      reopenRuntime: () => openDurableRuntime(cfg, { tasks: [FeatureAttemptTask] }),
+      reopenRuntime: () => openDurableRuntime(cfg),
       installationSurface: openInstallationSurface(),
-      reviewTaskName: "pr.review_orchestrator",
-      createHandlers: () => ({
-        review: async () => {},
+      createHandlers: (deps) => ({
+        review: createReviewRunner(deps),
         feature: () => async () => {},
         ack: async () => {},
       }),

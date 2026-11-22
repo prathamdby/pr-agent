@@ -95,15 +95,6 @@ export function publishIntentFor(db: DatabaseSync, workId: string, operationKey:
   );
 }
 
-export function publishIntentsForWork(db: DatabaseSync, workId: string) {
-  return ((pinnedReturn: readonly PublishIntentRow[]) => pinnedReturn)(
-    readRows(
-      db.prepare(`SELECT * FROM publish_intents WHERE work_id = ? ORDER BY updated_at`).all(workId),
-      publishIntentRowSchema,
-    ),
-  );
-}
-
 export function recordPublishStep(
   db: DatabaseSync,
   params: {

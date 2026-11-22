@@ -24,9 +24,9 @@ import { buildReviewSizeBudget } from "./run/reviewSizeBudget.ts";
 import type { ReviewMode } from "./reviewSchema.ts";
 import { logWarn } from "../evlog.ts";
 import { errorMessage } from "../errors/errorMessage.ts";
-import { AppError } from "../errors/appError.ts";
 import type { PrRepositoryView } from "../prWorkspace/prRepositoryView.ts";
-import { withPrRepositoryView } from "../prWorkspace/prRepositoryView.ts";
+import { openPrRepositoryView } from "../prWorkspace/prRepositoryView.ts";
+import { reviewBaseSha } from "./run/reviewBaseSha.ts";
 import type { ReviewWorkItem, ReviewWorkPayload } from "../agentWork/types.ts";
 import type { InstallationSurface } from "../agentWork/installationSurface.ts";
 import { createPublishMutationBoundary, type PublishDb } from "../state/publish.ts";
@@ -72,7 +72,7 @@ export type ReviewAttemptItem = {
   >;
 };
 
-export function parseReviewWork(input: ReviewWorkInput) {
+function parseReviewWork(input: ReviewWorkInput) {
   const parsed = v.parse(reviewPayloadSchema, JSON.parse(input.payloadJson));
   return ((pinnedReturn: ReviewAttemptItem) => pinnedReturn)({
     id: input.workId,
@@ -211,6 +211,7 @@ export type ReviewAttemptEnv = {
   readonly target: ReviewPublishTarget;
   readonly prSurface: PrSurface;
   readonly headSha: string;
+  readonly baseSha: string | null;
   readonly pullRequest?: PullRequestForFileList;
   readonly repositoryView: PrRepositoryView;
   readonly trustedContext: string;
@@ -226,7 +227,7 @@ export async function openReviewAttemptEnv(params: {
   readonly shutdownRequested: () => boolean;
   readonly signal: AbortSignal;
   readonly work: ReviewWorkInput;
-  readonly boundHeadSha?: string;
+  readonly revision?: { readonly headSha: string; readonly baseSha: string | null };
 }) {
   const item = parseReviewWork(params.work);
   const target: ReviewPublishTarget = {
@@ -252,14 +253,14 @@ export async function openReviewAttemptEnv(params: {
       signal: params.signal,
     }),
   });
-  const resolved =
-    params.boundHeadSha !== undefined
-      ? { headSha: params.boundHeadSha, pullRequest: undefined }
-      : item.headSha === DEFERRED_HEAD_SHA
-        ? await prSurface.getHead()
-        : { headSha: item.headSha, pullRequest: undefined };
-  const headSha = resolved.headSha;
-  const pullRequest = "pullRequest" in resolved ? resolved.pullRequest : undefined;
+  const resolved = params.revision === undefined ? await prSurface.getHead() : undefined;
+  const headSha =
+    params.revision?.headSha ??
+    (item.headSha === DEFERRED_HEAD_SHA ? resolved?.headSha : item.headSha);
+  if (!headSha) throw new Error("review has no head revision");
+  const pullRequest = resolved?.pullRequest;
+  const baseSha =
+    params.revision === undefined ? reviewBaseSha(pullRequest) : params.revision.baseSha;
   const priorInlineFeedback = await buildPriorInlineFeedbackPromise({
     getBotIdentity: () => params.installationSurface.botIdentity(params.cfg),
     cfg: params.cfg,
@@ -268,63 +269,46 @@ export async function openReviewAttemptEnv(params: {
     prSurface,
   });
   if (!priorInlineFeedback.ok) throw priorInlineFeedback.error;
-  let releaseView: (() => void) | undefined;
-  const viewReady = new Promise<PrRepositoryView>((resolveView, rejectView) => {
-    const held = withPrRepositoryView(
-      {
+  const repositoryView = await openPrRepositoryView({
+    owner: item.owner,
+    repo: item.repo,
+    prNumber: item.prNumber,
+    headSha,
+    ...(baseSha !== null ? { baseSha } : {}),
+    ...(pullRequest !== undefined ? { pullRequest } : {}),
+    ...(item.payload.repositorySizeKb !== undefined
+      ? { repositorySizeKb: item.payload.repositorySizeKb }
+      : {}),
+    gitCredentialAuth: () => prSurface.gitCredentialAuth(),
+  });
+  try {
+    const assembled = await assembleTrustedReviewContext({
+      repositoryView,
+      priorInlineFeedback: priorInlineFeedback.value,
+      checkoutCoverage: repositoryView.workspace.reader.getCoverage(),
+    });
+    return ((pinnedReturn: ReviewAttemptEnv) => pinnedReturn)({
+      cfg: params.cfg,
+      db: params.db,
+      item,
+      target,
+      prSurface,
+      headSha,
+      baseSha,
+      ...(pullRequest !== undefined ? { pullRequest } : {}),
+      repositoryView,
+      trustedContext: assembled.trustedContext,
+      repoPolicy: assembled.repoPolicy,
+      headCi: sqliteReviewHeadCi({
+        db: params.db,
+        installationId: item.installationId,
         owner: item.owner,
         repo: item.repo,
-        prNumber: item.prNumber,
-        headSha,
-        ...(pullRequest !== undefined ? { pullRequest } : {}),
-        ...(item.payload.repositorySizeKb !== undefined
-          ? { repositorySizeKb: item.payload.repositorySizeKb }
-          : {}),
-        gitCredentialAuth: () => prSurface.gitCredentialAuth(),
-      },
-      (view) =>
-        new Promise<void>((release) => {
-          releaseView = release;
-          resolveView(view);
-        }),
-    );
-    held.catch(rejectView);
-  });
-  const repositoryView = await viewReady;
-  const assembled = await assembleTrustedReviewContext({
-    repositoryView,
-    priorInlineFeedback: priorInlineFeedback.value,
-    checkoutCoverage: repositoryView.workspace.reader.getCoverage(),
-  });
-  return ((pinnedReturn: ReviewAttemptEnv) => pinnedReturn)({
-    cfg: params.cfg,
-    db: params.db,
-    item,
-    target,
-    prSurface,
-    headSha,
-    ...(pullRequest !== undefined ? { pullRequest } : {}),
-    repositoryView,
-    trustedContext: assembled.trustedContext,
-    repoPolicy: assembled.repoPolicy,
-    headCi: sqliteReviewHeadCi({
-      db: params.db,
-      installationId: item.installationId,
-      owner: item.owner,
-      repo: item.repo,
-    }),
-    dispose: async () => {
-      releaseView?.();
-    },
-  });
-}
-
-export function reviewAttemptBlocked(message: string, context: Record<string, unknown>) {
-  return ((pinnedReturn: AppError) => pinnedReturn)(
-    new AppError({ domain: "review", kind: "orchestrator_stopped", message, context }),
-  );
-}
-
-export function logReviewEnvFailure(error: unknown, fields: Record<string, unknown>) {
-  logWarn("review_attempt_env_failed", { ...fields, message: errorMessage(error) });
+      }),
+      dispose: repositoryView.release,
+    });
+  } catch (error) {
+    await repositoryView.release();
+    throw error;
+  }
 }

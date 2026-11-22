@@ -215,8 +215,6 @@ export type DurableRuntimeOptions = {
   readonly tasks?: readonly AnyTask[];
 };
 
-export const DURABLE_TASKS_EXTENSION_NAME = "pr-durable-tasks";
-
 export async function openDurableRuntime(cfg: Config, options: DurableRuntimeOptions = {}) {
   const models: SessionModels = await createSessionModels(cfg);
   const registry = createRegistry();
@@ -240,7 +238,7 @@ export async function openDurableRuntime(cfg: Config, options: DurableRuntimeOpt
   registry.install(codemodeExtension);
   registry.install(runtimeExtension);
   if (options.tasks !== undefined && options.tasks.length > 0) {
-    registry.install(defineExtension({ name: DURABLE_TASKS_EXTENSION_NAME, tasks: options.tasks }));
+    registry.install(defineExtension({ name: "pr-durable-tasks", tasks: options.tasks }));
   }
   const handle = await openDurableHarness({
     sqliteDir: cfg.runtime.sqliteDir,
@@ -267,12 +265,12 @@ export async function openDurableRuntime(cfg: Config, options: DurableRuntimeOpt
 
 const sharedRuntimes = new WeakMap<Config, Promise<DurableRuntime>>();
 
-export function getSharedDurableRuntime(cfg: Config, options: DurableRuntimeOptions = {}) {
+export function getSharedDurableRuntime(cfg: Config) {
   const existing = sharedRuntimes.get(cfg);
   if (existing !== undefined) {
     return ((pinnedReturn: Promise<DurableRuntime>) => pinnedReturn)(existing);
   }
-  const created = openDurableRuntime(cfg, options);
+  const created = openDurableRuntime(cfg);
   sharedRuntimes.set(cfg, created);
   created.catch(() => {
     if (sharedRuntimes.get(cfg) === created) sharedRuntimes.delete(cfg);

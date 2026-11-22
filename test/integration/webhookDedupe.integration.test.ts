@@ -175,7 +175,7 @@ describe("webhook dedupe (sqlite integration)", () => {
     expect(countRows()).toBe(1);
   });
 
-  it("releases a body hash after webhook-event retention", () => {
+  it("releases a body hash after webhook-event retention", async () => {
     const now = Date.now();
     const first = insert('{"retained":true}', "delivery-retained-old");
     if (first.duplicate) throw new Error("initial retained event was treated as duplicate");
@@ -186,7 +186,7 @@ describe("webhook dedupe (sqlite integration)", () => {
     db.prepare(`UPDATE webhook_body_replays SET created_at = ?`).run(aged);
     db.prepare(`UPDATE webhook_rejections SET created_at = ?`).run(aged);
 
-    runRetention(
+    await runRetention(
       db,
       makeTestConfig({
         retention: { agentWorkSeconds: 30 * 86_400, webhookEventsSeconds: 30 * 86_400 },

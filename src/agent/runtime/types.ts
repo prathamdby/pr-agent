@@ -80,14 +80,6 @@ export type PiSessionCreateParams = {
   readonly tools: readonly PiTool[];
   readonly executors: Record<string, AgentRunnerToolExecutor>;
   readonly durableTools?: readonly ToolRegistration[];
-  readonly reconEvidence?: readonly {
-    readonly path: string;
-    readonly contentHash: string;
-    readonly startLine: number;
-    readonly endLine: number;
-    readonly lines: readonly number[];
-    readonly content: string;
-  }[];
   readonly codemode?: boolean;
   readonly toolMeta?: Readonly<
     Record<

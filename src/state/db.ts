@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
-import { mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { lstatSync, mkdirSync, realpathSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import * as v from "valibot";
 import { AppError } from "../errors/appError.ts";
 
@@ -57,9 +57,29 @@ export function openAppState(params: {
   readonly applySchema: (db: DatabaseSync) => void;
 }) {
   mkdirSync(params.sqliteDir, { recursive: true });
+  const path = resolve(params.dbPath ?? join(params.sqliteDir, APP_STATE_DB_FILENAME));
+  const file = lstatSync(path, { throwIfNoEntry: false });
+  const name = basename(path).toLowerCase();
+  if (
+    realpathSync(dirname(path)) !== realpathSync(params.sqliteDir) ||
+    (file && (!file.isFile() || file.nlink !== 1)) ||
+    [LOCK_DB_FILENAME, "pi_durable.sqlite"].some(
+      (reserved) =>
+        name === reserved || name.startsWith(reserved + "-") || name.startsWith(reserved + "."),
+    )
+  ) {
+    throw new Error(
+      "The app database must be a regular file directly inside SQLITE_DIR, not a link or runtime database.",
+    );
+  }
   const lock = acquireSingleWriterLock(params.sqliteDir);
-  const path = params.dbPath ?? join(params.sqliteDir, APP_STATE_DB_FILENAME);
-  const db = new DatabaseSync(path);
+  let db: DatabaseSync;
+  try {
+    db = new DatabaseSync(path);
+  } catch (error) {
+    lock.db.close();
+    throw error;
+  }
   try {
     db.exec("PRAGMA journal_mode = WAL");
     db.exec("PRAGMA synchronous = FULL");

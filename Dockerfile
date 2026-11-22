@@ -27,7 +27,7 @@ ENV PORT=7224
 ENV SQLITE_DIR=/data
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git ca-certificates \
+  && apt-get install -y --no-install-recommends git ca-certificates procps \
   && rm -rf /var/lib/apt/lists/* \
   && mkdir -p /data \
   && chown node:node /data

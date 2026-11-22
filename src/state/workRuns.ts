@@ -16,7 +16,7 @@ export const WORK_RUN_STATUSES = [
 ] as const;
 export type WorkRunStatus = (typeof WORK_RUN_STATUSES)[number];
 
-const WORK_RUN_KINDS = [
+export const WORK_RUN_KINDS = [
   "review",
   "ask",
   "description",
@@ -26,6 +26,12 @@ const WORK_RUN_KINDS = [
   "ci_projection",
 ] as const;
 export type WorkRunKind = (typeof WORK_RUN_KINDS)[number];
+
+export function isFeatureWorkKind(kind: WorkRunKind) {
+  return kind !== "review" && kind !== "ack";
+}
+
+export type FeatureWorkKind = Exclude<WorkRunKind, "review" | "ack">;
 
 const WORK_RUN_LANES = ["review", "description", "verification", "triage", "none"] as const;
 export type WorkRunLane = (typeof WORK_RUN_LANES)[number];
@@ -126,6 +132,17 @@ export function workRunById(db: DatabaseSync, workId: string) {
   );
 }
 
+function dispatchableRows(kinds: readonly WorkRunKind[]) {
+  return `FROM work_runs w LEFT JOIN pr_state p ON p.pr_key = w.pr_key
+    WHERE w.cancel_reason IS NULL
+      AND w.kind IN (${kinds.map(() => "?").join(", ")})
+      AND (w.lane = 'none' OR w.lane_epoch = CASE w.lane
+        WHEN 'review' THEN p.auto_review_epoch WHEN 'description' THEN p.description_epoch
+        WHEN 'verification' THEN p.verification_epoch WHEN 'triage' THEN p.triage_epoch END)
+      AND NOT EXISTS (SELECT 1 FROM work_run_attempts a WHERE a.work_id = w.work_id
+        AND a.status IN ('starting', 'running'))`;
+}
+
 export function claimDispatchableWorkRun(
   db: DatabaseSync,
   now: number,
@@ -136,25 +153,12 @@ export function claimDispatchableWorkRun(
   const candidate = readRow(
     db
       .prepare(
-        `SELECT w.* FROM work_runs w
-           LEFT JOIN pr_state p ON p.pr_key = w.pr_key
-          WHERE ((w.status = 'pending_dispatch')
-             OR (w.status = 'retry_scheduled' AND w.next_retry_at <= ?))
-            AND w.cancel_reason IS NULL
-            AND w.kind IN (${kinds.map(() => "?").join(", ")})
-            AND (w.lane = 'none' OR w.lane_epoch = CASE w.lane
-                  WHEN 'review' THEN p.auto_review_epoch
-                  WHEN 'description' THEN p.description_epoch
-                  WHEN 'verification' THEN p.verification_epoch
-                  WHEN 'triage' THEN p.triage_epoch
-                END)
-            AND NOT EXISTS (
-              SELECT 1 FROM work_run_attempts a
-               WHERE a.work_id = w.work_id AND a.status IN ('starting', 'running'))
+        `SELECT w.* ${dispatchableRows(kinds)}
+            AND (w.status = 'pending_dispatch' OR (w.status = 'retry_scheduled' AND w.next_retry_at <= ?))
           ORDER BY w.created_at, w.rowid
           LIMIT 1`,
       )
-      .get(now, ...kinds),
+      .get(...kinds, now),
     workRunRowSchema,
   );
   if (candidate === undefined) return ((pinnedReturn: undefined) => pinnedReturn)(undefined);
@@ -178,14 +182,14 @@ export function claimDispatchableWorkRun(
   });
 }
 
-export function nextDispatchWakeAt(db: DatabaseSync) {
+export function nextDispatchWakeAt(db: DatabaseSync, kinds: readonly WorkRunKind[]) {
+  if (kinds.length === 0) return undefined;
   const row = readRow(
     db
       .prepare(
-        `SELECT MIN(next_retry_at) AS next_retry_at FROM work_runs
-          WHERE status = 'retry_scheduled' AND next_retry_at IS NOT NULL`,
+        `SELECT MIN(w.next_retry_at) AS next_retry_at ${dispatchableRows(kinds)} AND w.status = 'retry_scheduled'`,
       )
-      .get(),
+      .get(...kinds),
     v.object({ next_retry_at: v.nullable(v.number()) }),
   );
   return ((pinnedReturn: number | undefined) => pinnedReturn)(row?.next_retry_at ?? undefined);

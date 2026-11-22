@@ -50,7 +50,6 @@ export function buildSubmitTool(
   params: RunSpecialistParams,
   evidence?: {
     readonly ledger: EvidenceLedger;
-    readonly creditEvidence?: () => void;
     readonly headSha: string;
     readonly checkoutCoverage?: CheckoutCoverage;
     readonly isPathInCheckout?: (path: string) => boolean;
@@ -91,7 +90,6 @@ export function buildSubmitTool(
     }
 
     let report = parsed.value;
-    if (evidence != null) evidence.creditEvidence?.();
     if (evidence != null && report.findings.length > 0) {
       const validationStartedAt = Date.now();
       const filtered = assertFindingsHaveEvidence(

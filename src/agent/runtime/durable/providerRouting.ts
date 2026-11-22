@@ -11,10 +11,6 @@ export { overlayCatalog, assertPiModelSelection } from "./modelsJson.ts";
 export { createSessionModels, type SessionModels } from "./sessionModels.ts";
 export { createRegistry } from "@earendil-works/pi-durable";
 
-export type ProviderRoutingState = {
-  readonly sharedHeadByConversation: ReadonlyMap<ConversationId, string>;
-};
-
 export function providerSessionIdInit(sessionId: string) {
   return ((pinnedReturn: ConversationInit) => pinnedReturn)(async (tx, conversationId) => {
     const doc = await tx.doc(ProviderDoc, conversationId);

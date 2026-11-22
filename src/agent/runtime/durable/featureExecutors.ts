@@ -48,23 +48,15 @@ import {
   type FeaturePublication,
 } from "../../../state/featurePublication.ts";
 import { enqueueDueCiProjections } from "../../../state/prHeadCiState.ts";
-import {
-  cancelWorkRun,
-  type ClaimedWorkRun,
-  type WorkRunAttemptRow,
-  type WorkRunKind,
-  type WorkRunRow,
-} from "../../../state/workRuns.ts";
+import { cancelWorkRun, type WorkRunAttemptRow, type WorkRunRow } from "../../../state/workRuns.ts";
 import { startWorkTrace } from "../../../traces/recorder.ts";
 import { attachReportObstacle } from "../../feedback/reportObstacle.ts";
 import { isCancelAbortError } from "../../providers/providerErrors.ts";
 import { createFeaturePiSession } from "../createFeatureSession.ts";
 import { modelAssignmentForRole, resolveModelPolicy } from "../modelPolicy.ts";
-import type { FeatureAttemptExecutor } from "./featureAttemptTask.ts";
+import type { FeatureAttemptExecutor, FeatureAttemptExecutorFor } from "./featureAttemptTask.ts";
+import type { AckHandler } from "./dispatcher.ts";
 import type { WorkerDeps } from "./workerDeps.ts";
-
-export type FeatureAttemptExecutorFor = (kind: WorkRunKind) => FeatureAttemptExecutor;
-export type AckHandler = (claim: ClaimedWorkRun) => Promise<void>;
 
 type LaneWorkType = Exclude<WorkType, "review">;
 
@@ -509,20 +501,7 @@ export function createFeatureExecutors(deps: WorkerDeps, reviewPublisher?: Revie
       ),
     ci_projection: ciProjection,
   };
-  const executorFor: FeatureAttemptExecutorFor = (kind) => {
-    switch (kind) {
-      case "ask":
-      case "description":
-      case "triage":
-      case "verification":
-      case "ci_projection":
-        return executors[kind];
-      case "review":
-      case "ack":
-        break;
-    }
-    throw new Error(`no feature executor for work kind ${kind}`);
-  };
+  const executorFor: FeatureAttemptExecutorFor = (kind) => executors[kind];
   return executorFor;
 }
 

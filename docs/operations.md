@@ -32,7 +32,8 @@ before the reply posts. Real storage failures, including an exhausted SQLite
   reconciles `mutating` publish intents, sweeps `outcome_unknown_recoverable`
   ones, projects terminal task outcomes, adopts orphan tasks by
   `(workId, attemptNo)`, and collects cancelled or superseded tasks to abort.
-  Phase B resumes the harness and aborts those tasks. Resumed reviews count
+  Before Phase B, boot restores current reviews' pinned workspaces and child
+  tool bindings. Phase B marks obsolete tasks for abort before resuming the harness. Resumed reviews count
   toward `REVIEW_CONCURRENCY` before the dispatcher admits queued reviews.
   The service then opens `/webhooks`.
   See [topology](topology.md#boot-shutdown-and-reset).
@@ -154,7 +155,7 @@ PR_AGENT_ENV_FILE=/abs/path/to/.env docker compose -f docker-compose.yml -f dock
   statuses, and check completion without exact evidence take this bounded
   fail-closed path, never a second mutation. Open-check repair does not select
   or log that check again.
-- **Single process:** [`src/index.ts`](../src/index.ts) loads config, acquires the single-writer lock, opens `app_state.sqlite` and the Pi harness, runs boot Phase A and Phase B, and starts the Effect HTTP server with one `NodeRuntime.runMain`. Invalid config fails as `StartupConfigInvalid` before anything opens.
+- **Single process:** [`src/index.ts`](../src/index.ts) acquires the writer lock, opens both databases, recovers work, then starts the HTTP listener. A bind failure shuts down the worker, releases the lock and exits nonzero. `http_listening` means the port actually opened. Invalid config fails before either database opens.
 - **Intake:** [`processWebhookRequestEffect`](../src/effect/programs/processWebhookRequestEffect.ts) verifies signatures, parses payloads, and maps the validated event through [`toIntakeCommand`](../src/webhook/intakeCommand.ts), resolving bot identity only when explicitly required. [`runDelivery`](../src/state/intake.ts) then commits dedupe, lifecycle, admission, and `work_runs` rows in one `BEGIN IMMEDIATE` and wakes the dispatcher. `webhook.handle` and `webhook.dispatch` spans carry the event, delivery id, and outcome. Tagged failures are logged, then `catchTags` maps them to the same `401`, `400`, `422`, and `503` plain-text bodies. The commit is synchronous, so a response-budget timeout cannot abandon a commit already in progress. A successful commit returns `200`.
 - **Execution:** the [dispatcher](../src/agent/runtime/durable/dispatcher.ts) claims due work runs and runs `review` as `reviewOrchestratorTask`, `ask`/`description`/`triage`/`verification`/`ci_projection` as `featureAttemptTask`, and `ack` directly. PR-surface I/O and LLM runs happen in the feature executors under [`src/agentWork/executors/`](../src/agentWork/executors/).
 - **Shutdown:** `SIGTERM` or `SIGINT` makes `/webhooks` return `503` and sets `shutdownRequested`, which blocks every new `reserved → mutating` publish transition. The dispatcher and CI timers pause, in-flight GitHub writes get up to `SHUTDOWN_GRACE_MS` (default 25 000) to settle alongside the bounded `ANALYTICS_SHUTDOWN_TIMEOUT_MS` flush, then `harness.close()` runs, followed by `app_state.sqlite` and the lock. Work still running at that point resumes after restart: review tasks continue from their checkpoint, and interrupted feature attempts are aborted and retried. An unexpected `harness.closed` exits the process non-zero, and the restart policy starts it again.
@@ -329,8 +330,8 @@ Review recovery lives in the `reviewOrchestratorTask` checkpoint in
 `pi_durable.sqlite`: the brief, the recon pack and its hash, each specialist's
 outcome and report, the accepted-findings ledger, and publish progress. Finding
 details, fix directions, and suggested code can contain code excerpts. Saved
-coverage never grants evidence: finding validation reads the evidence binding
-of the request that produced each report. Accepted remote operation receipts in
+coverage never grants evidence: finding validation uses only the pinned lines
+shown to that specialist before submission. Accepted remote operation receipts in
 `publish_records` stay authoritative and are never reopened. PostHog receives
 metadata only, never checkpoint contents.
 

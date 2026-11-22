@@ -2,7 +2,6 @@ import { realpath } from "node:fs/promises";
 import { relative, sep } from "node:path";
 import { createReadTool } from "@earendil-works/pi-durable/tools";
 import type { ConversationId } from "@earendil-works/pi-durable";
-import { wrapTool } from "@earendil-works/pi-durable";
 import type { ToolExecutionResult, ToolRegistration } from "@earendil-works/pi-durable";
 import { logDebug } from "../../../evlog.ts";
 import { createPathPolicy } from "../../tools/pathPolicy.ts";
@@ -39,7 +38,7 @@ import {
   type SpilledWorkspaceTextFileRead,
   type TextSpillScope,
 } from "../../tools/readWorkspaceTextFile.ts";
-import { capTextOutput } from "../../tools/toolOutputBudget.ts";
+import { capTextOutput, completePrefixLength } from "../../tools/toolOutputBudget.ts";
 import {
   literalQueryParam,
   maxLinesParam,
@@ -74,9 +73,12 @@ import {
 } from "../../../prompts/shared/safety.ts";
 import { AppError } from "../../../errors/appError.ts";
 import { GOVERNED_EVIDENCE_MAX_READS } from "../../../settings/index.ts";
-import { parseCommentableRightLineRanges } from "../../../prWorkspace/reviewDiffIndex.ts";
+import {
+  diffRightLines,
+  parseCommentableRightLineRanges,
+} from "../../../prWorkspace/reviewDiffIndex.ts";
 import { isSensitivePath } from "../../ask/askSafety.ts";
-import { sessionStateFor, type EvidenceReadAttempt } from "./sessionState.ts";
+import { includesEvidenceRead, sessionStateFor, type EvidenceReadAttempt } from "./sessionState.ts";
 import type { DurableToolMeta } from "./session.ts";
 
 export type LocalWorkspaceToolLimits = {
@@ -669,7 +671,7 @@ function buildInvestigationTools(
       );
     }
 
-    const respondWithRead = (
+    const respondWithRead = async (
       readPath: string,
       result: BudgetedWorkspaceTextFileRead | SpilledWorkspaceTextFileRead,
       note?: string,
@@ -714,7 +716,7 @@ function buildInvestigationTools(
         for (let index = result.startLine; index <= result.endLine; index += 1) {
           lines.push(index);
         }
-        recordReadAttempt(ctx.conversationId as ConversationId | undefined, ctx.toolCallId, {
+        await recordReadAttempt(ctx.conversationId as ConversationId | undefined, ctx.toolCallId, {
           kind: "lines",
           path: readPath,
           headSha,
@@ -857,13 +859,19 @@ function buildInvestigationTools(
         "response byte budget exceeded",
       );
       if (ctx !== undefined && headSha && capped.content.length > 0) {
-        recordReadAttempt(ctx.conversationId as ConversationId | undefined, ctx.toolCallId, {
+        const completeLength = Math.min(
+          completePrefixLength(evidence.diff, capped.content),
+          evidence.reason === "workspace_diff_byte_cap"
+            ? evidence.completeLength
+            : capped.content.length,
+        );
+        await recordReadAttempt(ctx.conversationId as ConversationId | undefined, ctx.toolCallId, {
           kind: "diff",
           path: normalized,
           headSha,
           startLine: 0,
           endLine: 0,
-          lines: diffCreditableLines(capped.content),
+          lines: [...diffRightLines(capped.content.slice(0, completeLength))],
           clampedLines: [],
           contentHash: hashNormalizedLineText(capped.content),
           content: capped.content,
@@ -1320,41 +1328,18 @@ const readWindowJsonSchema = {
   additionalProperties: false,
 } as const;
 
-function diffCreditableLines(diff: string) {
-  const commentable = new Set<number>();
-  for (const [start, end] of parseCommentableRightLineRanges(diff)) {
-    for (let line = start; line <= end; line += 1) commentable.add(line);
-  }
-  const lines: number[] = [];
-  let rightLine = 0;
-  for (const raw of diff.split("\n")) {
-    if (raw.startsWith("@@")) {
-      const match = raw.match(/@@ -\d+(?:,\d+)? \+(\d+)/);
-      if (match) rightLine = Number(match[1]);
-      lines.push(-1);
-      continue;
-    }
-    if (raw.startsWith("-")) {
-      lines.push(-1);
-      continue;
-    }
-    if (raw.startsWith("+") || raw.startsWith(" ")) {
-      lines.push(commentable.has(rightLine) ? rightLine : -1);
-      rightLine += 1;
-      continue;
-    }
-    lines.push(-1);
-  }
-  return ((pinnedReturn: readonly number[]) => pinnedReturn)(lines);
-}
-
-function recordReadAttempt(
+async function recordReadAttempt(
   conversationId: ConversationId | undefined,
   toolCallId: string,
   attempt: EvidenceReadAttempt,
 ) {
   if (conversationId === undefined) return;
-  sessionStateFor(conversationId)?.evidence.attempts.set(toolCallId, attempt);
+  const state = sessionStateFor(conversationId);
+  if (!state) return;
+  await state.journal?.read(toolCallId, attempt);
+  const reads = state.evidence.attempts.get(toolCallId) ?? [];
+  if (!includesEvidenceRead(reads, attempt))
+    state.evidence.attempts.set(toolCallId, [...reads, attempt]);
 }
 
 function errorResult(message: string) {
@@ -1373,15 +1358,11 @@ export function durableReadTool(options: {
     ctx?: AgentToolCallContext,
   ) => Promise<unknown>;
 }) {
-  const base: ToolRegistration = {
-    ...createReadTool(),
+  const tool: ToolRegistration = {
     name: options.name,
     description: options.description,
     replay: options.replay,
     parameters: readWindowJsonSchema,
-  };
-  const wrapped = wrapTool(base, (tool) => ({
-    ...tool,
     execute: async (args, api, context) => {
       const input = v.parse(pinnedReadWindowSchema, args);
       const result = await options.run(input, {
@@ -1393,11 +1374,8 @@ export function durableReadTool(options: {
         output: [{ type: "text", text: JSON.stringify(result) }],
       });
     },
-  }));
-  if (!("tool" in wrapped)) {
-    return ((pinnedReturn: ToolRegistration) => pinnedReturn)(base);
-  }
-  return ((pinnedReturn: ToolRegistration) => pinnedReturn)(wrapped.wrap(base));
+  };
+  return tool;
 }
 
 function buildReadEvidenceTools(params: ReadEvidenceToolsParams) {
@@ -1523,7 +1501,7 @@ function buildReadEvidenceTools(params: ReadEvidenceToolsParams) {
         const block = `${repoRelative}:${kept[0]?.line}-${kept.at(-1)?.line} sha256:${bodyHash}\n\`\`\`\n${body}\n\`\`\``;
         const head = headSha ?? "";
         if (head.length > 0) {
-          recordReadAttempt(api.conversationId, api.callId, {
+          await recordReadAttempt(api.conversationId, api.callId, {
             kind: "block",
             path: repoRelative,
             headSha: head,

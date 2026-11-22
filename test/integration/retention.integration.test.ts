@@ -59,11 +59,11 @@ const ids = (sql: string, ...params: readonly (string | number)[]) =>
   readRows(db.prepare(sql).all(...params), v.object({ id: v.string() })).map((row) => row.id);
 
 describe("retention (sqlite)", () => {
-  it("deletes aged terminal work runs but keeps fresh and non-terminal", () => {
+  it("deletes aged terminal work runs but keeps fresh and non-terminal", async () => {
     const aged = insertRun("completed", daysAgo(60));
     const fresh = insertRun("completed", daysAgo(1));
     const agedQueued = insertRun("pending_dispatch", daysAgo(60));
-    const result = runRetention(db, RETENTION, Date.now());
+    const result = await runRetention(db, RETENTION, Date.now());
     expect(result.workRunsDeleted).toBe(1);
     const remaining = ids(`SELECT work_id AS id FROM work_runs`);
     expect(remaining).not.toContain(aged);
@@ -71,25 +71,25 @@ describe("retention (sqlite)", () => {
     expect(remaining).toContain(agedQueued);
   });
 
-  it("uses updated_at for superseded work runs", () => {
+  it("uses updated_at for superseded work runs", async () => {
     const agedSuperseded = insertRun("superseded", daysAgo(60));
     const freshSuperseded = insertRun("superseded", daysAgo(1));
-    runRetention(db, RETENTION, Date.now());
+    await runRetention(db, RETENTION, Date.now());
     const remaining = ids(`SELECT work_id AS id FROM work_runs`);
     expect(remaining).not.toContain(agedSuperseded);
     expect(remaining).toContain(freshSuperseded);
   });
 
-  it("cascades an aged work run's attempt rows and keeps the fresh attempts", () => {
+  it("cascades an aged work run's attempt rows and keeps the fresh attempts", async () => {
     const aged = insertRun("completed", daysAgo(60));
     const fresh = insertRun("completed", daysAgo(1));
-    const result = runRetention(db, RETENTION, Date.now());
+    const result = await runRetention(db, RETENTION, Date.now());
     expect(result.workRunAttemptsDeleted).toBe(1);
     expect(ids(`SELECT work_id AS id FROM work_run_attempts`)).toEqual([fresh]);
     expect(ids(`SELECT work_id AS id FROM work_run_attempts`)).not.toContain(aged);
   });
 
-  it("deletes aged webhook deliveries and body replays but keeps fresh ones", () => {
+  it("deletes aged webhook deliveries and body replays but keeps fresh ones", async () => {
     for (const [key, at] of [
       ["delivery:aged", daysAgo(60)],
       ["delivery:fresh", Date.now()],
@@ -101,12 +101,12 @@ describe("retention (sqlite)", () => {
         `INSERT INTO webhook_body_replays (body_hash, delivery_key, created_at) VALUES (?, ?, ?)`,
       ).run(`hash-${key}`, key, at);
     }
-    runRetention(db, RETENTION, Date.now());
+    await runRetention(db, RETENTION, Date.now());
     expect(ids(`SELECT delivery_key AS id FROM webhook_deliveries`)).toEqual(["delivery:fresh"]);
     expect(ids(`SELECT delivery_key AS id FROM webhook_body_replays`)).toEqual(["delivery:fresh"]);
   });
 
-  it("clears approval records by last update and preserves fresh rows across all states", () => {
+  it("clears approval records by last update and preserves fresh rows across all states", async () => {
     for (const approval of ["awaiting", "approved", "withdrawn"]) {
       for (const [suffix, at] of [
         ["old", daysAgo(60)],
@@ -118,28 +118,34 @@ describe("retention (sqlite)", () => {
         ).run(`o/r#${approval}-${suffix}`, at, JSON.stringify({ state: approval }), at);
       }
     }
-    const result = runRetention(db, RETENTION, Date.now());
+    const result = await runRetention(db, RETENTION, Date.now());
     expect(result.reviewApprovalsCleared).toBe(3);
     expect(
       ids(`SELECT pr_key AS id FROM pr_state WHERE approval_json IS NOT NULL ORDER BY pr_key`),
     ).toEqual(["o/r#approved-fresh", "o/r#awaiting-fresh", "o/r#withdrawn-fresh"]);
   });
 
-  it("purges rejected-arrival evidence across batches using each arrival's age", () => {
+  it("yields to intake between rejection batches and uses each arrival's age", async () => {
     const insert = db.prepare(
       `INSERT INTO webhook_rejections (delivery_key, metadata_json, created_at) VALUES ('body:a', '{}', ?)`,
     );
     for (let index = 0; index < RETENTION_DELETE_BATCH_SIZE + 1; index += 1)
       insert.run(daysAgo(60));
     insert.run(Date.now());
-    const result = runRetention(db, RETENTION, Date.now());
+    const nextIntake = new Promise<void>((resolve) =>
+      setImmediate(() => {
+        insert.run(Date.now());
+        resolve();
+      }),
+    );
+    const result = await runRetention(db, RETENTION, Date.now());
+    const remaining = ids(`SELECT CAST(id AS TEXT) AS id FROM webhook_rejections`);
+    await nextIntake;
+    expect(remaining).toHaveLength(2);
     expect(result.webhookRowsDeleted).toBe(RETENTION_DELETE_BATCH_SIZE + 1);
-    expect(ids(`SELECT CAST(id AS TEXT) AS id FROM webhook_rejections`)).toHaveLength(1);
-    runRetention(db, RETENTION, Date.now());
-    expect(ids(`SELECT CAST(id AS TEXT) AS id FROM webhook_rejections`)).toHaveLength(1);
   });
 
-  it("deletes aged head CI state unless an active work run still covers that head", () => {
+  it("deletes aged head CI state unless an active work run still covers that head", async () => {
     insertRun("running", daysAgo(1), "o/r#1", "h");
     for (const [head, at] of [
       ["orphan-aged", daysAgo(60)],
@@ -151,7 +157,7 @@ describe("retention (sqlite)", () => {
          VALUES ('o/r', ?, 1, '{}', '{}', ?)`,
       ).run(head, at);
     }
-    const result = runRetention(db, RETENTION, Date.now());
+    const result = await runRetention(db, RETENTION, Date.now());
     expect(result.prHeadCiStateDeleted).toBe(1);
     const heads = ids(`SELECT head_sha AS id FROM pr_head_ci_state`);
     expect(heads).not.toContain("orphan-aged");
@@ -159,7 +165,7 @@ describe("retention (sqlite)", () => {
     expect(heads).toContain("fresh");
   });
 
-  it("expires orphaned capability observations and keeps repositories with work", () => {
+  it("expires orphaned capability observations and keeps repositories with work", async () => {
     insertRun("completed", daysAgo(1), "o/r#1");
     for (const [repo, at] of [
       ["o/orphan", daysAgo(60)],
@@ -171,21 +177,21 @@ describe("retention (sqlite)", () => {
          VALUES (1, ?, '{}', 1, ?)`,
       ).run(repo, at);
     }
-    const result = runRetention(db, RETENTION, Date.now());
+    const result = await runRetention(db, RETENTION, Date.now());
     expect(result.capabilitiesDeleted).toBe(1);
     expect(
       ids(`SELECT repo_key AS id FROM github_repository_capabilities ORDER BY repo_key`),
     ).toEqual(["o/fresh", "o/r"]);
   });
 
-  it("deletes agent_feedback older than the default retention and keeps it when retention is 0", () => {
+  it("deletes agent_feedback older than the default retention and keeps it when retention is 0", async () => {
     const insert = db.prepare(
       `INSERT INTO agent_feedback (work_id, pr_key, kind, payload_json, created_at)
        VALUES (?, 'o/r#1', 'tool', '{}', ?)`,
     );
     insert.run("aged", daysAgo(31));
     insert.run("fresh", daysAgo(1));
-    const deleted = runRetention(
+    const deleted = await runRetention(
       db,
       {
         ...RETENTION,
@@ -199,27 +205,33 @@ describe("retention (sqlite)", () => {
     expect(deleted.agentFeedbackDeleted).toBe(1);
     expect(ids(`SELECT work_id AS id FROM agent_feedback`)).toEqual(["fresh"]);
     insert.run("kept", daysAgo(31));
-    const keptRun = runRetention(db, RETENTION, Date.now());
+    const keptRun = await runRetention(db, RETENTION, Date.now());
     expect(keptRun.agentFeedbackDeleted).toBe(0);
     expect(ids(`SELECT work_id AS id FROM agent_feedback`)).toContain("kept");
   });
 
-  it("deletes aged settled publish intents but never a mutating or recoverable one", () => {
+  it("keeps the work run needed for intent recovery until the last lookup settles", async () => {
+    const workId = insertRun("completed", daysAgo(60));
     const insert = db.prepare(
       `INSERT INTO publish_intents
         (intent_key, pr_key, work_id, resource_target, operation_key, state, mutation_kind, identity_json, updated_at)
-       VALUES (?, 'o/r#1', 'w', 'comment:1', ?, ?, 'comment', '{}', ?)`,
+       VALUES (?, 'o/r#1', ?, 'comment:1', ?, ?, 'comment', '{}', ?)`,
     );
-    insert.run("aged-reconciled", "op1", "reconciled", daysAgo(60));
-    insert.run("aged-mutating", "op2", "mutating", daysAgo(60));
-    insert.run("aged-recoverable", "op3", "outcome_unknown_recoverable", daysAgo(60));
-    insert.run("fresh-reconciled", "op4", "reconciled", Date.now());
-    const result = runRetention(db, RETENTION, Date.now());
+    insert.run("aged-reconciled", workId, "op1", "reconciled", daysAgo(60));
+    insert.run("aged-mutating", workId, "op2", "mutating", daysAgo(60));
+    insert.run("aged-recoverable", workId, "op3", "outcome_unknown_recoverable", daysAgo(60));
+    insert.run("fresh-reconciled", workId, "op4", "reconciled", Date.now());
+    const result = await runRetention(db, RETENTION, Date.now());
+    expect(result.workRunsDeleted).toBe(0);
     expect(result.publishIntentsDeleted).toBe(1);
     expect(ids(`SELECT intent_key AS id FROM publish_intents ORDER BY intent_key`)).toEqual([
       "aged-mutating",
       "aged-recoverable",
       "fresh-reconciled",
     ]);
+    db.prepare(
+      "UPDATE publish_intents SET state = 'outcome_unknown_terminal' WHERE work_id = ?",
+    ).run(workId);
+    expect((await runRetention(db, RETENTION, Date.now())).workRunsDeleted).toBe(1);
   });
 });

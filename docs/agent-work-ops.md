@@ -189,11 +189,11 @@ Manual recovery rules:
 Review recovery lives in the `reviewOrchestratorTask` checkpoint in
 `pi_durable.sqlite`: the brief, the recon pack and its hash, each specialist's
 outcome (`complete`, `partial`, `failed`) and report, the accepted-findings
-ledger, and publish progress. A restart resumes the task at its current phase;
-child specialist submissions use deterministic request IDs, so nothing is
-resent. Every phase entry rechecks that the work run is active and owns its
-lane epoch. Saved coverage never grants evidence: finding validation reads the
-evidence binding of the request that produced each report. Never log
+ledger, and publish progress. Boot opens the recorded head and policy base,
+then restores each child's tools and remaining budget before Pi can resume.
+Each submission and its parent checkpoint share a transaction. Finding
+validation uses complete lines actually shown to that specialist, not paths
+listed in a coverage report. Never log
 checkpoint contents or send them to PostHog.
 
 ### Review-thread resolution denial
@@ -406,14 +406,14 @@ be skipped without an ID or acceptance receipt. Rollout notes:
 
 ## Retention
 
-`src/state/retention.ts` runs on `RETENTION_CRON` (daily by default) unless
-`RETENTION_ENABLED=false`, deleting in batches:
+`src/state/retention.ts` runs daily unless `RETENTION_ENABLED=false`.
+It yields to intake between full deletion batches:
 
 - `webhook_deliveries`, `webhook_body_replays`, and `webhook_rejections` older
   than `WEBHOOK_EVENTS_RETENTION_SECONDS`, each by its own `created_at`.
 - Terminal `work_runs` (`completed`, `failed`, `cancelled`, `superseded`)
   older than `AGENT_WORK_RETENTION_SECONDS`, then attempts whose work run is
-  gone.
+  gone. A mutating or recoverable intent keeps its work run until recovery settles.
 - Ask quota reservations and execution receipts older than the work horizon,
   and idle buckets with nothing reserved.
 - `pr_head_ci_state` rows older than the work horizon, except heads that still

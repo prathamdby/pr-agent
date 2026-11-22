@@ -1,6 +1,11 @@
 import type { DatabaseSync } from "node:sqlite";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
-import type { HarnessInspection, TaskId } from "@earendil-works/pi-durable";
+import {
+  defineExtension,
+  type Task,
+  type HarnessInspection,
+  type TaskId,
+} from "@earendil-works/pi-durable";
 import * as v from "valibot";
 import type { Config } from "../../../settings/index.ts";
 import type { AppStateHandle } from "../../../state/db.ts";
@@ -10,6 +15,7 @@ import { sweepIntentRecoveries, sweepRecoverableIntents } from "../../../state/r
 import type { PublishIntentRow } from "../../../state/publish.ts";
 import {
   cancelLiveAttempt,
+  supersedeWorkRun,
   laneEpochCurrent,
   markAttemptRunning,
   markWorkRunCompleted,
@@ -29,12 +35,16 @@ import {
   pendingCiProjectionCount,
   type CiProjectionRunner,
   type Dispatcher,
-  type DispatcherHandlers,
+  type AckHandler,
   type ResumedReview,
 } from "./dispatcher.ts";
 import {
   FEATURE_ATTEMPT_TASK_NAME,
-  bindFeatureAttemptRuntime,
+  createFeatureAttemptTask,
+  attemptStampSchema,
+  startClaimedAttempt,
+  type AttemptStamp,
+  type FeatureAttemptExecutorFor,
   recordAttemptFailure,
 } from "./featureAttemptTask.ts";
 import { conversationIdFromText, taskIdFromText } from "./harness.ts";
@@ -49,12 +59,6 @@ import type { WorkerDeps } from "./workerDeps.ts";
 const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const RESET_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const RECOVERABLE_INTENT_SWEEP_INTERVAL_MS = 60 * 1000;
-
-const attemptStampSchema = v.looseObject({
-  workId: v.string(),
-  attemptNo: v.number(),
-  attemptId: v.string(),
-});
 
 type LiveTask = HarnessInspection["tasks"][number]["record"];
 type StoredOutcome = {
@@ -263,13 +267,20 @@ export async function runBootPhaseA(params: {
     handled.add(key);
     const run = workRunById(db, attempt.work_id);
     if (!runIsCurrentFor(db, run, attempt.attempt_no)) {
-      immediate(db, () =>
-        cancelLiveAttempt(db, {
-          workId: attempt.work_id,
-          attemptNo: attempt.attempt_no,
-          now: now(),
-        }),
-      );
+      immediate(db, () => {
+        if (
+          run?.status === "running" &&
+          run.current_attempt_no === attempt.attempt_no &&
+          !laneEpochCurrent(db, run)
+        )
+          supersedeWorkRun(db, { workId: run.work_id, now: now() });
+        else
+          cancelLiveAttempt(db, {
+            workId: attempt.work_id,
+            attemptNo: attempt.attempt_no,
+            now: now(),
+          });
+      });
       toAbort.push(record.id);
       cancelled += 1;
       continue;
@@ -309,14 +320,10 @@ export async function runBootPhaseB(params: {
 }) {
   const context = params.context ?? BACKGROUND_CONTEXT;
   const harness = params.runtime.handle.harness;
-  params.runtime.handle.resume();
   for (const taskId of params.phaseA.toAbort) {
-    try {
-      await harness.abortTask(taskId, context);
-    } catch (error) {
-      logWarn("boot_abort_failed", { taskId: String(taskId), message: errorMessage(error) });
-    }
+    await harness.abortTask(taskId, context);
   }
+  params.runtime.handle.resume();
   for (const review of params.phaseA.resumedReviews) {
     params.dispatcher.trackResumedReview(review);
   }
@@ -335,14 +342,21 @@ export type DurableService = {
   readonly exited: Promise<number>;
 };
 
-export async function startDurableService(params: {
+export async function startDurableService<S extends { phase: string }, R>(params: {
   readonly appState: AppStateHandle;
   readonly cfg: Config;
   readonly runtime: DurableRuntime;
   readonly reopenRuntime: () => Promise<DurableRuntime>;
   readonly installationSurface: InstallationSurface;
-  readonly reviewTaskName: string;
-  readonly createHandlers: (deps: WorkerDeps) => DispatcherHandlers;
+  readonly createHandlers: (deps: WorkerDeps) => {
+    readonly ack: AckHandler;
+    readonly feature: FeatureAttemptExecutorFor;
+    readonly review: {
+      readonly task: Task<AttemptStamp, S, R, object>;
+      readonly restore: (id: TaskId, context: Context) => Promise<boolean>;
+      readonly close: () => Promise<void>;
+    };
+  };
   readonly createCiProjectionRunner?: (deps: WorkerDeps) => CiProjectionRunner;
   readonly surfaceFor?: (intent: PublishIntentRow) => PrSurface | undefined;
   readonly context?: Context;
@@ -393,14 +407,26 @@ export async function startDurableService(params: {
       void shutdown("pi_durable_closed", 1);
     });
   };
-  watchClosed(runtime);
 
   const handlers = params.createHandlers(deps);
-  bindFeatureAttemptRuntime({ db, cfg, executorFor: handlers.feature, now });
+  const featureTask = createFeatureAttemptTask({ db, cfg, executorFor: handlers.feature, now });
+  const tasks = defineExtension({
+    name: "pr-work-runs",
+    tasks: [handlers.review.task, featureTask],
+  });
+  runtime.registry.install(tasks);
   const dispatcher = createDispatcher({
     db,
     cfg,
-    handlers,
+    ack: handlers.ack,
+    startAttempt: async (claim) => {
+      const admission = { harness: runtime.handle.harness, context, db, claim, now: now() };
+      const started =
+        claim.run.kind === "review"
+          ? await startClaimedAttempt(handlers.review.task, admission)
+          : await startClaimedAttempt(featureTask, admission);
+      return started.markedRunning ? started.taskId : undefined;
+    },
     runtime: () => runtime,
     context,
     now,
@@ -410,31 +436,52 @@ export async function startDurableService(params: {
   });
   const ciRunner = params.createCiProjectionRunner?.(deps);
 
-  const phaseA = await runBootPhaseA({
-    db,
-    cfg,
-    runtime,
-    reviewTaskName: params.reviewTaskName,
-    ...(params.surfaceFor !== undefined ? { surfaceFor: params.surfaceFor } : {}),
-    context,
-    now,
+  const boot = async () => {
+    const inspection = await runBootPhaseA({
+      db,
+      cfg,
+      runtime,
+      reviewTaskName: handlers.review.task.definition.name,
+      ...(params.surfaceFor !== undefined ? { surfaceFor: params.surfaceFor } : {}),
+      context,
+      now,
+    });
+    const resumedReviews: ResumedReview[] = [];
+    const toAbort = [...inspection.toAbort];
+    for (const review of inspection.resumedReviews) {
+      if (await handlers.review.restore(review.taskId, context)) resumedReviews.push(review);
+      else toAbort.push(review.taskId);
+    }
+    const phaseA = {
+      ...inspection,
+      resumedReviews,
+      toAbort,
+      interrupted: inspection.interrupted + toAbort.length - inspection.toAbort.length,
+    };
+    logInfo("boot_phase_a", {
+      projected: phaseA.projected,
+      adopted: phaseA.adopted,
+      interrupted: phaseA.interrupted,
+      cancelled: phaseA.cancelled,
+      toAbort: phaseA.toAbort.length,
+      resumedReviews: phaseA.resumedReviews.length,
+      pendingCiProjections: phaseA.pendingCiProjections,
+    });
+    if (ciRunner !== undefined) dispatcher.setCiProjectionRunner(ciRunner);
+    await runBootPhaseB({ runtime, phaseA, dispatcher, context });
+    return phaseA;
+  };
+  const phaseA = await boot().catch(async (error: unknown) => {
+    await runtime.handle.harness.close(context);
+    await handlers.review.close();
+    throw error;
   });
-  logInfo("boot_phase_a", {
-    projected: phaseA.projected,
-    adopted: phaseA.adopted,
-    interrupted: phaseA.interrupted,
-    cancelled: phaseA.cancelled,
-    toAbort: phaseA.toAbort.length,
-    resumedReviews: phaseA.resumedReviews.length,
-    pendingCiProjections: phaseA.pendingCiProjections,
-  });
-  if (ciRunner !== undefined) dispatcher.setCiProjectionRunner(ciRunner);
-  await runBootPhaseB({ runtime, phaseA, dispatcher, context });
 
-  const runRetentionOnce = () => {
+  let retaining: Promise<void> | undefined;
+  const runRetentionOnce = async () => {
     if (!cfg.retention.enabled || shutdownRequested) return;
     try {
-      const result = runRetention(db, cfg, now());
+      const result = await runRetention(db, cfg, now());
       logInfo("retention_completed", { ...result });
     } catch (error) {
       logWarn("retention_failed", { message: errorMessage(error) });
@@ -471,6 +518,7 @@ export async function startDurableService(params: {
         },
         reopen: async () => {
           const next = await params.reopenRuntime();
+          next.registry.install(tasks);
           runtime = next;
           harnessClosed = false;
           replaceSharedDurableRuntime(cfg, next);
@@ -501,7 +549,11 @@ export async function startDurableService(params: {
     unrefTimer(timer);
     timers.push(timer);
   };
-  schedule(params.intervals?.retentionMs ?? RETENTION_INTERVAL_MS, runRetentionOnce);
+  schedule(params.intervals?.retentionMs ?? RETENTION_INTERVAL_MS, () => {
+    retaining ??= runRetentionOnce().finally(() => {
+      retaining = undefined;
+    });
+  });
   schedule(params.intervals?.resetCheckMs ?? RESET_CHECK_INTERVAL_MS, () => {
     void checkReset().catch(() => undefined);
   });
@@ -548,6 +600,7 @@ export async function startDurableService(params: {
       logInfo("shutdown_requested", { reason });
       for (const timer of timers) clearInterval(timer);
       await resetChain;
+      await retaining;
       dispatcher.pause();
       const drained = await dispatcher.drain(cfg.runtime.shutdownGraceMs);
       if (!drained) logWarn("shutdown_grace_elapsed", { graceMs: cfg.runtime.shutdownGraceMs });
@@ -558,12 +611,14 @@ export async function startDurableService(params: {
       } catch (error) {
         logWarn("pi_durable_close_failed", { message: errorMessage(error) });
       }
+      await handlers.review.close();
       params.appState.close();
       for (const resolve of exitResolvers) resolve(exitCode);
     })();
     return shutdownPromise;
   };
 
+  watchClosed(runtime);
   const ready = () => {
     if (harnessClosed || shutdownRequested) return false;
     try {

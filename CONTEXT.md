@@ -18,7 +18,7 @@ Product terms used across code, prompts, and docs.
 - **Dispatcher**. In-process loop claiming due work runs and starting their attempts.
 - **Harness**. Durable agent runtime owning conversations and tasks.
 - **Phase A boot**. Paused read-only recovery pass before agents resume.
-- **Phase B boot**. Resume step aborting stale agents, then starting dispatch and intake.
+- **Phase B boot**. Mark aborts, resume the harness, then start dispatch and intake.
 - **Trace**. Best-effort span tree recorded for attempt analysis.
 - **PR execution mutex**. In-process per-pull-request lock serializing feature execution.
 - **Description run**. Work item generating and merging the pull request description.

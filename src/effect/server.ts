@@ -6,7 +6,7 @@ import crypto from "node:crypto";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { WebhookIntake } from "./webhookIntake.ts";
 import type { Config } from "../settings/index.ts";
-import { createOperationLogger } from "../evlog.ts";
+import { createOperationLogger, logInfo } from "../evlog.ts";
 import { processWebhookPostRequestEffect } from "./programs/processWebhookRequestEffect.ts";
 
 function singleHeader(v: string | string[] | undefined) {
@@ -178,6 +178,13 @@ export function buildEffectWebhookLayer(
 
 export function startEffectWebhookServer(cfg: Config, intake: WebhookIntake["Service"]) {
   return Layer.launch(
-    buildEffectWebhookLayer(cfg, createServer, Layer.succeed(WebhookIntake, intake)),
+    buildEffectWebhookLayer(
+      cfg,
+      () =>
+        createServer().once("listening", () => {
+          logInfo("http_listening", { port: cfg.runtime.port });
+        }),
+      Layer.succeed(WebhookIntake, intake),
+    ),
   );
 }

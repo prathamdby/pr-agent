@@ -45,6 +45,7 @@ describe("review attempt checkpoint", () => {
     const checkpoint = initialReviewCheckpoint({
       now: 1_000,
       headSha: "head",
+      baseSha: null,
       budgetMs: 255_000,
       finalizationMs: 30_000,
       reconBudgetMs: 50_000,

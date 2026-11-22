@@ -16,30 +16,67 @@ export type EvidenceReadAttempt = {
   readonly tool: string;
 };
 
-export type BoundEvidenceMemo = {
-  readonly assistantIndex: number;
-  readonly visible: readonly {
-    readonly path: string;
-    readonly headSha: string;
-    readonly tool: string;
-    readonly contentHash: string;
-    readonly startLine: number;
-    readonly endLine: number;
-    readonly lines: readonly number[];
-    readonly content: string;
-  }[];
+export type VisibleRead = {
+  readonly path: string;
+  readonly headSha: string;
+  readonly tool: string;
+  readonly startLine: number;
+  readonly endLine: number;
+  readonly contentHash: string;
 };
+
+export function includesEvidenceRead(
+  reads: readonly EvidenceReadAttempt[],
+  read: EvidenceReadAttempt,
+) {
+  return reads.some(
+    (r) =>
+      r.kind === read.kind &&
+      r.path === read.path &&
+      r.startLine === read.startLine &&
+      r.endLine === read.endLine &&
+      r.contentHash === read.contentHash,
+  );
+}
+
+export function visibleReadKey(read: VisibleRead) {
+  return JSON.stringify([
+    read.path,
+    read.startLine,
+    read.endLine,
+    read.contentHash,
+    read.headSha,
+    read.tool,
+  ]);
+}
 
 export type SessionSendState = {
   readonly opts: PiSessionSendOptions;
-  rounds: number;
-  readonly countedCalls: Set<string>;
-  budgetBlockedCalls: number;
+  readonly countedCalls: Set<number>;
+  readonly blockedCalls: Set<number>;
   stopped: boolean;
   reservedFired: boolean;
   lastActivityAt: number;
   assistantIndex: number;
 };
+
+export function beginSend(opts: PiSessionSendOptions) {
+  return {
+    opts,
+    countedCalls: new Set<number>(),
+    blockedCalls: new Set<number>(),
+    stopped: false,
+    reservedFired: false,
+    lastActivityAt: Date.now(),
+    assistantIndex: 0,
+  };
+}
+
+export function maxTurnsForSend(opts: PiSessionSendOptions) {
+  return opts.maxToolRounds === undefined
+    ? null
+    : opts.maxToolRounds + 2 + Number(opts.reservedTerminalTool !== undefined);
+}
 
 export type SessionTraceLike = {
   beginSend: (send: PiSessionSendOptions) => void;
@@ -49,6 +86,12 @@ export type SessionTraceLike = {
 };
 
 export type DurableSessionState = {
+  journal?: {
+    charge(taskId: number, blocked: boolean): Promise<void>;
+    read(callId: string, read: EvidenceReadAttempt): Promise<void>;
+    credit(reads: readonly VisibleRead[]): Promise<void>;
+    pending(reads: readonly VisibleRead[]): Promise<void>;
+  };
   trace?: SessionTraceLike;
   readonly role: AgentSessionRole;
   readonly headSha?: string;
@@ -62,17 +105,18 @@ export type DurableSessionState = {
   readonly executors: Record<string, AgentRunnerToolExecutor>;
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
   readonly hostSignal?: AbortSignal;
-  readonly phaseAllowedTools?: (phase: string, toolName: string) => string | undefined;
   currentSend?: SessionSendState;
   sendSeq: number;
   aborted: boolean;
   usage?: AgentRunnerUsageMetadata;
   effort?: string;
   evidence: {
-    readonly attempts: Map<string, EvidenceReadAttempt>;
-    requestVisible: Map<string, BoundEvidenceMemo["visible"]>;
-    bindings: BoundEvidenceMemo[];
+    readonly attempts: Map<string, readonly EvidenceReadAttempt[]>;
+    visible: readonly VisibleRead[];
+    bound: readonly VisibleRead[];
+    readonly credited: Set<string>;
     readonly reconLines: readonly {
+      readonly clampedLines: readonly number[];
       readonly path: string;
       readonly contentHash: string;
       readonly startLine: number;

@@ -103,7 +103,7 @@ Work kinds:
 
 An attempt starts with one atomic Pi commit that creates the ownerless root
 conversation and the durable task, stamping `(workId, attemptNo, attemptId)`
-into the task input and a root-conversation doc. `markRunning` then records the
+into the task input. `markAttemptRunning` then records the
 conversation and task IDs. If it updates no row because the work run was
 cancelled or superseded meanwhile, the conversation is aborted at once. The
 task's terminal handler writes the outcome into `app_state.sqlite` directly; it
@@ -118,14 +118,14 @@ task-owned `orchestrator` child conversation. The four specialists
 conversations whose provider session ID is the shared 35-character prompt cache
 key, so aborting the root conversation cascades to all of them. Specialist 0 is
 submitted first; the other three follow its first settled response or 5 s.
-Child creation and each submission are separate Pi transactions, and every
-submission uses the deterministic request ID `${attemptId}:${role}:${turnNo}`,
-so a restart finds the same submissions instead of resending. The task
+Pi commits each child ID with its parent checkpoint. It commits each turn's
+configuration, budget, submission and next checkpoint together. The request
+ID is `${attemptId}:${role}:${turnNo}`. A restart does not send it again. The task
 checkpoint holds the brief, the recon pack and its hash, each specialist's
 outcome (`complete`, `partial`, or `failed`) and report, the accepted-findings
-ledger, and publish progress. `synthesize_and_validate` reads settled specialist
-history and validates every finding against the evidence the model was actually
-shown. Repository-scoped preflight gates new review work, exact head-bound
+ledger, and publish progress. The specialist submission tool validates findings
+against complete lines shown before it was called. Accepted tool outputs persist
+before Pi returns them, even when the parent has not consumed the turn. Repository-scoped preflight gates new review work, exact head-bound
 receipts recover before admission, and `reviewVerdict(...).close` selects
 immutable check and status output. See
 [review reliability](operations.md#review-reliability-rollout).
@@ -210,19 +210,26 @@ Phase A runs with the harness paused and Pi strictly read-only:
 
 1. Reconcile every `mutating` publish intent and sweep
    `outcome_unknown_recoverable` ones.
-2. Read Pi state through `harness.inspect()` and `harness.commit(tx =>
-tx.scanTasks(...))` / `tx.submissionByRequest(...)` to project terminal
+2. Read Pi state through `harness.inspect()` and `harness.getTask()` to project terminal
    outcomes into `work_run_attempts` and `work_runs`, adopt orphan tasks by
    `(workId, attemptNo)` whose attempt never recorded its task, and collect
    cancelled or superseded tasks to abort.
 3. Load pending CI projections into the timer queue without firing them.
 
-Phase B calls `harness.resume()`, aborts the collected conversations, and
+While scheduling is still paused, boot reopens each current review's pinned
+head and policy base. It restores each child by ID, rebinds its checkout
+directory, tools, spent budget and evidence, and recovers the last accepted
+tool outputs. A checkout that cannot be restored goes through the normal
+failure policy, not an unbound model request.
+
+Phase B marks the collected tasks with `harness.abortTask()` while still
+paused. If a mark fails, boot stops rather than running obsolete work.
+It then calls `harness.resume()` and
 registers resumed reviews with the dispatcher before it starts claiming work.
 Each resumed review holds a review slot and its PR execution mutex until the
 task settles. Boot starts CI timers and retention before opening `/webhooks`.
-Nothing calls `submit`, `abort`, `waitForTask`, `waitForIdle`, or `compact`
-before `resume()`, because each of those turns scheduling on. An unexpected
+Boot does not submit input, abort a conversation, wait for tasks or idle
+conversations, or compact before `resume()`. An unexpected
 `harness.closed` exits the process non-zero.
 
 On `SIGTERM` or `SIGINT`, `/webhooks` returns `503` and `shutdownRequested`

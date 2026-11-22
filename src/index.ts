@@ -1,4 +1,4 @@
-import { Effect, Fiber } from "effect";
+import { Cause, Effect, Exit, Fiber } from "effect";
 import { LOG_MAX_WIDE_EVENTS, loadConfig, type Config } from "./settings/index.ts";
 import { initAnalytics, shutdownAnalytics } from "./analytics/index.ts";
 import { initEvlog, logError, logInfo } from "./evlog.ts";
@@ -9,21 +9,15 @@ import { applyAppStateSchema } from "./state/schema.ts";
 import { productionInstallationSurface } from "./agentWork/installationSurface.ts";
 import { prewarmAppBotIdentity } from "./github/appAuth.ts";
 import { getSharedDurableRuntime, openDurableRuntime } from "./agent/runtime/durable/runtime.ts";
-import { FeatureAttemptTask } from "./agent/runtime/durable/featureAttemptTask.ts";
 import { intentSurfaceFromWorkRuns, startDurableService } from "./agent/runtime/durable/boot.ts";
 import {
   createAckHandler,
   createFeatureExecutors,
   runDueCiProjections,
 } from "./agent/runtime/durable/featureExecutors.ts";
-import {
-  ReviewOrchestratorTask,
-  createReviewAttemptHandler,
-} from "./agent/runtime/durable/reviewOrchestratorTask.ts";
+import { createReviewRunner } from "./agent/runtime/durable/reviewOrchestratorTask.ts";
 import { makeSqliteWebhookIntake } from "./effect/webhookIntake.ts";
 import { startEffectWebhookServer } from "./effect/server.ts";
-
-const DURABLE_TASKS = [FeatureAttemptTask, ReviewOrchestratorTask];
 
 async function startSingleProcess(cfg: Config) {
   const appState = openAppState({
@@ -32,17 +26,16 @@ async function startSingleProcess(cfg: Config) {
     applySchema: applyAppStateSchema,
   });
   try {
-    const runtime = await getSharedDurableRuntime(cfg, { tasks: DURABLE_TASKS });
+    const runtime = await getSharedDurableRuntime(cfg);
     const installationSurface = productionInstallationSurface;
     const service = await startDurableService({
       appState,
       cfg,
       runtime,
-      reopenRuntime: () => openDurableRuntime(cfg, { tasks: DURABLE_TASKS }),
+      reopenRuntime: () => openDurableRuntime(cfg),
       installationSurface,
-      reviewTaskName: ReviewOrchestratorTask.definition.name,
       createHandlers: (deps) => ({
-        review: createReviewAttemptHandler(deps),
+        review: createReviewRunner(deps),
         feature: createFeatureExecutors(deps),
         ack: createAckHandler(deps),
       }),
@@ -101,13 +94,24 @@ async function main() {
       }),
     ),
   );
-  logInfo("http_listening", { port: cfg.runtime.port });
+  const stopWatchingServer = server.addObserver((exit) => {
+    if (Exit.isFailure(exit)) {
+      const error = Cause.squash(exit.cause);
+      logError("http_server_failed", {
+        port: cfg.runtime.port,
+        message: sanitizeErrorForTelemetry(error instanceof Error ? (error.cause ?? error) : error)
+          .message,
+      });
+    }
+    void service.shutdown("http_server_stopped", 1);
+  });
   const onSignal = (signal: NodeJS.Signals) => {
     void service.shutdown(signal);
   };
   process.once("SIGTERM", onSignal);
   process.once("SIGINT", onSignal);
   const exitCode = await service.exited;
+  stopWatchingServer();
   await Effect.runPromise(Fiber.interrupt(server));
   await closeTraces();
   await shutdownAnalytics();

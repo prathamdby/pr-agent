@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -199,7 +200,7 @@ function lintWithPlugin(
 ) {
   const repoConfig: { jsPlugins?: Array<string | { name: string; specifier: string }> } =
     JSON.parse(readFileSync(join(process.cwd(), ".oxlintrc.json"), "utf8"));
-  const dir = mkdtempSync(join(tmpdir(), "pr-agent-lint-"));
+  const dir = mkdtempSync(join(realpathSync(tmpdir()), "pr-agent-lint-"));
   try {
     const config = {
       jsPlugins: (repoConfig.jsPlugins ?? []).flatMap((entry) =>

@@ -16,25 +16,28 @@ export function createToolGateHooks() {
       send.lastActivityAt = Date.now();
       const name = call.name;
       if (name === send.opts.reservedTerminalTool) return undefined;
-      const phaseDenial = state.phaseAllowedTools?.(send.opts.phase, name);
-      if (phaseDenial !== undefined) {
-        return ((pinnedReturn: { block: string } | undefined) => pinnedReturn)({
-          block: phaseDenial,
-        });
-      }
+      const { taskId } = api;
+      const alreadyAdmitted = call.parent !== undefined || send.countedCalls.has(taskId);
       const pastStop = send.opts.stopAtMs !== undefined && Date.now() >= send.opts.stopAtMs;
       const pastRounds =
-        send.opts.maxToolRounds !== undefined && send.rounds >= send.opts.maxToolRounds;
-      if (pastStop || pastRounds) {
+        send.opts.maxToolRounds !== undefined && send.countedCalls.size >= send.opts.maxToolRounds;
+      if (pastStop || (!alreadyAdmitted && pastRounds) || send.blockedCalls.has(taskId)) {
         send.stopped = true;
-        send.budgetBlockedCalls += 1;
+        if (!send.blockedCalls.has(taskId)) {
+          send.blockedCalls.add(taskId);
+          await state.journal?.charge(taskId, true);
+        }
         return ((pinnedReturn: { block: string } | undefined) => pinnedReturn)({
           block: TOOL_BUDGET_BLOCK,
         });
       }
-      if (call.parent === undefined && !send.countedCalls.has(call.id)) {
-        send.countedCalls.add(call.id);
-        send.rounds += 1;
+      if (alreadyAdmitted) return undefined;
+      send.countedCalls.add(taskId);
+      try {
+        await state.journal?.charge(taskId, false);
+      } catch {
+        send.countedCalls.delete(taskId);
+        return { block: "Cannot record this tool call against the turn budget." };
       }
       return undefined;
     },
@@ -52,7 +55,7 @@ export function createToolGateHooks() {
         ok: result.isError !== true,
         ...(send !== undefined ? { phase: send.opts.phase } : {}),
       });
-      if (send !== undefined && send.budgetBlockedCalls >= 2 && result.isError === true) {
+      if (send !== undefined && send.blockedCalls.size >= 2 && result.isError === true) {
         return ((pinnedReturn: typeof result) => pinnedReturn)({
           ...result,
           control: { ...result.control, terminate: true },

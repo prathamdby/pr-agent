@@ -38,10 +38,6 @@ describe("feature map", () => {
       cwd: process.cwd(),
       encoding: "utf8",
     });
-    execFileSync(path.join(process.cwd(), "node_modules", ".bin", "oxfmt"), [out], {
-      cwd: process.cwd(),
-      encoding: "utf8",
-    });
     const expected = fs.readFileSync(path.join(process.cwd(), "docs", "feature-map.md"), "utf8");
     const actual = fs.readFileSync(out, "utf8");
     expect(actual).toBe(expected);

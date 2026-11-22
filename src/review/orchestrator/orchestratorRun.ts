@@ -65,7 +65,7 @@ import {
   type SpecialistOutcome,
   type SpecialistRunPhase,
 } from "./orchestratorTypes.ts";
-import { createOrchestratorPhaseRef, type OrchestratorPhaseRef } from "./phaseToolPolicy.ts";
+import { createOrchestratorPhaseRef } from "./phaseToolPolicy.ts";
 import { buildPublishSummaryTool, createPublishSummaryState } from "./publishSummaryTool.ts";
 import { buildPublishThreadTool } from "./publishThreadTool.ts";
 import { buildDeclareDuplicateTool } from "./declareDuplicateTool.ts";
@@ -96,17 +96,14 @@ import {
   renderSpecialistReportRepair,
   SPECIALIST_WRAP_UP_STEER,
 } from "../../prompts/shared/repair.ts";
-import { specialistReportSchema, type SpecialistReport } from "./specialistReport.ts";
+import type { SpecialistReport } from "./specialistReport.ts";
 import { tickProgressComment, writeCancelledProgressComment } from "./stubTick.ts";
 import {
   OPENED_PATH_MAX_CHARS,
-  createEvidenceLedger,
   hashNormalizedLineText,
   unreadChangedFilesNote,
   unreadChangedPaths,
-  type EvidenceLedger,
 } from "../findings/evidenceLedger.ts";
-import { assertFindingsHaveEvidence } from "../findings/evidenceValidator.ts";
 import { tryLightweightAutoReviewCompletion } from "../../agentWork/reviewLightweightCompletion.ts";
 import type { ReviewAttemptEnv } from "../runReviewForWorkItem.ts";
 import * as v from "valibot";
@@ -161,6 +158,7 @@ export type ReviewAttemptCheckpoint = {
   readonly phase: ReviewAttemptPhase;
   readonly started: boolean;
   readonly headSha: string;
+  readonly baseSha: string | null;
   readonly timing: {
     readonly startedAt: number;
     readonly reconAt: number;
@@ -194,7 +192,6 @@ export type ReviewAttemptCheckpoint = {
   readonly warmup: { readonly releaseAt?: number; readonly released: boolean };
   readonly specialists: Readonly<Record<SpecialistId, SpecialistTrack>>;
   readonly completionOrder: readonly SpecialistId[];
-  readonly validated: boolean;
   readonly judged: readonly SpecialistId[];
   readonly unjudged: readonly SpecialistId[];
   readonly ledger: FindingLedger;
@@ -248,27 +245,18 @@ export type ReviewPhaseStep =
 
 export type SettledTurnView =
   | { readonly status: "pending" }
-  | { readonly status: "done"; readonly text: string; readonly stopReason: string | undefined }
+  | { readonly status: "done" }
   | { readonly status: "unanswered"; readonly reason: string };
-
-export type TranscriptToolCallView = {
-  readonly assistantOrdinal: number;
-  readonly args: Record<string, unknown>;
-  readonly resultText: string | undefined;
-};
 
 export type ReviewTurnReader = {
   readonly now: () => number;
   readonly settled: (role: ReviewConversationRole, turnNo: number) => Promise<SettledTurnView>;
-  readonly toolCalls: (
-    role: ReviewConversationRole,
-    toolName: string,
-  ) => Promise<readonly TranscriptToolCallView[]>;
-  readonly creditEvidence: (
-    role: ReviewConversationRole,
-    ledger: EvidenceLedger,
-    uptoAssistantOrdinal: number,
-  ) => Promise<void>;
+};
+
+export type ReviewToolOutputs = Partial<Record<SpecialistId, SpecialistReport>> & {
+  readonly brief?: SpecialistBrief;
+  readonly ledger?: FindingLedger;
+  readonly summary?: ReviewAttemptCheckpoint["summary"];
 };
 
 export type ReviewChildTools = {
@@ -288,6 +276,7 @@ export type ReviewChildRequest = {
   readonly cwd: string;
   readonly tools: ReviewChildTools;
   readonly reconEvidence?: readonly {
+    readonly clampedLines: readonly number[];
     readonly path: string;
     readonly contentHash: string;
     readonly startLine: number;
@@ -302,7 +291,7 @@ export type ReviewChildRequest = {
 export type ReviewAttemptLive = {
   readonly env: ReviewAttemptEnv;
   readonly setup: ReviewRunSetup;
-  readonly phaseRef: OrchestratorPhaseRef;
+  readonly bindCheckpoint: (checkpoint: ReviewAttemptCheckpoint) => void;
   readonly inventory: FindingInventory;
   readonly session: ReviewPublishSession;
   readonly briefTool: ReturnType<typeof buildSpecialistBriefTool>;
@@ -311,18 +300,9 @@ export type ReviewAttemptLive = {
   readonly orchestratorTools: ReviewChildTools;
   readonly submitStates: ReadonlyMap<SpecialistId, SubmissionState>;
   readonly specialistTools: (specialist: SpecialistId) => ReviewChildTools;
-  readonly setEvidenceCreditor: (specialist: SpecialistId, credit: () => void) => void;
   readonly escalation?: EscalationPlan;
   readonly dispose: () => Promise<void>;
 };
-
-export const REVIEW_PHASES: readonly ReviewAttemptPhase[] = [
-  "recon",
-  "dispatch_specialists",
-  "wait_specialists",
-  "synthesize_and_validate",
-  "publish",
-];
 
 function emptyTrack() {
   return ((pinnedReturn: SpecialistTrack) => pinnedReturn)({
@@ -336,6 +316,7 @@ function emptyTrack() {
 export function initialReviewCheckpoint(params: {
   readonly now: number;
   readonly headSha: string;
+  readonly baseSha: string | null;
   readonly budgetMs: number;
   readonly finalizationMs: number;
   readonly reconBudgetMs: number;
@@ -345,6 +326,7 @@ export function initialReviewCheckpoint(params: {
     phase: "recon",
     started: false,
     headSha: params.headSha,
+    baseSha: params.baseSha,
     timing: {
       startedAt: params.now,
       reconAt: params.now + params.reconBudgetMs,
@@ -362,7 +344,6 @@ export function initialReviewCheckpoint(params: {
       tests: emptyTrack(),
     },
     completionOrder: [],
-    validated: false,
     judged: [],
     unjudged: [],
     ledger: createFindingLedger(),
@@ -430,6 +411,7 @@ function reconEvidenceFor(checkpoint: ReviewAttemptCheckpoint) {
     return {
       path: credited.path,
       contentHash: hashNormalizedLineText(credited.content),
+      clampedLines: credited.clampedLines ?? [],
       startLine: credited.startLine,
       endLine: credited.endLine,
       lines,
@@ -491,6 +473,8 @@ export async function openReviewAttemptLive(params: {
   readonly env: ReviewAttemptEnv;
   readonly checkpoint: ReviewAttemptCheckpoint | undefined;
   readonly escalation?: EscalationPlan;
+  readonly outputs: ReviewToolOutputs;
+  readonly saveOutput: (update: ReviewToolOutputs) => Promise<void>;
 }) {
   const env = params.env;
   const item = env.item;
@@ -555,10 +539,10 @@ export async function openReviewAttemptLive(params: {
       orchestrator: setup.evidenceLedger,
       specialists: setup.specialistLedgers,
     });
-  const briefTool = buildSpecialistBriefTool(
-    phaseRef,
-    params.checkpoint?.brief !== undefined ? { initialBrief: params.checkpoint.brief } : undefined,
-  );
+  const briefTool = buildSpecialistBriefTool(phaseRef, {
+    initialBrief: params.outputs.brief,
+    onAccepted: (brief) => params.saveOutput({ brief }),
+  });
   const publishThread = buildPublishThreadTool({
     phaseRef,
     session,
@@ -578,22 +562,19 @@ export async function openReviewAttemptLive(params: {
     },
     inventory,
     evidenceLedgerFor: sourceLedger,
-    initialLedger: createFindingLedger(params.checkpoint?.ledger),
+    initialLedger: params.outputs.ledger,
   });
   setup.bindReviewThreads(() =>
     openReviewThreads(inventory, acceptedOpenThreads(publishThread.getLedger())),
   );
-  const summaryState = createPublishSummaryState({
-    published: params.checkpoint?.summary.published ?? false,
-    check: params.checkpoint?.summary.check ?? null,
-  });
-  const coverageNow = () => coverageFor(liveRef.current, params.checkpoint);
+  const summaryState = createPublishSummaryState(params.outputs.summary);
+  let activeCheckpoint = params.checkpoint;
   const publishSummary = buildPublishSummaryTool({
     phaseRef,
     session,
     state: summaryState,
     getLedger: publishThread.getLedger,
-    getCoverage: () => coverageNow(),
+    getCoverage: () => coverageFor(live, activeCheckpoint),
   });
   const declareDuplicate = buildDeclareDuplicateTool({ phaseRef, session });
   const orchestratorTools: ReviewChildTools = {
@@ -607,29 +588,39 @@ export async function openReviewAttemptLive(params: {
     executors: {
       ...setup.workspaceTools.executors,
       submit_specialist_brief: briefTool.executor,
-      publish_thread: publishThread.executor,
+      publish_thread: async (args) => {
+        const result = await publishThread.executor(args);
+        if ("delta" in result) await params.saveOutput({ ledger: publishThread.getLedger() });
+        return result;
+      },
       declare_duplicate: declareDuplicate.executor,
-      publish_summary: publishSummary.executor,
+      publish_summary: async (args) => {
+        const result = await publishSummary.executor(args);
+        if (result.ok)
+          await params.saveOutput({ summary: { published: true, check: summaryState.check } });
+        return result;
+      },
     },
     durableTools: setup.workspaceTools.durableTools,
     toolMeta: setup.workspaceTools.toolMeta,
   };
   const submitStates = new Map<SpecialistId, SubmissionState>();
-  const creditors = new Map<SpecialistId, () => void>();
   const builtSpecialistTools = new Map<SpecialistId, ReviewChildTools>();
   const threadsAtDispatch = () =>
     openReviewThreads(inventory, acceptedOpenThreads(publishThread.getLedger()));
   const specialistTools = (specialist: SpecialistId) => {
     const existing = builtSpecialistTools.get(specialist);
     if (existing !== undefined) return existing;
-    const state: SubmissionState = { report: null, validationError: null };
+    const state: SubmissionState = {
+      report: params.outputs[specialist] ?? null,
+      validationError: null,
+    };
     submitStates.set(specialist, state);
     const submit = buildSubmitTool(
       state,
       { cfg: env.cfg, cwd: workspace.agentCwd, specialist },
       {
         ledger: setup.specialistLedgers[specialist],
-        creditEvidence: () => creditors.get(specialist)?.(),
         headSha: env.headSha,
         checkoutCoverage: workspace.reader.getCoverage(),
         isPathInCheckout: (path) => workspace.reader.isPathInCheckout(path),
@@ -639,7 +630,14 @@ export async function openReviewAttemptLive(params: {
     );
     const sessionTools = buildSpecialistSessionTools(
       setup.createSpecialistWorkspaceTools(specialist, threadsAtDispatch),
-      submit,
+      {
+        ...submit,
+        executor: async (args, ctx) => {
+          const result = await submit.executor(args, ctx);
+          if (state.report !== null) await params.saveOutput({ [specialist]: state.report });
+          return result;
+        },
+      },
     );
     const tools: ReviewChildTools = {
       piTools: sessionTools.piTools,
@@ -652,16 +650,21 @@ export async function openReviewAttemptLive(params: {
     builtSpecialistTools.set(specialist, tools);
     return tools;
   };
-  const inFlight = params.checkpoint?.orchestrator.inFlight;
-  if (inFlight?.step === "judgment" && inFlight.specialist !== undefined) {
-    const outcome = params.checkpoint?.specialists[inFlight.specialist].outcome;
-    publishThread.setSource(inFlight.specialist);
-    if (outcome !== undefined && outcome.kind !== "failed") publishThread.setReport(outcome.report);
-  }
   const live: ReviewAttemptLive = {
     env,
     setup,
-    phaseRef,
+    bindCheckpoint(checkpoint) {
+      activeCheckpoint = checkpoint;
+      const turn = checkpoint.orchestrator.inFlight;
+      if (!turn) return;
+      phaseRef.current = orchestratorPhase(turn.step);
+      if (turn.step === "judgment" && turn.specialist !== undefined) {
+        const outcome = checkpoint.specialists[turn.specialist].outcome;
+        publishThread.setSource(turn.specialist);
+        if (outcome !== undefined && outcome.kind !== "failed")
+          publishThread.setReport(outcome.report);
+      }
+    },
     inventory,
     session,
     briefTool,
@@ -670,16 +673,13 @@ export async function openReviewAttemptLive(params: {
     orchestratorTools,
     submitStates,
     specialistTools,
-    setEvidenceCreditor: (specialist, credit) => {
-      creditors.set(specialist, credit);
-    },
     ...(params.escalation !== undefined ? { escalation: params.escalation } : {}),
     dispose: async () => {
       await setup.disposeSpillFiles().catch(() => undefined);
       await env.dispose();
     },
   };
-  const liveRef = { current: live };
+  if (params.checkpoint) live.bindCheckpoint(params.checkpoint);
   return live;
 }
 
@@ -809,50 +809,6 @@ function outcomeOf(specialist: SpecialistId, stored: StoredSpecialistOutcome) {
   });
 }
 
-function acceptedResult(text: string | undefined) {
-  if (text === undefined) return false;
-  try {
-    const parsed: unknown = JSON.parse(text);
-    return (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      "accepted" in parsed &&
-      parsed.accepted === true
-    );
-  } catch {
-    return false;
-  }
-}
-
-async function recoverBrief(live: ReviewAttemptLive, io: ReviewTurnReader) {
-  const existing = live.briefTool.getBrief();
-  if (existing !== null) return existing;
-  const calls = await io.toolCalls("orchestrator", "submit_specialist_brief");
-  for (const call of calls.toReversed()) {
-    if (!acceptedResult(call.resultText)) continue;
-    await live.briefTool.executor(call.args);
-    const brief = live.briefTool.getBrief();
-    if (brief !== null) return brief;
-  }
-  return null;
-}
-
-async function recoverReport(
-  live: ReviewAttemptLive,
-  io: ReviewTurnReader,
-  specialist: SpecialistId,
-) {
-  const inMemory = live.submitStates.get(specialist)?.report;
-  if (inMemory != null) return inMemory;
-  const calls = await io.toolCalls(specialist, SUBMIT_FINDINGS_REPORT_NAME);
-  for (const call of calls.toReversed()) {
-    if (!acceptedResult(call.resultText)) continue;
-    const parsed = v.safeParse(specialistReportSchema, call.args);
-    if (parsed.success) return parsed.output;
-  }
-  return null;
-}
-
 function specialistTurn(
   live: ReviewAttemptLive,
   checkpoint: ReviewAttemptCheckpoint,
@@ -935,6 +891,14 @@ function submitSpecialist(
   });
 }
 
+function orchestratorPhase(step: OrchestratorStep) {
+  return step === "recon" || step === "repair_brief"
+    ? "recon"
+    : step === "judgment"
+      ? "judgment"
+      : "synthesis";
+}
+
 function orchestratorTurn(
   checkpoint: ReviewAttemptCheckpoint,
   step: OrchestratorStep,
@@ -943,12 +907,7 @@ function orchestratorTurn(
   extra: { readonly specialist?: SpecialistId; readonly threadCallsBefore?: number } = {},
 ) {
   const turnNo = checkpoint.orchestrator.turnNo;
-  const phase =
-    step === "recon" || step === "repair_brief"
-      ? "recon"
-      : step === "judgment"
-        ? "judgment"
-        : "synthesis";
+  const phase = orchestratorPhase(step);
   return ((pinnedReturn: ReviewPhaseStep) => pinnedReturn)({
     kind: "submit",
     turn: {
@@ -1072,7 +1031,6 @@ export async function reconPhase(
       checkpoint,
     });
   const now = io.now();
-  live.phaseRef.current = "recon";
   const userContent = live.setup.orchestratorUserContent;
   if (
     orchestrator.inFlight === undefined &&
@@ -1106,7 +1064,7 @@ export async function reconPhase(
     }
     current = withOrchestrator(checkpoint, { inFlight: undefined });
     if (settled.status === "unanswered") current = { ...current, judgment: "degraded" };
-    const brief = await recoverBrief(live, io);
+    const brief = live.briefTool.getBrief();
     if (
       brief === null &&
       settled.status === "done" &&
@@ -1125,7 +1083,7 @@ export async function reconPhase(
     }
     if (brief !== null) current = { ...current, brief };
   }
-  const brief = current.brief ?? (await recoverBrief(live, io)) ?? undefined;
+  const brief = current.brief ?? live.briefTool.getBrief() ?? undefined;
   const reconPack = await hydrateReconPack({
     reader: live.env.repositoryView.workspace.reader,
     pointers: brief?.contextPointers ?? [],
@@ -1242,7 +1200,7 @@ export async function waitSpecialistsPhase(
     for (const specialist of SPECIALIST_IDS) {
       const track = checkpoint.specialists[specialist];
       if (track.stage === "settled") continue;
-      const report = track.stage === "idle" ? null : await recoverReport(live, io, specialist);
+      const report = live.submitStates.get(specialist)?.report ?? null;
       checkpoint = settleSpecialist(
         checkpoint,
         specialist,
@@ -1282,7 +1240,7 @@ export async function waitSpecialistsPhase(
     if (track.stage === "idle" || track.stage === "settled") continue;
     const settled = await io.settled(specialist, track.turnNo - 1);
     if (settled.status === "pending") continue;
-    const report = await recoverReport(live, io, specialist);
+    const report = live.submitStates.get(specialist)?.report ?? null;
     const durationMs = now - (track.startedAt ?? now);
     if (report !== null) {
       const wrapped = track.stage !== "investigating" || now >= timing.wrapUpAt;
@@ -1355,43 +1313,6 @@ export async function waitSpecialistsPhase(
   });
 }
 
-async function validateSettledReports(
-  live: ReviewAttemptLive,
-  checkpoint: ReviewAttemptCheckpoint,
-  io: ReviewTurnReader,
-) {
-  let next = checkpoint;
-  const reader = live.env.repositoryView.workspace.reader;
-  for (const specialist of SPECIALIST_IDS) {
-    const outcome = next.specialists[specialist].outcome;
-    if (outcome === undefined || outcome.kind === "failed") continue;
-    const calls = await io.toolCalls(specialist, SUBMIT_FINDINGS_REPORT_NAME);
-    const authoring = calls.toReversed().find((call) => acceptedResult(call.resultText));
-    const ledger = live.setup.specialistLedgers[specialist];
-    await io.creditEvidence(
-      specialist,
-      ledger,
-      authoring?.assistantOrdinal ?? Number.MAX_SAFE_INTEGER,
-    );
-    const validated = assertFindingsHaveEvidence(outcome.report.findings, ledger, next.headSha, {
-      checkoutCoverage: reader.getCoverage(),
-      isPathInCheckout: (path) => reader.isPathInCheckout(path),
-    });
-    if (validated.rejected.length === 0) continue;
-    const findings = validated.accepted;
-    const report: SpecialistReport = {
-      ...outcome.report,
-      findings,
-      status:
-        findings.length === 0 && outcome.report.status === "findings"
-          ? "no_findings"
-          : outcome.report.status,
-    };
-    next = withTrack(next, specialist, { outcome: { ...outcome, report } });
-  }
-  return ((pinnedReturn: ReviewAttemptCheckpoint) => pinnedReturn)({ ...next, validated: true });
-}
-
 function judgeableSpecialists(checkpoint: ReviewAttemptCheckpoint) {
   return checkpoint.completionOrder.filter((specialist) => {
     const outcome = checkpoint.specialists[specialist].outcome;
@@ -1415,10 +1336,6 @@ export async function synthesizeAndValidatePhase(
       kind: "advance",
       checkpoint: { ...checkpoint, phase: "publish" },
     });
-  if (!checkpoint.validated) {
-    checkpoint = await validateSettledReports(live, checkpoint, io);
-    return ((pinnedReturn: ReviewPhaseStep) => pinnedReturn)({ kind: "advance", checkpoint });
-  }
   const now = io.now();
   const inFlight = checkpoint.orchestrator.inFlight;
   if (inFlight !== undefined) {
@@ -1494,9 +1411,6 @@ export async function synthesizeAndValidatePhase(
       if (pendingJudgment === undefined) break;
       const outcome = checkpoint.specialists[pendingJudgment].outcome;
       if (outcome === undefined || outcome.kind === "failed") break;
-      live.publishThread.setSource(pendingJudgment);
-      live.publishThread.setReport(outcome.report);
-      live.phaseRef.current = "judgment";
       const ledgerBefore = live.publishThread.getLedger();
       const judged = outcomeOf(pendingJudgment, outcome);
       if (judged.kind === "failed") break;
@@ -1533,7 +1447,6 @@ export async function synthesizeAndValidatePhase(
       });
     }
     case "synthesis": {
-      live.phaseRef.current = "synthesis";
       return orchestratorTurn(
         withOrchestrator(checkpoint, { synthesisSent: true }),
         "synthesis",
@@ -1552,7 +1465,6 @@ export async function synthesizeAndValidatePhase(
       );
     }
     case "repair_summary": {
-      live.phaseRef.current = "synthesis";
       const validationError =
         live.summaryState.lastValidationError ?? ORCHESTRATOR_MISSING_SUMMARY_ERROR;
       live.summaryState.lastValidationError = null;
@@ -1564,7 +1476,6 @@ export async function synthesizeAndValidatePhase(
       );
     }
     case "recover_summary": {
-      live.phaseRef.current = "synthesis";
       return orchestratorTurn(
         withOrchestrator(checkpoint, { recoveries: checkpoint.orchestrator.recoveries + 1 }),
         "recover_summary",
@@ -1728,12 +1639,6 @@ export async function runReviewPhase(
   }
 }
 
-export function freshEvidenceLedger(headSha: string) {
-  return createEvidenceLedger(headSha);
-}
-
-export const OPENED_PATH_LIMIT = OPENED_PATH_MAX_CHARS;
-export const UNREAD_NOTE = unreadChangedFilesNote;
 export function fallbackBrief(changedPaths: readonly string[]) {
   const files = [...changedPaths];
   const riskFiles = files.slice(0, 12);

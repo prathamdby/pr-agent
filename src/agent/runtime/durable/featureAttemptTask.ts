@@ -1,10 +1,12 @@
-import { defineDoc, defineTask } from "@earendil-works/pi-durable";
+import { defineTask } from "@earendil-works/pi-durable";
+import * as v from "valibot";
 import type { Context } from "@earendil-works/chord/context";
 import type { ConversationId, Harness, Task, TaskId } from "@earendil-works/pi-durable";
 import type { DatabaseSync } from "node:sqlite";
 import type { Config } from "../../../settings/index.ts";
 import {
   attemptFor,
+  isFeatureWorkKind,
   laneEpochCurrent,
   markAttemptRunning,
   markWorkRunCompleted,
@@ -14,55 +16,24 @@ import {
   workRunById,
   type ClaimedWorkRun,
   type WorkRunAttemptRow,
-  type WorkRunKind,
+  type FeatureWorkKind,
   type WorkRunRow,
 } from "../../../state/workRuns.ts";
 import { immediate } from "../../../state/db.ts";
-import { withPrMutex } from "../../../state/prMutex.ts";
+import { PR_SERIALIZED_KINDS, withPrMutex } from "../../../state/prMutex.ts";
 import { maxAttempts, retryDispositionFor } from "../../../agentWork/retryPolicy.ts";
 import { errorMessage } from "../../../errors/errorMessage.ts";
 
 export const FEATURE_ATTEMPT_TASK_NAME = "pr.feature_attempt";
 
-export const FEATURE_WORK_KINDS = [
-  "ask",
-  "description",
-  "triage",
-  "verification",
-  "ci_projection",
-] as const satisfies readonly WorkRunKind[];
-export type FeatureWorkKind = (typeof FEATURE_WORK_KINDS)[number];
-
-export const PR_SERIALIZED_KINDS: ReadonlySet<WorkRunKind> = new Set([
-  "review",
-  "description",
-  "triage",
-  "verification",
-]);
-
-export function isFeatureWorkKind(kind: WorkRunKind): kind is FeatureWorkKind {
-  return FEATURE_WORK_KINDS.some((featureKind) => featureKind === kind);
-}
-
-export type AttemptStamp = {
-  readonly workId: string;
-  readonly attemptNo: number;
-  readonly attemptId: string;
-};
-
-export type FeatureAttemptInput = AttemptStamp & { readonly kind: WorkRunKind };
+export const attemptStampSchema = v.object({
+  workId: v.string(),
+  attemptNo: v.number(),
+  attemptId: v.string(),
+});
+export type AttemptStamp = v.InferOutput<typeof attemptStampSchema>;
 
 type FeatureAttemptState = { readonly phase: "run" };
-
-export const WorkAttemptDoc = defineDoc({
-  kind: "pr.work_attempt",
-  version: 1,
-  scope: "conversation",
-  history: "latest",
-  fork: "initial",
-  initial: () => ({ workId: "", attemptNo: 0, attemptId: "" }),
-  checkpointWhen: () => false,
-});
 
 export type FeatureAttemptExecutor = (ctx: {
   readonly db: DatabaseSync;
@@ -91,12 +62,6 @@ type BoundRuntime = {
   readonly executorFor: FeatureAttemptExecutorFor;
   readonly now?: () => number;
 };
-
-let boundRuntime: BoundRuntime | undefined;
-
-export function bindFeatureAttemptRuntime(deps: BoundRuntime) {
-  boundRuntime = deps;
-}
 
 export function recordAttemptFailure(
   db: DatabaseSync,
@@ -179,7 +144,7 @@ function attemptIsCurrent(
 
 async function executeAttempt(
   deps: BoundRuntime,
-  input: FeatureAttemptInput,
+  input: AttemptStamp,
   invocation: {
     readonly signal: AbortSignal;
     readonly taskId: string;
@@ -254,52 +219,40 @@ async function executeAttempt(
   return ((pinnedReturn: FeatureAttemptOutcome) => pinnedReturn)({ status: "completed" });
 }
 
-export const FeatureAttemptTask = defineTask<
-  FeatureAttemptInput,
-  FeatureAttemptState,
-  FeatureAttemptOutcome
->({
-  name: FEATURE_ATTEMPT_TASK_NAME,
-  version: 1,
-  initial: () => ({ phase: "run" }),
-  phases: {
-    run: async (task, runtime, ctx) => {
-      const deps = boundRuntime;
-      const outcome =
-        deps === undefined
-          ? ((pinnedReturn: FeatureAttemptOutcome) => pinnedReturn)({
-              status: "failed",
-              error: { message: "feature attempt runtime is not bound", interrupted: false },
-            })
-          : await executeAttempt(deps, task.input, {
-              signal: runtime.signal,
-              taskId: String(runtime.taskId),
-              conversationId: String(runtime.conversationId),
-              context: ctx,
-            });
-      await runtime.commit(
-        () => ({
-          status: "terminal" as const,
-          outcome:
-            outcome.status === "completed"
-              ? ({ status: "completed", result: outcome } as const)
-              : ({
-                  status: "failed",
-                  error: {
-                    message:
-                      outcome.status === "cancelled"
-                        ? `cancelled: ${outcome.reason}`
-                        : outcome.error.message,
-                  },
-                } as const),
-        }),
-        ctx,
-      );
+export function createFeatureAttemptTask(deps: BoundRuntime) {
+  return defineTask<AttemptStamp, FeatureAttemptState, FeatureAttemptOutcome>({
+    name: FEATURE_ATTEMPT_TASK_NAME,
+    version: 1,
+    initial: () => ({ phase: "run" }),
+    phases: {
+      run: async (task, runtime, ctx) => {
+        const outcome = await executeAttempt(deps, task.input, {
+          signal: runtime.signal,
+          taskId: String(runtime.taskId),
+          conversationId: String(runtime.conversationId),
+          context: ctx,
+        });
+        await runtime.commit(
+          () => ({
+            status: "terminal" as const,
+            outcome:
+              outcome.status === "completed"
+                ? ({ status: "completed", result: outcome } as const)
+                : ({
+                    status: "failed",
+                    error: {
+                      message:
+                        outcome.status === "cancelled"
+                          ? `cancelled: ${outcome.reason}`
+                          : outcome.error.message,
+                    },
+                  } as const),
+          }),
+          ctx,
+        );
+      },
     },
-  },
-  abort: async (task, runtime, ctx) => {
-    const deps = boundRuntime;
-    if (deps !== undefined) {
+    abort: async (task, runtime, ctx) => {
       const run = workRunById(deps.db, task.input.workId);
       const attempt = attemptFor(deps.db, task.input.workId, task.input.attemptNo);
       if (attemptIsCurrent(deps.db, run, attempt)) {
@@ -311,31 +264,19 @@ export const FeatureAttemptTask = defineTask<
           now: (deps.now ?? Date.now)(),
         });
       }
-    }
-    await runtime.commit(
-      () => ({
-        status: "terminal" as const,
-        outcome: {
-          status: "aborted" as const,
-          reason: `${task.input.workId}#${task.input.attemptNo}`,
-        },
-      }),
-      ctx,
-    );
-  },
-});
-
-export type StartedAttempt =
-  | {
-      readonly markedRunning: true;
-      readonly conversationId: string;
-      readonly taskId: TaskId;
-    }
-  | {
-      readonly markedRunning: false;
-      readonly conversationId: string;
-      readonly taskId: TaskId;
-    };
+      await runtime.commit(
+        () => ({
+          status: "terminal" as const,
+          outcome: {
+            status: "aborted" as const,
+            reason: `${task.input.workId}#${task.input.attemptNo}`,
+          },
+        }),
+        ctx,
+      );
+    },
+  });
+}
 
 export async function startAttemptTask<
   I extends AttemptStamp,
@@ -352,10 +293,6 @@ export async function startAttemptTask<
 }) {
   const created = await params.harness.commit(async (tx) => {
     const conversation = await tx.createConversation({ ownership: { kind: "ownerless" } });
-    const doc = await tx.doc(WorkAttemptDoc, conversation.id);
-    doc.workId = params.input.workId;
-    doc.attemptNo = params.input.attemptNo;
-    doc.attemptId = params.input.attemptId;
     const taskId = await tx.createTask(params.task, params.input, {
       ownership: { kind: "conversation" },
       conversationId: conversation.id,
@@ -377,36 +314,31 @@ export async function startAttemptTask<
   if (marked === 0) {
     const conversation = await params.harness.conversation(created.conversationId, params.context);
     await conversation?.abort(params.context);
-    return ((pinnedReturn: StartedAttempt) => pinnedReturn)({
-      markedRunning: false,
-      conversationId: String(created.conversationId),
-      taskId: created.taskId,
-    });
   }
-  return ((pinnedReturn: StartedAttempt) => pinnedReturn)({
-    markedRunning: true,
+  return {
+    markedRunning: marked !== 0,
     conversationId: String(created.conversationId),
     taskId: created.taskId,
-  });
+  };
 }
 
-export function startFeatureAttempt(params: {
-  readonly harness: Harness;
-  readonly context: Context;
-  readonly db: DatabaseSync;
-  readonly claim: ClaimedWorkRun;
-  readonly now?: number;
-}) {
-  return ((pinnedReturn: Promise<StartedAttempt>) => pinnedReturn)(
-    startAttemptTask({
-      ...params,
-      task: FeatureAttemptTask,
-      input: {
-        workId: params.claim.run.work_id,
-        attemptNo: params.claim.attempt.attempt_no,
-        attemptId: params.claim.attempt.attempt_id,
-        kind: params.claim.run.kind,
-      },
-    }),
-  );
+export function startClaimedAttempt<S extends { phase: string }, R>(
+  task: Task<AttemptStamp, S, R, object>,
+  params: {
+    readonly harness: Harness;
+    readonly context: Context;
+    readonly db: DatabaseSync;
+    readonly claim: ClaimedWorkRun;
+    readonly now?: number;
+  },
+) {
+  return startAttemptTask({
+    ...params,
+    task,
+    input: {
+      workId: params.claim.run.work_id,
+      attemptNo: params.claim.attempt.attempt_no,
+      attemptId: params.claim.attempt.attempt_id,
+    },
+  });
 }

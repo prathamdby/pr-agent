@@ -2,11 +2,12 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isFeatureWorkKind, WORK_RUN_KINDS } from "../src/state/workRuns.ts";
+import { PR_SERIALIZED_KINDS } from "../src/state/prMutex.ts";
+import { WORK_QUEUES } from "../src/agentWork/types.ts";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-const DISPATCHER = path.join(ROOT, "src", "agent", "runtime", "durable", "dispatcher.ts");
-const FEATURE_TASK = path.join(ROOT, "src", "agent", "runtime", "durable", "featureAttemptTask.ts");
 const FEATURE_EXECUTORS = path.join(
   ROOT,
   "src",
@@ -24,33 +25,17 @@ const REVIEW_TASK = path.join(
   "reviewOrchestratorTask.ts",
 );
 const BOOT = path.join(ROOT, "src", "agent", "runtime", "durable", "boot.ts");
-const TYPES = path.join(ROOT, "src", "agentWork", "types.ts");
 
-const dispatcherSrc = fs.readFileSync(DISPATCHER, "utf8");
-const featureTaskSrc = fs.readFileSync(FEATURE_TASK, "utf8");
 const featureExecutorsSrc = fs.readFileSync(FEATURE_EXECUTORS, "utf8");
-const reviewTaskSrc = fs.readFileSync(REVIEW_TASK, "utf8");
 const bootSrc = fs.readFileSync(BOOT, "utf8");
-const typesSrc = fs.readFileSync(TYPES, "utf8");
-
-const dispatchBlock =
-  /const DISPATCH_KINDS:\s*readonly WorkRunKind\[\]\s*=\s*\[([\s\S]*?)\];/.exec(
-    dispatcherSrc,
-  )?.[1] ?? "";
-const dispatchKinds = [...dispatchBlock.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-
-const serializedBlock =
-  /export const PR_SERIALIZED_KINDS:\s*ReadonlySet<WorkRunKind>\s*=\s*new Set\(\[([\s\S]*?)\]\);/.exec(
-    featureTaskSrc,
-  )?.[1] ?? "";
-const serializedKinds = new Set([...serializedBlock.matchAll(/"([^"]+)"/g)].map((m) => m[1]));
-
-const featureKindsBlock =
-  /export const FEATURE_WORK_KINDS\s*=\s*\[([\s\S]*?)\]\s*as const/.exec(featureTaskSrc)?.[1] ?? "";
-const featureKinds = new Set([...featureKindsBlock.matchAll(/"([^"]+)"/g)].map((m) => m[1]));
-
-const workTypeDecl = /export type WorkType = ([^;]+);/.exec(typesSrc)?.[1] ?? "";
-const declaredWorkTypes = [...workTypeDecl.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+const entrySrc = fs.readFileSync(path.join(ROOT, "src", "index.ts"), "utf8");
+const reviewFactory = /\breview:\s*(\w+)\(deps\)/.exec(entrySrc)?.[1];
+if (
+  !reviewFactory ||
+  !fs.readFileSync(REVIEW_TASK, "utf8").includes(`export function ${reviewFactory}(`)
+) {
+  throw new Error("Cannot identify the registered review task factory");
+}
 
 const executorImports = new Map();
 for (const match of featureExecutorsSrc.matchAll(/import\s*\{([^}]+)\}\s*from\s*"([^"]+)"/g)) {
@@ -63,7 +48,7 @@ for (const match of featureExecutorsSrc.matchAll(/import\s*\{([^}]+)\}\s*from\s*
 const executorByKind = {
   review: {
     lane: "reviewOrchestratorTask",
-    executor: `ReviewOrchestratorTask (${path.relative(ROOT, REVIEW_TASK)})`,
+    executor: `${reviewFactory} (${path.relative(ROOT, REVIEW_TASK)})`,
   },
   ask: {
     lane: "featureAttemptTask",
@@ -92,19 +77,20 @@ const executorByKind = {
 };
 
 if (
-  !reviewTaskSrc.includes("export const ReviewOrchestratorTask") ||
-  declaredWorkTypes.some((type) => !dispatchKinds.includes(type)) ||
-  dispatchKinds.some((kind) => !Object.hasOwn(executorByKind, kind)) ||
-  [...featureKinds].some((kind) => !dispatchKinds.includes(kind))
+  Object.keys(WORK_QUEUES).some((type) => !WORK_RUN_KINDS.includes(type)) ||
+  WORK_RUN_KINDS.some((kind) => !Object.hasOwn(executorByKind, kind)) ||
+  WORK_RUN_KINDS.some(
+    (kind) => isFeatureWorkKind(kind) !== (executorByKind[kind].lane === "featureAttemptTask"),
+  )
 ) {
   throw new Error("Durable dispatcher kinds do not cover the declared WorkType union");
 }
 
-const rows = dispatchKinds.map((kind) => ({
+const rows = WORK_RUN_KINDS.map((kind) => ({
   workKind: kind,
   lane: executorByKind[kind].lane,
   executor: executorByKind[kind].executor,
-  serialization: serializedKinds.has(kind) ? "per-PR mutex" : "concurrent",
+  serialization: PR_SERIALIZED_KINDS.has(kind) ? "per-PR mutex" : "concurrent",
 }));
 
 if (bootSrc.includes("runRetention")) {

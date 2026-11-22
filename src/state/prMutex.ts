@@ -1,3 +1,12 @@
+import type { WorkRunKind } from "./workRuns.ts";
+
+export const PR_SERIALIZED_KINDS: ReadonlySet<WorkRunKind> = new Set([
+  "review",
+  "description",
+  "triage",
+  "verification",
+]);
+
 const chains = new Map<string, Promise<void>>();
 
 export async function withPrMutex<T>(prKey: string, fn: () => Promise<T>) {

@@ -2,6 +2,7 @@ import {
   readBudgetedWorkspaceTextFile,
   refuseWorkspaceTextFileRead,
 } from "../agent/tools/readWorkspaceTextFile.ts";
+import { capTextOutput, completePrefixLength } from "../agent/tools/toolOutputBudget.ts";
 import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import { AppError, isAppError } from "../errors/appError.ts";
@@ -72,7 +73,13 @@ const PATCH_BYTE_CAP_DIFF = "[patch omitted: exceeds configured PR patch byte ca
 export type WorkspacePathDiff =
   | {
       readonly availability: "available";
-      readonly reason: null | "workspace_diff_byte_cap";
+      readonly reason: null;
+      readonly diff: string;
+    }
+  | {
+      readonly availability: "available";
+      readonly reason: "workspace_diff_byte_cap";
+      readonly completeLength: number;
       readonly diff: string;
     }
   | {
@@ -129,11 +136,13 @@ function classifyPinnedPrDiff(input: {
         diff: "",
       });
     }
-    if (patch.length > LOCAL_WORKSPACE_MAX_DIFF_BYTES) {
+    const capped = capTextOutput(patch, LOCAL_WORKSPACE_MAX_DIFF_BYTES, "workspace_diff_byte_cap");
+    if (capped.truncated) {
       return ((pinnedReturn: WorkspacePathDiff) => pinnedReturn)({
         availability: "available",
         reason: "workspace_diff_byte_cap",
-        diff: `${patch.slice(0, LOCAL_WORKSPACE_MAX_DIFF_BYTES)}\n...[diff truncated]`,
+        completeLength: completePrefixLength(patch, capped.content),
+        diff: `${capped.content}\n...[diff truncated]`,
       });
     }
     return ((pinnedReturn: WorkspacePathDiff) => pinnedReturn)({

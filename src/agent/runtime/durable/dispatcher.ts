@@ -5,40 +5,22 @@ import type { Config } from "../../../settings/index.ts";
 import * as v from "valibot";
 import { immediate, readRow } from "../../../state/db.ts";
 import { withPrMutex } from "../../../state/prMutex.ts";
+import { nextCiProjectionDueAt } from "../../../state/prHeadCiState.ts";
 import {
   claimDispatchableWorkRun,
   markAttemptRunning,
   markWorkRunCompleted,
   nextDispatchWakeAt,
+  WORK_RUN_KINDS,
   type ClaimedWorkRun,
   type WorkRunKind,
 } from "../../../state/workRuns.ts";
 import { errorMessage } from "../../../errors/errorMessage.ts";
 import { logWarn } from "../../../evlog.ts";
-import {
-  PR_SERIALIZED_KINDS,
-  isFeatureWorkKind,
-  recordAttemptFailure,
-  startFeatureAttempt,
-  type FeatureAttemptExecutorFor,
-} from "./featureAttemptTask.ts";
+import { recordAttemptFailure } from "./featureAttemptTask.ts";
 import type { DurableRuntime } from "./runtime.ts";
 
-export type {
-  FeatureAttemptExecutor,
-  FeatureAttemptExecutorFor,
-  FeatureWorkKind,
-} from "./featureAttemptTask.ts";
-
-export type ReviewAttemptHandler = (claim: ClaimedWorkRun) => Promise<void>;
-
 export type AckHandler = (claim: ClaimedWorkRun) => Promise<void>;
-
-export type DispatcherHandlers = {
-  readonly review: ReviewAttemptHandler;
-  readonly feature: FeatureAttemptExecutorFor;
-  readonly ack: AckHandler;
-};
 
 export type CiProjectionRunner = (now: number) => Promise<void>;
 export type ResumedReview = { readonly prKey: string; readonly taskId: TaskId };
@@ -54,30 +36,7 @@ export type Dispatcher = {
   readonly setCiProjectionRunner: (fn: CiProjectionRunner) => void;
 };
 
-const DISPATCH_KINDS: readonly WorkRunKind[] = [
-  "review",
-  "ask",
-  "description",
-  "triage",
-  "verification",
-  "ack",
-  "ci_projection",
-];
-
 const IDLE_WAKE_MS = 1_000;
-
-export function nextProjectionDueAt(db: DatabaseSync) {
-  const row = readRow(
-    db
-      .prepare(
-        `SELECT MIN(next_projection_at) AS due_at FROM pr_head_ci_state
-          WHERE next_projection_at IS NOT NULL`,
-      )
-      .get(),
-    v.object({ due_at: v.nullable(v.number()) }),
-  );
-  return ((pinnedReturn: number | undefined) => pinnedReturn)(row?.due_at ?? undefined);
-}
 
 export function pendingCiProjectionCount(db: DatabaseSync) {
   const row = readRow(
@@ -116,7 +75,8 @@ function kindConcurrency(cfg: Config, kind: WorkRunKind) {
 export function createDispatcher(deps: {
   readonly db: DatabaseSync;
   readonly cfg: Config;
-  readonly handlers: DispatcherHandlers;
+  readonly startAttempt: (claim: ClaimedWorkRun) => Promise<TaskId | undefined>;
+  readonly ack: AckHandler;
   readonly runtime: () => DurableRuntime;
   readonly context?: Context;
   readonly now?: () => number;
@@ -140,7 +100,7 @@ export function createDispatcher(deps: {
   };
 
   const allowedKinds = () =>
-    DISPATCH_KINDS.filter((kind) => countKind(kind) < kindConcurrency(deps.cfg, kind));
+    WORK_RUN_KINDS.filter((kind) => countKind(kind) < kindConcurrency(deps.cfg, kind));
 
   const track = (key: string, kind: string, work: () => Promise<void>) => {
     const done = work()
@@ -182,7 +142,7 @@ export function createDispatcher(deps: {
     );
     if (marked === 0) return;
     try {
-      await deps.handlers.ack(claim);
+      await deps.ack(claim);
     } catch (error) {
       failAttempt(claim, error);
       return;
@@ -196,53 +156,42 @@ export function createDispatcher(deps: {
     );
   };
 
-  const runReview = async (claim: ClaimedWorkRun) => {
-    try {
-      await (PR_SERIALIZED_KINDS.has(claim.run.kind)
-        ? withPrMutex(claim.run.pr_key, () => deps.handlers.review(claim))
-        : deps.handlers.review(claim));
-    } catch (error) {
-      failAttempt(claim, error);
-    }
-  };
-
-  const runFeature = async (claim: ClaimedWorkRun) => {
+  const runAttempt = async (claim: ClaimedWorkRun) => {
     const harness = deps.runtime().handle.harness;
-    let started;
+    let taskId;
     try {
-      started = await startFeatureAttempt({ harness, context, db: deps.db, claim, now: now() });
+      taskId = await deps.startAttempt(claim);
     } catch (error) {
       failAttempt(claim, error);
       return;
     }
-    if (!started.markedRunning) return;
-    await harness.waitForTask(started.taskId, context);
+    if (taskId !== undefined) await harness.waitForTask(taskId, context);
   };
 
   const dispatch = (claim: ClaimedWorkRun) => {
     const kind = claim.run.kind;
     track(claim.attempt.attempt_id, kind, () => {
       if (kind === "ack") return runAck(claim);
-      if (kind === "review") return runReview(claim);
-      if (isFeatureWorkKind(kind)) return runFeature(claim);
-      return Promise.reject(new Error(`no dispatcher route for work kind ${String(kind)}`));
+      return kind === "review"
+        ? withPrMutex(claim.run.pr_key, () => runAttempt(claim))
+        : runAttempt(claim);
     });
   };
 
   const maybeRunCiProjections = () => {
     const runner = ciProjectionRunner;
     if (runner === undefined || inflight.has(CI_PROJECTION_TIMER_KEY)) return;
-    const dueAt = nextProjectionDueAt(deps.db);
+    const dueAt = nextCiProjectionDueAt(deps.db);
     const at = now();
-    if (dueAt === undefined || dueAt > at) return;
+    if (dueAt === null || dueAt > at) return;
     track(CI_PROJECTION_TIMER_KEY, CI_PROJECTION_TIMER_KEY, () => runner(at));
   };
 
   const nextWakeMs = () => {
     const at = now();
-    const candidates = [nextDispatchWakeAt(deps.db)];
+    const candidates = [nextDispatchWakeAt(deps.db, allowedKinds())];
     if (ciProjectionRunner !== undefined && !inflight.has(CI_PROJECTION_TIMER_KEY)) {
-      candidates.push(nextProjectionDueAt(deps.db));
+      candidates.push(nextCiProjectionDueAt(deps.db) ?? undefined);
     }
     let wake = idleWakeMs;
     for (const candidate of candidates) {

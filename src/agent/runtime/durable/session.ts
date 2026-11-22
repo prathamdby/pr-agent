@@ -4,7 +4,6 @@ import {
   AssistantEntry,
   defineExtension,
   defineTool,
-  ProviderDoc,
   type ConversationOwnership,
   type SettledSubmissionRecord,
   type Submission,
@@ -15,21 +14,19 @@ import { contentText, type Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Context } from "@earendil-works/chord/context";
 import { AppError } from "../../../errors/appError.ts";
 import { isRecord } from "../../../util/typeGuards.ts";
-import {
-  hashNormalizedLineText,
-  normalizeEvidencePath,
-  type EvidenceLedger,
-} from "../../../review/findings/evidenceLedger.ts";
+import type { EvidenceLedger } from "../../../review/findings/evidenceLedger.ts";
+import { creditVisibleReads } from "./evidenceMemo.ts";
+import { providerSessionIdInit } from "./providerRouting.ts";
 import { promptMetadataFromText, type TurnEnd } from "../../providers/usageMetadata.ts";
 import { resolveThinkingLevel } from "../thinkingPolicy.ts";
 import type { AgentRunnerToolExecutor, AgentToolCallContext } from "../../providers/interface.ts";
 import type { PiSessionCreateParams, PiSessionSendOptions } from "../types.ts";
 import type { DurableRuntime } from "./runtime.ts";
 import { createSessionTrace } from "../sessionTrace.ts";
-import { EvidenceBindingDoc } from "./evidenceMemo.ts";
-import type { JsonValue } from "@earendil-works/chord/json";
 import {
   contextForToolCall,
+  beginSend,
+  maxTurnsForSend,
   dropSessionState,
   registerSessionState,
   resetSendUsage,
@@ -50,48 +47,7 @@ export type DurablePiSessionParams = PiSessionCreateParams & {
 };
 
 export function creditBoundEvidence(state: DurableSessionState, ledger: EvidenceLedger) {
-  const binding = state.evidence.bindings.at(-1);
-  if (binding === undefined) return;
-  for (const entry of binding.visible) {
-    ledger.noteOpened(entry.path);
-    const contentLines = entry.content.replace(/\r\n/g, "\n").split("\n");
-    const rangeText = (startLine: number, endLine: number) =>
-      contentLines.slice(startLine - entry.startLine, endLine - entry.startLine + 1).join("\n");
-    const sorted = [...entry.lines].toSorted((a, b) => a - b);
-    let rangeStart: number | undefined;
-    let previous: number | undefined;
-    const flush = () => {
-      if (rangeStart === undefined || previous === undefined) return;
-      const text = rangeText(rangeStart, previous);
-      ledger.record({
-        path: entry.path,
-        startLine: rangeStart,
-        endLine: previous,
-        contentHash: hashNormalizedLineText(text),
-        headSha: entry.headSha,
-        tool: entry.tool,
-        descriptor: {
-          version: 1,
-          kind: "file_range",
-          path: normalizeEvidencePath(entry.path),
-          startLine: rangeStart,
-          endLine: previous,
-          contentHash: hashNormalizedLineText(text),
-          headSha: entry.headSha,
-        },
-      });
-    };
-    for (const line of sorted) {
-      if (previous !== undefined && line === previous + 1) {
-        previous = line;
-        continue;
-      }
-      flush();
-      rangeStart = line;
-      previous = line;
-    }
-    flush();
-  }
+  creditVisibleReads(state.evidence.bound, ledger);
 }
 
 function sessionAbortedError() {
@@ -239,9 +195,10 @@ export async function createDurablePiSession(params: DurablePiSessionParams) {
     aborted: false,
     evidence: {
       attempts: new Map(),
-      requestVisible: new Map(),
-      bindings: [],
-      reconLines: params.reconEvidence ?? [],
+      visible: [],
+      bound: [],
+      credited: new Set(),
+      reconLines: [],
       spillRoots: new Set(),
       spillBytes: 0,
       spillExpired: false,
@@ -274,10 +231,7 @@ export async function createDurablePiSession(params: DurablePiSessionParams) {
       },
       ...(params.providerSessionId !== undefined
         ? {
-            init: async (tx, conversationId) => {
-              const doc = await tx.doc(ProviderDoc, conversationId);
-              doc.sessionId = params.providerSessionId ?? "";
-            },
+            init: providerSessionIdInit(params.providerSessionId),
           }
         : {}),
     },
@@ -315,28 +269,15 @@ export async function createDurablePiSession(params: DurablePiSessionParams) {
       policy: params.thinkingPolicy,
       phase: opts.phase,
     });
-    const maxTurns =
-      opts.maxToolRounds !== undefined
-        ? opts.maxToolRounds + 2 + (opts.reservedTerminalTool !== undefined ? 1 : 0)
-        : null;
     await conversation.configure(
       {
         thinkingLevel,
-        ...(maxTurns !== null ? { maxTurns } : {}),
+        maxTurns: maxTurnsForSend(opts),
       },
       BACKGROUND_CONTEXT,
     );
     resetSendUsage(state);
-    state.currentSend = {
-      opts,
-      rounds: 0,
-      countedCalls: new Set(),
-      budgetBlockedCalls: 0,
-      stopped: false,
-      reservedFired: false,
-      lastActivityAt: Date.now(),
-      assistantIndex: 0,
-    };
+    state.currentSend = beginSend(opts);
     const sendState = state.currentSend;
     state.eventSink({
       kind: "turn",
@@ -401,14 +342,10 @@ export async function createDurablePiSession(params: DurablePiSessionParams) {
       const mapped = mapSettlement(settled, state, sendState);
       const answerEntry =
         settled.status === "done" && settled.answer !== undefined && !state.aborted
-          ? await conversation.commit(async (tx) => {
-              const doc = await tx.doc(EvidenceBindingDoc, conversation.id);
-              const serialized: JsonValue[] = state.evidence.bindings.map(
-                (binding) => JSON.parse(JSON.stringify(binding)) as JsonValue,
-              );
-              doc.bindings = serialized;
-              return tx.entry(AssistantEntry, settled.answer);
-            }, BACKGROUND_CONTEXT)
+          ? await conversation.commit(
+              (tx) => tx.entry(AssistantEntry, settled.answer),
+              BACKGROUND_CONTEXT,
+            )
           : undefined;
       const answerMessage = answerEntry?.model?.[0];
       const text =

@@ -52,7 +52,6 @@ export async function createFeaturePiSession(params: {
   readonly tools: readonly PiTool[];
   readonly executors: Record<string, AgentRunnerToolExecutor>;
   readonly durableTools?: PiSessionCreateParams["durableTools"];
-  readonly reconEvidence?: PiSessionCreateParams["reconEvidence"];
   readonly toolMeta?: PiSessionCreateParams["toolMeta"];
   readonly codemode?: boolean;
   readonly ownership?: PiSessionCreateParams["ownership"];
@@ -129,7 +128,6 @@ export async function createFeaturePiSession(params: {
     tools: attached.tools,
     executors: attached.executors,
     ...(params.durableTools !== undefined ? { durableTools: params.durableTools } : {}),
-    ...(params.reconEvidence !== undefined ? { reconEvidence: params.reconEvidence } : {}),
     ...(params.toolMeta !== undefined ? { toolMeta: params.toolMeta } : {}),
     ...(params.codemode !== undefined ? { codemode: params.codemode } : {}),
     ...(params.ownership !== undefined ? { ownership: params.ownership } : {}),

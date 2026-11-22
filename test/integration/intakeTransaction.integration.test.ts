@@ -18,7 +18,7 @@ import {
   replayFreezeWindow,
   type HookDelivery,
 } from "../../src/state/deliveryReplay.ts";
-import { FeatureAttemptTask } from "../../src/agent/runtime/durable/featureAttemptTask.ts";
+import { createReviewRunner } from "../../src/agent/runtime/durable/reviewOrchestratorTask.ts";
 import { openDurableRuntime } from "../../src/agent/runtime/durable/runtime.ts";
 import { startDurableService } from "../../src/agent/runtime/durable/boot.ts";
 import { archivePiDurableFiles } from "../../src/agent/runtime/durable/durableReset.ts";
@@ -1408,6 +1408,20 @@ describe("single-process durability (sqlite + pi durable)", () => {
 
   it("fails a second writer fast while the single-writer lock is held", () => {
     const dir = freshSqliteDir();
+    expect(() =>
+      openAppState({
+        sqliteDir: dir,
+        dbPath: join(dir, "..", "outside.sqlite"),
+        applySchema: applyAppStateSchema,
+      }),
+    ).toThrow(/directly inside SQLITE_DIR/);
+    expect(() =>
+      openAppState({
+        sqliteDir: dir,
+        dbPath: join(dir, "pi_durable.sqlite"),
+        applySchema: applyAppStateSchema,
+      }),
+    ).toThrow(/runtime database/);
     const first = openAppState({ sqliteDir: dir, applySchema: applyAppStateSchema });
     try {
       const started = Date.now();
@@ -1516,8 +1530,7 @@ describe("single-process durability (sqlite + pi durable)", () => {
       webhook: { secret: "reset-secret" },
     });
     const appState = openAppState({ sqliteDir: dir, applySchema: applyAppStateSchema });
-    const tasks = [FeatureAttemptTask];
-    const runtime = await openDurableRuntime(cfg, { tasks });
+    const runtime = await openDurableRuntime(cfg);
     const original = await runtime.handle.harness.createConversation(
       { ownership: { kind: "ownerless" } },
       BACKGROUND_CONTEXT,
@@ -1526,11 +1539,10 @@ describe("single-process durability (sqlite + pi durable)", () => {
       appState,
       cfg,
       runtime,
-      reopenRuntime: () => openDurableRuntime(cfg, { tasks }),
+      reopenRuntime: () => openDurableRuntime(cfg),
       installationSurface: openInstallationSurface(),
-      reviewTaskName: "pr.review_orchestrator",
-      createHandlers: () => ({
-        review: async () => {},
+      createHandlers: (deps) => ({
+        review: createReviewRunner(deps),
         feature: () => async () => {},
         ack: async () => {},
       }),

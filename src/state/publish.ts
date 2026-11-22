@@ -792,15 +792,6 @@ export function recoverableIntents(db: DatabaseSync) {
   );
 }
 
-export function intentsForWork(db: DatabaseSync, workId: string) {
-  return ((pinnedReturn: readonly PublishIntentRow[]) => pinnedReturn)(
-    readRows(
-      db.prepare(`SELECT * FROM publish_intents WHERE work_id = ? ORDER BY updated_at`).all(workId),
-      publishIntentRowSchema,
-    ),
-  );
-}
-
 const PUBLISH_STEP_SPECS = {
   progress_comment: { scope: "resource", merge: "progress" },
   inline_review: { scope: "resource", merge: "batches" },

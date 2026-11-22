@@ -95,8 +95,8 @@ Notes:
   `FEATURE_*` mode. When it is true, a tests coverage gap must name read paths
   that have a content read recorded by that specialist. Path checks apply either way.
 - Recovery is part of review. It is not a ninth feature and not a `FEATURE_*`
-  mode. A restart can reuse a validated brief or report. Evidence is read
-  again. Publication uses the normal gates. It does not restore a transcript.
+  mode. A restart restores the same conversations, pinned checkout, spent tool
+  budget and evidence already shown. A new attempt starts with its own budget.
   See [configuration.md](configuration.md).
 - A typed GitHub review-thread resolution denial stops verification rather than
   claiming the thread was resolved. A reply accepted before that denial remains
