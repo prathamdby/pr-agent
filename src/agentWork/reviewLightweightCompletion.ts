@@ -15,6 +15,7 @@ import type { ReviewWorkItem } from "./types.ts";
 import {
   latestCommentGithubId,
   operationIntentMarker,
+  progressStubPostedAtMs,
   publishOnce,
   reviewSummaryOperationKey,
   writePublishStep,
@@ -94,6 +95,12 @@ export async function tryLightweightAutoReviewCompletion(
   const footer = {
     headSha: params.item.headSha,
     durationMs: resolveReviewWallClockMs({
+      stubPostedAtMs: progressStubPostedAtMs(
+        target.db,
+        params.item.resourceKey,
+        params.reviewLens,
+        target.workItemId,
+      ),
       metricsStartedAtMs: metricsSnapshot?.startedAtMs,
       endedAtMs: Date.now(),
     }),

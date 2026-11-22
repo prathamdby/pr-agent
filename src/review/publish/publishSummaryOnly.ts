@@ -4,6 +4,7 @@ import { publishSpanFromContext } from "../../analytics/workSpan.ts";
 import { AppError } from "../../errors/appError.ts";
 import {
   operationIntentMarker,
+  progressStubPostedAtMs,
   reviewLabelsOperationKey,
   reviewSummaryOperationKey,
   publishOnce,
@@ -177,6 +178,15 @@ export async function publishReviewSummaryOnly(
       : await session.headCi.load(headSha);
   const ciSummary = renderedCi.summary;
   const durationMs = resolveReviewWallClockMs({
+    stubPostedAtMs:
+      summaryCoordination == null
+        ? null
+        : progressStubPostedAtMs(
+            summaryCoordination.db,
+            summaryCoordination.resourceKey,
+            mode,
+            summaryCoordination.workItemId,
+          ),
     metricsStartedAtMs: metricsSnapshot?.startedAtMs,
     endedAtMs: Date.now(),
   });
