@@ -1,6 +1,5 @@
+import type { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
-import { openRunRateLimitCircuit } from "../src/agent/runtime/rateLimitCircuit.ts";
 import {
   createRateLimitCircuit,
   RATE_LIMIT_CIRCUIT_THRESHOLD,
@@ -8,97 +7,62 @@ import {
   runWithRateLimitCircuit,
 } from "../src/github/rateLimitCircuit.ts";
 import {
-  getSharedRateLimitCircuit,
-  isSharedRateLimitCircuitOpen,
-  openSharedRateLimitCircuit,
-  openSharedRateLimitCircuitBestEffort,
-  upsertSharedRateLimitCircuit,
-} from "../src/github/sharedRateLimitCircuit.ts";
+  isRateLimitCircuitOpen,
+  openRateLimitCircuit,
+  openRateLimitCircuitBestEffort,
+  openRunRateLimitCircuit,
+  readRateLimitCircuit,
+  upsertRateLimitCircuit,
+} from "../src/state/rateLimitCircuits.ts";
 import * as evlog from "../src/evlog.ts";
 import { SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS } from "../src/settings/index.ts";
+import { openSqliteAppState } from "./integration/db.ts";
 
-type CircuitRow = {
-  installation_id: number;
-  open_until: Date;
-  last_error_kind: string;
-};
+describe("sharedRateLimitCircuit (SQLite app_state)", () => {
+  const handles: Array<{ close: () => void }> = [];
 
-function createMemorySharedCircuitStore() {
-  const rows = new Map<number, CircuitRow>();
-
-  function makePool() {
-    return ((pinnedReturn: Pool) => pinnedReturn)({
-      query: async (text: string, values: unknown[] = []) => {
-        if (text.includes("INSERT INTO github_installation_rate_limit_circuits")) {
-          const installationId = Number(values[0]);
-          const openUntil = values[1] as Date;
-          const lastErrorKind = String(values[2]);
-          const existing = rows.get(installationId);
-          if (!existing || openUntil.getTime() >= existing.open_until.getTime()) {
-            rows.set(installationId, {
-              installation_id: installationId,
-              open_until: openUntil,
-              last_error_kind: lastErrorKind,
-            });
-          } else if (existing) {
-            rows.set(installationId, {
-              ...existing,
-              last_error_kind: lastErrorKind,
-            });
-          }
-          return { rows: [], rowCount: 1 };
-        }
-        if (text.includes("FROM github_installation_rate_limit_circuits")) {
-          const installationId = Number(values[0]);
-          const row = rows.get(installationId);
-          return { rows: row ? [row] : [], rowCount: row ? 1 : 0 };
-        }
-        throw new Error(`unexpected SQL in memory store: ${text.slice(0, 80)}`);
-      },
-    } as unknown as Pool);
+  function openDb() {
+    const handle = openSqliteAppState();
+    handles.push(handle);
+    return handle.db;
   }
 
-  return ((pinnedReturn: { poolA: Pool; poolB: Pool }) => pinnedReturn)({
-    poolA: makePool(),
-    poolB: makePool(),
-  });
-}
-
-describe("sharedRateLimitCircuit (cross-client MVP)", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    while (handles.length > 0) handles.pop()?.close();
   });
 
-  it("process A marks circuit open → process B observes open and hydrates local short-circuit", async () => {
-    const { poolA, poolB } = createMemorySharedCircuitStore();
+  it("run A marks circuit open → run B observes open and hydrates local short-circuit", () => {
+    const db = openDb();
     const installationId = 42;
-    const now = new Date("2026-07-30T12:00:00.000Z");
+    const now = Date.parse("2026-07-30T12:00:00.000Z");
 
-    await openSharedRateLimitCircuit(poolA, {
+    openRateLimitCircuit(db, {
       installationId,
       lastErrorKind: "secondary",
       cooldownMs: 60_000,
       now,
     });
 
-    const stored = await getSharedRateLimitCircuit(poolB, installationId);
-    expect(stored).not.toBeNull();
+    const stored = readRateLimitCircuit(db, installationId);
+    expect(stored).toBeDefined();
     expect(stored!.lastErrorKind).toBe("secondary");
-    expect(stored!.openUntil.getTime()).toBe(now.getTime() + 60_000);
+    expect(stored!.openUntilMs).toBe(now + 60_000);
 
-    expect(await isSharedRateLimitCircuitOpen(poolB, installationId, now)).toBe(true);
-    expect(
-      await isSharedRateLimitCircuitOpen(poolB, installationId, new Date(now.getTime() + 61_000)),
-    ).toBe(false);
+    expect(isRateLimitCircuitOpen(db, installationId, now)).toBe(true);
+    expect(isRateLimitCircuitOpen(db, installationId, now + 61_000)).toBe(false);
 
     const circuitB = createRateLimitCircuit({
       installationId,
-      now: () => now.getTime(),
+      now: () => now,
     });
     expect(circuitB.isOpen()).toBe(false);
-    if (await isSharedRateLimitCircuitOpen(poolB, installationId, now)) {
-      const shared = await getSharedRateLimitCircuit(poolB, installationId);
-      circuitB.hydrateOpenFromShared("secondary", shared?.openUntil);
+    if (isRateLimitCircuitOpen(db, installationId, now)) {
+      const shared = readRateLimitCircuit(db, installationId);
+      circuitB.hydrateOpenFromShared(
+        "secondary",
+        shared ? new Date(shared.openUntilMs) : undefined,
+      );
     }
     expect(circuitB.isOpen()).toBe(true);
 
@@ -108,77 +72,76 @@ describe("sharedRateLimitCircuit (cross-client MVP)", () => {
     });
   });
 
-  it("upsert extends open_until with GREATEST semantics", async () => {
-    const { poolA } = createMemorySharedCircuitStore();
+  it("upsert extends open_until with max semantics", () => {
+    const db = openDb();
     const installationId = 7;
-    const t0 = new Date("2026-07-30T12:00:00.000Z");
-    const t1 = new Date("2026-07-30T12:00:30.000Z");
-    const earlier = new Date("2026-07-30T12:00:10.000Z");
+    const t0 = Date.parse("2026-07-30T12:00:00.000Z");
+    const t1 = Date.parse("2026-07-30T12:00:30.000Z");
+    const earlier = Date.parse("2026-07-30T12:00:10.000Z");
 
-    await upsertSharedRateLimitCircuit(poolA, {
+    upsertRateLimitCircuit(db, {
       installationId,
-      openUntil: new Date(t0.getTime() + 60_000),
+      openUntilMs: t0 + 60_000,
       lastErrorKind: "primary",
+      now: t0,
     });
-    await upsertSharedRateLimitCircuit(poolA, {
+    upsertRateLimitCircuit(db, {
       installationId,
-      openUntil: earlier,
+      openUntilMs: earlier,
       lastErrorKind: "secondary",
+      now: t0 + 1_000,
     });
-    let row = await getSharedRateLimitCircuit(poolA, installationId);
-    expect(row!.openUntil.getTime()).toBe(t0.getTime() + 60_000);
+    let row = readRateLimitCircuit(db, installationId);
+    expect(row!.openUntilMs).toBe(t0 + 60_000);
     expect(row!.lastErrorKind).toBe("secondary");
 
-    await upsertSharedRateLimitCircuit(poolA, {
+    upsertRateLimitCircuit(db, {
       installationId,
-      openUntil: new Date(t1.getTime() + 60_000),
+      openUntilMs: t1 + 60_000,
       lastErrorKind: "primary",
+      now: t1,
     });
-    row = await getSharedRateLimitCircuit(poolA, installationId);
-    expect(row!.openUntil.getTime()).toBe(t1.getTime() + 60_000);
+    row = readRateLimitCircuit(db, installationId);
+    expect(row!.openUntilMs).toBe(t1 + 60_000);
   });
 
-  it("openSharedRateLimitCircuit uses default SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS", async () => {
-    const { poolA } = createMemorySharedCircuitStore();
-    const now = new Date("2026-07-30T12:00:00.000Z");
-    await openSharedRateLimitCircuit(poolA, {
+  it("openRateLimitCircuit uses default SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS", () => {
+    const db = openDb();
+    const now = Date.parse("2026-07-30T12:00:00.000Z");
+    openRateLimitCircuit(db, {
       installationId: 9,
       lastErrorKind: "primary",
       now,
     });
-    const row = await getSharedRateLimitCircuit(poolA, 9);
-    expect(row!.openUntil.getTime()).toBe(now.getTime() + SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS);
+    const row = readRateLimitCircuit(db, 9);
+    expect(row!.openUntilMs).toBe(now + SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS);
   });
 
-  it("best-effort open guards invalid input and swallows write failure", async () => {
-    const warned = (() => {
-      let resolve!: () => void;
-      const promise = new Promise<void>((done) => {
-        resolve = done;
-      });
-      return { promise, resolve };
-    })();
-    const logWarn = vi.spyOn(evlog, "logWarn").mockImplementation((event) => {
-      if (event === "github_shared_rate_limit_circuit_upsert_failed") warned.resolve();
+  it("best-effort open guards invalid input and swallows write failure", () => {
+    const logWarn = vi.spyOn(evlog, "logWarn").mockImplementation(() => {});
+    const prepare = vi.fn(() => {
+      throw new Error("db down");
     });
-    const query = vi.fn().mockRejectedValue(new Error("db down"));
-    const pool = { query } as unknown as Pool;
+    const brokenDb = { prepare } as unknown as DatabaseSync;
+    const now = Date.now();
 
-    openSharedRateLimitCircuitBestEffort(undefined, {
+    openRateLimitCircuitBestEffort(undefined, {
       installationId: 42,
       lastErrorKind: "primary",
+      now,
     });
-    openSharedRateLimitCircuitBestEffort(pool, {
+    openRateLimitCircuitBestEffort(brokenDb, {
       installationId: 0,
       lastErrorKind: "primary",
+      now,
     });
-    expect(query).not.toHaveBeenCalled();
+    expect(prepare).not.toHaveBeenCalled();
 
-    openSharedRateLimitCircuitBestEffort(pool, {
+    openRateLimitCircuitBestEffort(brokenDb, {
       installationId: 42,
       lastErrorKind: "primary",
+      now,
     });
-    await warned.promise;
     expect(logWarn).toHaveBeenCalledWith(
       "github_shared_rate_limit_circuit_upsert_failed",
       expect.objectContaining({
@@ -189,27 +152,31 @@ describe("sharedRateLimitCircuit (cross-client MVP)", () => {
     );
   });
 
-  it("openRunRateLimitCircuit hydrates a run that starts inside an open shared window", async () => {
-    const { poolA, poolB } = createMemorySharedCircuitStore();
-    await openSharedRateLimitCircuit(poolA, { installationId: 11, lastErrorKind: "secondary" });
+  it("openRunRateLimitCircuit hydrates a run that starts inside an open shared window", () => {
+    const db = openDb();
+    const now = Date.parse("2026-07-30T12:00:00.000Z");
+    openRateLimitCircuit(db, { installationId: 11, lastErrorKind: "secondary", now });
 
-    const circuit = await openRunRateLimitCircuit({
-      pool: poolB,
+    const circuit = openRunRateLimitCircuit({
+      db,
       installationId: 11,
       type: "review",
       workItemId: "wi-1",
+      now: () => now,
     });
 
     expect(circuit.isOpen()).toBe(true);
   });
 
-  it("openRunRateLimitCircuit continues the run when the shared read fails", async () => {
+  it("openRunRateLimitCircuit continues the run when the shared read fails", () => {
     const logWarn = vi.spyOn(evlog, "logWarn").mockImplementation(() => {});
-    const pool = {
-      query: vi.fn().mockRejectedValue(new Error("db down")),
-    } as unknown as Pool;
+    const brokenDb = {
+      prepare: vi.fn(() => {
+        throw new Error("db down");
+      }),
+    } as unknown as DatabaseSync;
 
-    const circuit = await openRunRateLimitCircuit({ pool, installationId: 11, type: "review" });
+    const circuit = openRunRateLimitCircuit({ db: brokenDb, installationId: 11, type: "review" });
 
     expect(circuit.isOpen()).toBe(false);
     expect(logWarn).toHaveBeenCalledWith(
@@ -218,14 +185,16 @@ describe("sharedRateLimitCircuit (cross-client MVP)", () => {
     );
   });
 
-  it("openRunRateLimitCircuit notifies the caller and publishes the tripped circuit", async () => {
-    const { poolA, poolB } = createMemorySharedCircuitStore();
+  it("openRunRateLimitCircuit notifies the caller and publishes the tripped circuit", () => {
+    const db = openDb();
+    const now = Date.parse("2026-07-30T12:00:00.000Z");
     const onOpened = vi.fn();
-    const circuit = await openRunRateLimitCircuit({
-      pool: poolA,
+    const circuit = openRunRateLimitCircuit({
+      db,
       installationId: 12,
       type: "ask",
       onOpened,
+      now: () => now,
     });
 
     for (let failure = 0; failure < RATE_LIMIT_CIRCUIT_THRESHOLD; failure += 1) {
@@ -233,6 +202,6 @@ describe("sharedRateLimitCircuit (cross-client MVP)", () => {
     }
 
     expect(onOpened).toHaveBeenCalledWith("primary");
-    await vi.waitFor(async () => expect(await isSharedRateLimitCircuitOpen(poolB, 12)).toBe(true));
+    expect(isRateLimitCircuitOpen(db, 12, now)).toBe(true);
   });
 });

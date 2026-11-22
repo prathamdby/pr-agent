@@ -50,6 +50,7 @@ export type AgentLifecycleUsageEvent = {
   readonly cacheReadTokens?: number;
   readonly cacheWriteTokens?: number;
   readonly cacheWrite1hTokens?: number;
+  readonly reasoningTokens?: number;
   readonly totalTokens?: number;
 };
 
@@ -76,6 +77,7 @@ export type AgentLifecycleCompletionEvent = {
   readonly cacheReadTokens?: number;
   readonly cacheWriteTokens?: number;
   readonly cacheWrite1hTokens?: number;
+  readonly reasoningTokens?: number;
   readonly totalTokens?: number;
 };
 
@@ -96,6 +98,7 @@ export type AgentLifecycleFailureEvent = {
   readonly cacheReadTokens?: number;
   readonly cacheWriteTokens?: number;
   readonly cacheWrite1hTokens?: number;
+  readonly reasoningTokens?: number;
   readonly totalTokens?: number;
 };
 

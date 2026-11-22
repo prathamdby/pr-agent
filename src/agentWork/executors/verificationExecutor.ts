@@ -1,12 +1,15 @@
-import type { WorkExecution, WorkExecutionDependencies } from "../workDefinition.ts";
-import { productionInstallationSurface } from "../installationSurface.ts";
+import * as v from "valibot";
+import type {
+  FeatureExecutionResult,
+  FeatureWorkDependencies,
+  FeatureWorkExecution,
+} from "./featureExecution.ts";
 
-import { AppError } from "../../errors/appError.ts";
+import { AppError, throwIfAborted } from "../../errors/appError.ts";
 import { logInfo, logWarn } from "../../evlog.ts";
 import { warnReviewThreadResolutionDegraded } from "../../github/reviewThreadResolution.ts";
 import { loadFindingInventoryFromThreads } from "../../review/findingIdentity/findingInventory.ts";
 import { loadRepoPolicy } from "../../review/repoPolicy.ts";
-import { reviewRecoveryBaseSha } from "../../review/recovery/reviewRecoveryBinding.ts";
 import {
   fetchBotFindingThreads,
   type BotFindingThread,
@@ -25,21 +28,31 @@ import {
   MAX_PR_FILES_PATCH_BYTES,
   VERIFICATION_MAX_OBJECTION_ANSWERS_PER_RUN,
 } from "../../settings/index.ts";
-import { throwIfExecutionAborted } from "../publishOnce.ts";
-import { listTriageEligibleInlineReviews } from "../publishRecordRepository.ts";
-import { type DurableExecutionResult } from "../durableJob.ts";
+import { inlineReviewLensesForPr } from "../../state/featurePublication.ts";
 import { escalatedVerificationInventory } from "../retryPolicy.ts";
 import { refreshReviewVerdictAfterVerification } from "../verificationReviewVerdict.ts";
 import {
   loadVerificationThreadLedger,
   type VerificationThreadLedger,
-} from "../verificationThreadLedger.ts";
+} from "../../state/verificationThreadLedger.ts";
 
 import {
   STALE_VERIFICATION_RESULT,
   verificationHeadFreshness,
   type VerificationDegradationReason,
 } from "../verificationPublishGate.ts";
+
+function pullRequestBaseSha(pullRequest: unknown) {
+  const parsed = v.safeParse(
+    v.object({
+      base: v.object({ sha: v.pipe(v.string(), v.regex(/^[0-9a-f]{40,64}$/)) }),
+    }),
+    pullRequest,
+  );
+  return ((pinnedReturn: string | null) => pinnedReturn)(
+    parsed.success ? parsed.output.base.sha : null,
+  );
+}
 
 function withoutFindingObjections(thread: BotFindingThread) {
   return ((pinnedReturn: BotFindingThread) => pinnedReturn)({
@@ -159,21 +172,17 @@ function objectionCompletionFields(counts: {
   });
 }
 
-export function createVerificationWorkExecution({
-  cfg,
-  pool,
-  boss,
-  installationSurface = productionInstallationSurface,
-}: WorkExecutionDependencies) {
-  const getBotIdentity = () => installationSurface.botIdentity(cfg);
-  return ((pinnedReturn: WorkExecution<"verification">) => pinnedReturn)({
+export function createVerificationFeatureExecution(deps: FeatureWorkDependencies) {
+  const { cfg } = deps;
+  const getBotIdentity = deps.botIdentity;
+  return ((pinnedReturn: FeatureWorkExecution<"verification">) => pinnedReturn)({
     execute: async (item, env) => {
       const payload = item.payload;
-      const { prSurface } = env;
+      const { prSurface, publication } = env;
       const headSha = env.headSha;
       const botIdentity = await getBotIdentity();
 
-      const eligibleReviews = await listTriageEligibleInlineReviews(pool, item.resourceKey);
+      const eligibleReviews = inlineReviewLensesForPr(env.db, item.resourceKey);
       const discussion = await loadPullRequestDiscussion(prSurface);
       const resolutionResult = discussion.reviewThreads;
       const findingInventory = await loadFindingInventoryFromThreads(prSurface, {
@@ -212,14 +221,17 @@ export function createVerificationWorkExecution({
         objectionsSkippedIncomplete = objectionCount(orderedThreads);
         orderedThreads = orderedThreads.map(withoutFindingObjections);
       } else if (objectionCount(orderedThreads) > 0) {
-        const ledger = await loadVerificationThreadLedger(pool, {
+        const ledger = loadVerificationThreadLedger(env.db, {
           resourceKey: item.resourceKey,
         });
         orderedThreads = [...dropJournaledNonObjections(orderedThreads, ledger)];
       }
 
       const checkCompletionGate = async () => {
-        throwIfExecutionAborted(env.signal, { workItemId: item.id });
+        throwIfAborted(env.signal, {
+          message: "PR-surface mutation was aborted before completion",
+          context: { workItemId: item.id },
+        });
         if (await env.shouldAbortPublish()) {
           logInfo("verification_publish_skipped", {
             type: "verification",
@@ -232,8 +244,8 @@ export function createVerificationWorkExecution({
           });
           return ((
             pinnedReturn:
-              | (DurableExecutionResult | undefined)
-              | Promise<DurableExecutionResult | undefined>,
+              | (FeatureExecutionResult | undefined)
+              | Promise<FeatureExecutionResult | undefined>,
           ) => pinnedReturn)({ kind: "completed" });
         }
 
@@ -252,26 +264,25 @@ export function createVerificationWorkExecution({
           });
           return ((
             pinnedReturn:
-              | (DurableExecutionResult | undefined)
-              | Promise<DurableExecutionResult | undefined>,
+              | (FeatureExecutionResult | undefined)
+              | Promise<FeatureExecutionResult | undefined>,
           ) => pinnedReturn)(STALE_VERIFICATION_RESULT);
         }
         return ((
           pinnedReturn:
-            | (DurableExecutionResult | undefined)
-            | Promise<DurableExecutionResult | undefined>,
+            | (FeatureExecutionResult | undefined)
+            | Promise<FeatureExecutionResult | undefined>,
         ) => pinnedReturn)(undefined);
       };
 
       const refreshReviewVerdict = (degradation: readonly VerificationDegradationReason[]) =>
         refreshReviewVerdictAfterVerification({
           cfg,
-          pool,
+          publication,
           prSurface,
           workItemId: item.id,
           resourceKey: item.resourceKey,
           headSha,
-          leaseEpoch: env.leaseEpoch,
           canPublish: async () => (await checkCompletionGate()) == null,
           degradation,
         });
@@ -286,13 +297,11 @@ export function createVerificationWorkExecution({
           threadCount: threads.length,
         });
         await clearVerificationFailureSignal({
-          pool,
+          publication,
           workItemId: item.id,
           resourceKey: item.resourceKey,
           prSurface,
           headSha,
-          leaseEpoch: env.leaseEpoch,
-          boss,
           installationId: item.installationId,
         });
         await refreshReviewVerdict(
@@ -301,7 +310,6 @@ export function createVerificationWorkExecution({
         return { kind: "completed" };
       }
 
-      await env.beginAttempt();
       const escalated = escalatedVerificationInventory(orderedThreads, env.escalation);
       const inventoryNarrowed = escalated.length < orderedThreads.length;
       const capped = capObjectionAnswers(escalated);
@@ -359,8 +367,8 @@ export function createVerificationWorkExecution({
         });
         return STALE_VERIFICATION_RESULT;
       }
-      const baseSha = reviewRecoveryBaseSha(resolvedHead.pullRequest);
-      const result = await env.withAdmittedRepositoryView(
+      const baseSha = pullRequestBaseSha(resolvedHead.pullRequest);
+      const result = await env.withRepositoryView(
         {
           repositorySizeKb: payload.repositorySizeKb,
           prFiles,
@@ -399,7 +407,7 @@ export function createVerificationWorkExecution({
             discussion,
             compareFilesTruncated,
             escalation: env.escalation,
-            sessionContext: env.durability,
+            createSession: env.createSession,
             signal: env.signal,
           });
           if (!runResult.submitted || !runResult.payload) {
@@ -417,7 +425,7 @@ export function createVerificationWorkExecution({
       if (terminal) return terminal;
 
       const publish = await publishVerification({
-        pool,
+        publication,
         workItemId: item.id,
         resourceKey: item.resourceKey,
         installationId: item.installationId,
@@ -433,16 +441,13 @@ export function createVerificationWorkExecution({
         changedFilePathsTruncated: compareFilesTruncated,
         changedMembershipComplete,
         policyResult: result.policyResult,
-        leaseEpoch: env.leaseEpoch,
       });
       await clearVerificationFailureSignal({
-        pool,
+        publication,
         workItemId: item.id,
         resourceKey: item.resourceKey,
         prSurface,
         headSha,
-        leaseEpoch: env.leaseEpoch,
-        boss,
         installationId: item.installationId,
       });
 
@@ -492,16 +497,14 @@ export function createVerificationWorkExecution({
         },
       };
     },
-    onTerminalFailure: async (item, prSurface, _error, leaseEpoch) => {
+    onTerminalFailure: async (item, prSurface, env) => {
       if (!prSurface) return;
       await publishVerificationFailure({
-        pool,
+        publication: env.publication,
         workItemId: item.id,
         resourceKey: item.resourceKey,
         prSurface,
         headSha: item.headSha,
-        leaseEpoch: leaseEpoch ?? null,
-        boss,
         installationId: item.installationId,
       });
     },

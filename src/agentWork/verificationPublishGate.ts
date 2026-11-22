@@ -1,4 +1,4 @@
-import type { DurableExecutionResult } from "./durableJob.ts";
+import type { FeatureExecutionResult } from "./executors/featureExecution.ts";
 
 export type VerificationDegradationReason =
   | "thread_resolution_degraded"
@@ -30,4 +30,4 @@ export function verificationHeadFreshness(boundHeadSha: string, latestHeadSha: s
 export const STALE_VERIFICATION_RESULT = {
   kind: "completed",
   degradation: ["stale_head"] satisfies readonly VerificationDegradationReason[],
-} as const satisfies DurableExecutionResult;
+} as const satisfies FeatureExecutionResult;

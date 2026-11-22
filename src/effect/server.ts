@@ -4,10 +4,9 @@ import * as NodeHttpServerRequest from "@effect/platform-node/NodeHttpServerRequ
 import { Effect, Layer } from "effect";
 import crypto from "node:crypto";
 import { createServer, type IncomingMessage, type Server } from "node:http";
-import { AgentWorkSchedulerRuntimeLive } from "../agentWork/runtime.ts";
-import { AgentWorkScheduler } from "../agentWork/scheduler.ts";
+import { WebhookIntake } from "./webhookIntake.ts";
 import type { Config } from "../settings/index.ts";
-import { createOperationLogger } from "../evlog.ts";
+import { createOperationLogger, logInfo } from "../evlog.ts";
 import { processWebhookPostRequestEffect } from "./programs/processWebhookRequestEffect.ts";
 
 function singleHeader(v: string | string[] | undefined) {
@@ -108,8 +107,8 @@ function buildEffectWebhookApp(cfg: Config) {
       }
 
       if (req.method === "GET" && path === "/ready") {
-        const scheduler = yield* AgentWorkScheduler;
-        const ready = yield* scheduler.ping();
+        const intake = yield* WebhookIntake;
+        const ready = yield* intake.ping();
         return HttpServerResponse.text(ready ? "ready" : "not ready", {
           status: ready ? 200 : 503,
           contentType: "text/plain; charset=utf-8",
@@ -118,6 +117,14 @@ function buildEffectWebhookApp(cfg: Config) {
 
       if (req.method !== "POST" || path !== "/webhooks") {
         return HttpServerResponse.text("", { status: 404 });
+      }
+
+      const intake = yield* WebhookIntake;
+      if (!intake.accepting()) {
+        return HttpServerResponse.text("service unavailable", {
+          status: 503,
+          contentType: "text/plain; charset=utf-8",
+        });
       }
 
       const body = yield* readRawBody(req, cfg.webhook.maxBodyBytes);
@@ -132,7 +139,7 @@ function buildEffectWebhookApp(cfg: Config) {
         method: req.method,
         path,
         requestId: singleHeader(req.headers["x-github-delivery"]) ?? crypto.randomUUID(),
-        context: { role: "web" },
+        context: { surface: "webhooks" },
       });
 
       const result = yield* processWebhookPostRequestEffect({
@@ -158,17 +165,26 @@ function buildEffectWebhookApp(cfg: Config) {
 
 export function buildEffectWebhookLayer(
   cfg: Config,
-  serverFactory: () => Server = createServer,
-  schedulerLayer: Layer.Layer<AgentWorkScheduler, Error> = AgentWorkSchedulerRuntimeLive(cfg),
+  serverFactory: () => Server,
+  intakeLayer: Layer.Layer<WebhookIntake>,
 ) {
   const serverLayer = NodeHttpServer.layer(serverFactory, { port: cfg.runtime.port });
   return Layer.unwrap(
     Effect.map(HttpRouter.toHttpEffect(buildEffectWebhookApp(cfg)), (handler) =>
       HttpServer.serve(handler),
     ),
-  ).pipe(Layer.provide(serverLayer), Layer.provide(schedulerLayer));
+  ).pipe(Layer.provide(serverLayer), Layer.provide(intakeLayer));
 }
 
-export function startEffectWebhookServer(cfg: Config) {
-  return Layer.launch(buildEffectWebhookLayer(cfg));
+export function startEffectWebhookServer(cfg: Config, intake: WebhookIntake["Service"]) {
+  return Layer.launch(
+    buildEffectWebhookLayer(
+      cfg,
+      () =>
+        createServer().once("listening", () => {
+          logInfo("http_listening", { port: cfg.runtime.port });
+        }),
+      Layer.succeed(WebhookIntake, intake),
+    ),
+  );
 }

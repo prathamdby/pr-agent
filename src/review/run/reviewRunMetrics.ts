@@ -1,5 +1,8 @@
 import type { AgentRunnerTurn } from "../../agent/providers/interface.ts";
-import { emptyCodeModeCapHits, type CodeModeCapReason } from "../../agent/execution/hostHalt.ts";
+import {
+  emptyCodeModeCapHits,
+  type CodeModeCapReason,
+} from "../../agent/runtime/durable/codemodeCaps.ts";
 import type { AgentSessionRole } from "../../agent/runtime/types.ts";
 import type { PromptCacheBreak } from "../../agent/runtime/promptCachePolicy.ts";
 import { classifyFailure, type ClassifiedFailure } from "../../errors/classifiedFailure.ts";

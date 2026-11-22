@@ -51,13 +51,13 @@ With no open findings, verification skips the agent. It checks the live head fir
 <details>
 <summary>Review rules and slash matching</summary>
 
-Review runs four specialists (correctness, security, quality, tests) under one orchestrator and posts one `## PR Agent Review` summary. A tool-using session can call `report_obstacle` when a tool, prompt, input, or instruction blocks its step. The report is stored in Postgres (`agent_feedback`) after credential-shaped text is replaced, and it is not shown to another reviewer. A finding is published only when it meets the causal-publication contract. The orchestrator re-applies that contract during judgment. A report whose judgment did not finish is not published, and the summary says the review was not fully judged. Open findings at or above `REVIEW_CHECK_FAIL_SEVERITY` fail the review check run, including findings from earlier reviews. The default is `P2`. `P3` fails only when the threshold is `P3`. When two open threads report the same defect, review keeps one, replies on the copy with a link to it, and resolves the copy unless someone has replied there. Docs-only trivial PRs can take a short auto path instead of a full orchestrated run.
+Review runs four specialists (correctness, security, quality, tests) under one orchestrator and posts one `## PR Agent Review` summary. A tool-using session can call `report_obstacle` when a tool, prompt, input, or instruction blocks its step. The report is stored in SQLite (`agent_feedback`) after credential-shaped text is replaced, and it is not shown to another reviewer. A finding is published only when it meets the causal-publication contract. The orchestrator re-applies that contract during judgment. A report whose judgment did not finish is not published, and the summary says the review was not fully judged. Open findings at or above `REVIEW_CHECK_FAIL_SEVERITY` fail the review check run, including findings from earlier reviews. The default is `P2`. `P3` fails only when the threshold is `P3`. When two open threads report the same defect, review keeps one, replies on the copy with a link to it, and resolves the copy unless someone has replied there. Docs-only trivial PRs can take a short auto path instead of a full orchestrated run.
 
 Slash commands are case-sensitive. The command must be the first non-empty line of a **new** (`created`) comment. Who may run them is controlled by `SLASH_ALLOWED_ASSOCIATIONS` (default `OWNER,MEMBER,COLLABORATOR`). Mention matching uses the App bot login, not the word `@bot`. `/ask` and `/help` do not need a mention.
 
 Concurrent attempts to finish a review keep the first verdict. A later cancellation or recovery does not replace it.
 
-`/cancel` blocks new review output when the worker's final publication check sees the cancellation. Requests already in flight cannot be withdrawn. The cancellation notice and check closure still run.
+`/cancel` blocks new review output when the final publication check sees the cancellation. Requests already in flight cannot be withdrawn. The cancellation notice and check closure still run.
 If a stale review fails before handing off its replacement, that pending replacement is cancelled even if it has just started or a delivery races the abort. Successfully handed-off replacements remain unchanged. Unconfirmed cancellation is logged as an error.
 Retrying a stale review keeps changes already saved on its replacement.
 
@@ -67,8 +67,9 @@ After an interrupted publish, PR Agent checks the saved result and available evi
 
 Recovering a run does not use another retry unless PR Agent starts another work attempt. An interrupted work attempt still counts. Previously failed runs are not reopened automatically.
 
-A restart can reuse a validated brief or report. Evidence is read again.
-Publication uses the normal gates. It does not restore a conversation. See
+A restart continues the same review conversations at the recorded head and
+policy base. The remaining tool budget, evidence already shown, and accepted
+findings survive. Publication still checks the live pull request. See
 [operations.md](docs/operations.md#review-reliability-rollout).
 
 After PR Agent accepts a close or merge, automated review requests and `/review`
@@ -90,7 +91,7 @@ Optional labels, commit status, and title rewrite are separate `FEATURE_*` flags
 
 You need Docker Engine with Compose v2, a GitHub account that can create a GitHub App, one AI provider key, and a host GitHub can reach over HTTPS. A laptop can use a tunnel client instead of public TLS.
 
-Create the GitHub App and paste a real private key before you start Compose. The example key in `.env.example` is not a real key. Both app containers exit if you start them without a generated App key.
+Create the GitHub App and paste a real private key before you start Compose. The example key in `.env.example` is not a real key. The container exits if you start it without a generated App key.
 
 ### 1. Register the GitHub App
 
@@ -149,16 +150,16 @@ PI_MODEL=gpt-4o-mini
 OPENAI_API_KEY=sk-...
 ```
 
-Paste the GitHub App private key as one line with `\n` for newlines, or as base64-encoded PEM. A literal multi-line PEM block is the form most likely to break Compose `env_file`. A placeholder or truncated PEM stops both app containers. Set the provider key before you expect a review to post. An empty `OPENAI_API_KEY` still boots.
+Paste the GitHub App private key as one line with `\n` for newlines, or as base64-encoded PEM. A literal multi-line PEM block is the form most likely to break Compose `env_file`. A placeholder or truncated PEM stops the container. Set the provider key before you expect a review to post. An empty `OPENAI_API_KEY` still boots.
 
 <details>
 <summary>Environment notes</summary>
 
 - `WEBHOOK_SECRET` must match the secret you set on the GitHub App.
-- Compose overrides `ROLE` and `DATABASE_URL` for each service. Web and worker use hostname `postgres` on the compose network. The `DATABASE_URL` in `.env.example` (`localhost:5432`) is for host integration tests and optional host processes. [Local development](#local-development) publishes that port from `docker-compose.dev.yml`. Production Compose does not.
-- Default HTTP port is `7224` (Compose and `.env.example`). Maintainer-local Compose also publishes worker `7225`. Bare `node --env-file-if-exists=.env src/index.ts` without `PORT` falls back to `3000`.
-- `.env.example` sets `LOG_PRETTY=true` for a laptop. On a public host, set `LOG_PRETTY=false` or drop the line so production defaults apply. Change the default Postgres password if the host is reachable.
-- On shutdown the worker stops taking jobs, waits briefly for in-flight work to record its outcome, and exits. Work that outlives that window is recovered by a later worker. Details: [docs/operations.md](docs/operations.md).
+- Compose sets `SQLITE_DIR=/data` on the `pr-agent-data` volume. The `SQLITE_DIR=./data` in `.env.example` is for host runs. Every durable byte lives in that directory: `app_state.sqlite`, `pi_durable.sqlite`, and a single-writer lock file.
+- Default HTTP port is `7224` (Compose and `.env.example`). Bare `node --env-file-if-exists=.env src/index.ts` without `PORT` falls back to `3000`.
+- `.env.example` sets `LOG_PRETTY=true` for a laptop. On a public host, set `LOG_PRETTY=false` or drop the line so production defaults apply.
+- On shutdown the process stops accepting webhooks (`503`), gives in-flight GitHub writes up to `SHUTDOWN_GRACE_MS` (25 s) to finish, and exits. Unfinished work resumes on the next start. Details: [docs/operations.md](docs/operations.md).
 - Full env catalog: [docs/configuration.md](docs/configuration.md). Feature switches: [docs/features.md](docs/features.md).
 
 </details>
@@ -170,17 +171,15 @@ docker compose build
 docker compose up -d
 ```
 
-| Service           | Role          | What it does                                                                                      |
-| ----------------- | ------------- | ------------------------------------------------------------------------------------------------- |
-| `postgres`        | database      | Durable webhook dedupe, duplicate metadata, work items, pg-boss jobs. Not published to the host.  |
-| `pr-agent-web`    | `ROLE=web`    | `POST /webhooks`, `GET /health`, `GET /ready` on port `7224`                                      |
-| `pr-agent-worker` | `ROLE=worker` | Consumes ack, review, ask, description, triage, verification, CI-projection, and retention queues |
+| Service    | Volume                | What it does                                                                                                         |
+| ---------- | --------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `pr-agent` | `pr-agent-data:/data` | `POST /webhooks`, `GET /health`, `GET /ready` on port `7224`; runs reviews, asks, descriptions, triage, verification |
 
-`postgres`, `pr-agent-web`, and `pr-agent-worker` use `restart: unless-stopped`. A host reboot starts containers that were running, and `docker compose stop` keeps a service down across that reboot. A `postgres` container created before this policy stays down until you run `docker compose up -d` again. That recreate keeps the data volume. Do not run `docker compose down -v`.
+`pr-agent` uses `restart: unless-stopped`. A host reboot starts it if it was running, and `docker compose stop` keeps it down across that reboot. Recreating the container keeps the data volume. Do not run `docker compose down -v`; that deletes every review, publish record, and queued run.
 
-Postgres is `postgres:18.7-alpine`. The data volume mounts at `/var/lib/postgresql`. A database created by Postgres 16 does not open on this image. Dump it with the old image and restore it into a new volume.
+Run exactly one container per data volume. A second process on the same volume refuses to start. Updates stop the old container before the new one starts.
 
-Migrations run when each process opens its Postgres pool.
+The database schema is created on first start. There are no migrations to run.
 
 <details>
 <summary>Compose overrides and the production overlay</summary>
@@ -192,32 +191,32 @@ PR_AGENT_ENV_FILE=/abs/path/to/.env docker compose up -d
 If host port `7224` is taken, map another host port and keep the container on `7224`:
 
 ```yaml
-# under pr-agent-web in a compose override
+# under pr-agent in a compose override
 ports:
   - "7227:7224"
 ```
 
-Do not start [docker-compose.prod.yml](docker-compose.prod.yml) with the example `DATABASE_URL`. That overlay replaces the in-compose `postgres` hostname with `${DATABASE_URL}`. Inside the container, `localhost` is the app container, not the database. The overlay also requires `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD`. Details: [docs/operations.md](docs/operations.md).
+[docker-compose.prod.yml](docker-compose.prod.yml) drops the `.env` default: it refuses to start unless `PR_AGENT_ENV_FILE` names your env file. Details: [docs/operations.md](docs/operations.md).
 
-If you change GitHub fields after the first start, recreate the app containers:
+If you change GitHub fields after the first start, recreate the container:
 
 ```bash
-docker compose up -d --force-recreate pr-agent-web pr-agent-worker
+docker compose up -d --force-recreate pr-agent
 ```
 
 </details>
 
 ### 4. Reach the webhook
 
-GitHub must reach `POST /webhooks` on the web service over HTTPS. Localhost is the documented exception. Production Compose publishes HTTP `7224` only. Laptop Caddy and the Cloudflare quick tunnel are [docker-compose.dev.yml](docker-compose.dev.yml). Production TLS is still operator-owned.
+GitHub must reach `POST /webhooks` on the `pr-agent` service over HTTPS. Localhost is the documented exception. Production Compose publishes HTTP `7224` only. Laptop Caddy and the Cloudflare quick tunnel are [docker-compose.dev.yml](docker-compose.dev.yml). Production TLS is still operator-owned.
 
-**Production.** Put TLS in front of `pr-agent-web` (Caddy, nginx, a load balancer, your PaaS). Forward to container port `7224`. A Caddy example lives in [docs/operations.md](docs/operations.md#tls-in-front-of-compose).
+**Production.** Put TLS in front of `pr-agent` (Caddy, nginx, a load balancer, your PaaS). Forward to container port `7224`. A Caddy example lives in [docs/operations.md](docs/operations.md#tls-in-front-of-compose).
 
-**Laptop.** Use [Local development](#local-development). That Compose file starts a Cloudflare quick tunnel to the web process. Print the public webhook URL and paste it on the GitHub App. Do not point the App at Caddy. A hostname with no running `cloudflared` service drops every delivery. GitHub can show 200 from the relay while this process sees nothing.
+**Laptop.** Use [Local development](#local-development). That Compose file starts a Cloudflare quick tunnel to the pr-agent process. Print the public webhook URL and paste it on the GitHub App. Do not point the App at Caddy. A hostname with no running `cloudflared` service drops every delivery. GitHub can show 200 from the relay while this process sees nothing.
 
 ### 5. Set the model provider
 
-LLM calls run on the **worker** only.
+LLM calls run inside the `pr-agent` process, never during webhook intake.
 
 | What                    | Env vars                                            | Used for                                                               |
 | ----------------------- | --------------------------------------------------- | ---------------------------------------------------------------------- |
@@ -232,15 +231,15 @@ OPENAI_API_KEY=sk-...
 ```
 
 ```bash
-docker compose up -d --force-recreate pr-agent-worker
+docker compose up -d --force-recreate pr-agent
 ```
 
 <details>
 <summary>Provider catalog and models.json</summary>
 
-- Without a catalog, worker boot only checks that `PI_PROVIDER` is a builtin. An unknown `PI_MODEL` falls through to that provider's first model API type. The first session then throws `provider.model_not_found`. Web never validates the model id. A present `models.json` does fail worker boot on a missing selection.
-- pr-agent loads `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `GOOGLE_GENERATIVE_AI_API_KEY` in [`src/settings/slices/models.ts`](src/settings/slices/models.ts). If the Google alias is empty, pi-ai also reads `GEMINI_API_KEY` from the process environment. Other Pi providers use their usual env vars on the worker (for example `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`). Provider catalog: [pi-ai](https://github.com/earendil-works/pi/tree/main/packages/ai).
-- Optional custom catalog: copy [`models.json.example`](models.json.example), place `models.json` at the repo root before `docker build` (copied to `/app/models.json` when present), add a runtime mount on **both** web and worker (the committed compose file does not), or set `MODELS_JSON_PATH`. Details: [docs/operations.md](docs/operations.md).
+- Without a catalog, boot only checks that `PI_PROVIDER` is a builtin. An unknown `PI_MODEL` falls through to that provider's first model API type. The first session then throws `provider.model_not_found`. A present `models.json` does fail boot on a missing selection.
+- pr-agent loads `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `GOOGLE_GENERATIVE_AI_API_KEY` in [`src/settings/slices/models.ts`](src/settings/slices/models.ts). If the Google alias is empty, pi-ai also reads `GEMINI_API_KEY` from the process environment. Other Pi providers use their usual env vars in the process environment (for example `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`). Provider catalog: [pi-ai](https://github.com/earendil-works/pi/tree/main/packages/ai).
+- Optional custom catalog: copy [`models.json.example`](models.json.example), place `models.json` at the repo root before `docker build` (copied to `/app/models.json` when present), add a runtime mount on the `pr-agent` service (the committed compose file does not), or set `MODELS_JSON_PATH`. Details: [docs/operations.md](docs/operations.md).
 - Custom provider fields, a minimal proxy example, and verification: [docs/configuration.md](docs/configuration.md#custom-model-providers).
 
 </details>
@@ -249,7 +248,7 @@ docker compose up -d --force-recreate pr-agent-worker
 
 ```bash
 curl -sS http://127.0.0.1:7224/health   # ok
-curl -sS http://127.0.0.1:7224/ready    # ready (web: Postgres up)
+curl -sS http://127.0.0.1:7224/ready    # ready (SQLite and agent runtime open)
 ```
 
 Then open a small PR on an **installed** repo. Comment `/help` as an owner, member, or collaborator (`SLASH_ALLOWED_ASSOCIATIONS`, default `OWNER,MEMBER,COLLABORATOR`).
@@ -263,20 +262,20 @@ Then open a small PR on an **installed** repo. Comment `/help` as an owner, memb
 
 Late older ticks from the same review do not replace newer progress or its final summary.
 
-Crash recovery serializes its failure decision with lease renewals and restarted jobs. Busy or timed-out recovery passes leave the review alone and try again later.
+After a crash or restart, the process recovers before it serves again: a review resumes where it stopped, and nothing already posted is posted twice.
 
 Default `FEATURE_VERIFICATION=auto` spends tokens on `synchronize` pushes with open findings, and on an authorized maintainer reply in an inline review thread. Switch it to `manual` or `off` if that bill is too high.
 
 <details>
 <summary>What the probes do not prove</summary>
 
-Those probes do not prove GitHub can reach `/webhooks`, that the worker has a provider key, or that App permissions match what publish code calls. An empty `OPENAI_API_KEY` still boots.
+Those probes do not prove GitHub can reach `/webhooks`, that the process has a provider key, or that App permissions match what publish code calls. An empty `OPENAI_API_KEY` still boots.
 
-Worker readiness (consumers registered + Postgres/pg-boss) is checked inside the Compose healthcheck on the worker container (`GET /ready`). The image `HEALTHCHECK` hits `/health`, which is process liveness only. Compose overrides the worker check. From the host you only published the web port by default.
+`/health` and `/ready` both check that `app_state.sqlite` answers and the agent runtime is open. The image `HEALTHCHECK` and the Compose healthcheck hit `/health`.
 
-A contributor or outside commenter gets webhook `200` and no reply. That looks like a dead worker.
+A contributor or outside commenter gets webhook `200` and no reply. That looks like a dead service.
 
-If webhooks return 200 but the PR stays quiet, check the worker logs, the provider key, App install (not just App create), slash allowlist, and the queue runbook: [docs/agent-work-ops.md](docs/agent-work-ops.md). `docker compose logs -f pr-agent-worker`.
+If webhooks return 200 but the PR stays quiet, check the logs, the provider key, App install (not just App create), slash allowlist, and the work run runbook: [docs/agent-work-ops.md](docs/agent-work-ops.md). `docker compose logs -f pr-agent`.
 
 </details>
 
@@ -323,9 +322,9 @@ If webhooks return 200 but the PR stays quiet, check the worker logs, the provid
 
 ## Recommended hosts
 
-Production hosting still ships one stack: Compose `postgres`, `pr-agent-web`, and `pr-agent-worker`. A panel or reverse proxy only terminates TLS and forwards to web. Do not add another production or panel compose file, publish Postgres, or expose the worker. Maintainer-local work uses [docker-compose.dev.yml](docker-compose.dev.yml).
+Production hosting ships one Compose service, `pr-agent`, with one persistent data volume. A panel or reverse proxy only terminates TLS and forwards to it. Do not add another production or panel compose file, and never run two replicas on the same volume. Maintainer-local work uses [docker-compose.dev.yml](docker-compose.dev.yml).
 
-Start the VPS at about 2 vCPU and 4 GB RAM. Web, worker, Postgres, and a panel will not fit well on 1 GB.
+Start the VPS at about 2 vCPU and 4 GB RAM. Reviews, their checkouts, and a panel will not fit well on 1 GB.
 
 | VPS                                            | Why pick it                                                                                         |
 | ---------------------------------------------- | --------------------------------------------------------------------------------------------------- |
@@ -338,18 +337,18 @@ Hetzner is the default pick for this App. Hostinger is the default pick if you w
 | Panel                            | What it gives you                                                                                                                          |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | [Dokploy](https://dokploy.com)   | Native Compose deploy. Built-in Traefik. Let's Encrypt. A domain you paste into the GitHub App.                                            |
-| [Coolify](https://coolify.io)    | Same idea. Traefik by default. Caddy is an option. Set the domain on the web service.                                                      |
+| [Coolify](https://coolify.io)    | Same idea. Traefik by default. Caddy is an option. Set the domain on the `pr-agent` service.                                               |
 | Caddy, nginx, or a load balancer | Fine if you already run one. Point it at container port `7224`. Example: [docs/operations.md](docs/operations.md#tls-in-front-of-compose). |
 
 [CapRover](https://caprover.com) can sit in front of HTTP, but its Compose import is a subset. Prefer Dokploy, Coolify, or a proxy you already know.
 
-On the panel, route only `pr-agent-web`. The public URL is `https://<your-domain>/webhooks`. Leave Compose Postgres unpublished. Keep `DATABASE_URL` on hostname `postgres` inside the compose network. If the panel asks for an internal port, use `7224`.
+On the panel, route `pr-agent`. The public URL is `https://<your-domain>/webhooks`. Keep the `/data` volume persistent, run one replica, and choose a stop-first (recreate) deploy so two containers never share it. If the panel asks for an internal port, use `7224`.
 
 ## Pratham's way of hosting
 
 [Pratham](https://github.com/prathamdby) runs this App on all of his repositories, with every feature left on.
 
-He runs it on a VPS with [Dokploy](https://dokploy.com). Dokploy's Traefik publishes the web service on a domain and issues the certificate. That HTTPS URL is what he puts on the GitHub App (`https://<domain>/webhooks`). The worker stays private. Postgres stays on the compose network.
+He runs it on a VPS with [Dokploy](https://dokploy.com). Dokploy's Traefik publishes the `pr-agent` service on a domain and issues the certificate. That HTTPS URL is what he puts on the GitHub App (`https://<domain>/webhooks`). The data volume stays on the host.
 
 Primary provider is [OpenCode Go](https://opencode.ai/go?ref=AHE1W13AS7) ($10 AI subscription). Model is Meta Muse Spark 1.3 Contributor.
 
@@ -364,53 +363,48 @@ docker compose -f docker-compose.dev.yml up -d --build
 node dev/print-public-webhook-url.cjs
 ```
 
-That one file starts Postgres, Caddy, web, worker, and a Cloudflare quick tunnel to the web process. [`dev/mock.env`](dev/mock.env) has fake App id and webhook secret. The boot script generates a throwaway PEM at process start. Those values are not a real App.
+That one file starts the pr-agent service, Caddy, and a Cloudflare quick tunnel to it. [`dev/mock.env`](dev/mock.env) has fake App id and webhook secret. The boot script generates a throwaway PEM at process start. Those values are not a real App.
 
 The print script writes the public webhook URL (`https://<id>.trycloudflare.com/webhooks`). Paste that on the GitHub App. The hostname changes when you recreate `cloudflared`. Update the App field after a restart.
 
-| URL                               | Role                                          |
-| --------------------------------- | --------------------------------------------- |
-| printed trycloudflare `/webhooks` | GitHub App webhook (public HTTPS)             |
-| printed trycloudflare `/health`   | Web liveness through the tunnel               |
-| `https://web.localhost/health`    | Web liveness on the laptop                    |
-| `https://web.localhost/ready`     | Web Postgres ping on the laptop               |
-| `https://web.localhost/webhooks`  | Durable intake on the laptop (not for GitHub) |
-| `https://worker.localhost/health` | Worker liveness                               |
-| `https://worker.localhost/ready`  | Worker consumers plus Postgres                |
+| URL                                   | Role                                          |
+| ------------------------------------- | --------------------------------------------- |
+| printed trycloudflare `/webhooks`     | GitHub App webhook (public HTTPS)             |
+| printed trycloudflare `/health`       | Liveness through the tunnel                   |
+| `https://pr-agent.localhost/health`   | Liveness on the laptop                        |
+| `https://pr-agent.localhost/ready`    | SQLite and agent runtime on the laptop        |
+| `https://pr-agent.localhost/webhooks` | Durable intake on the laptop (not for GitHub) |
 
 ```bash
-curl -k https://web.localhost/health
-curl -k https://web.localhost/ready
-curl -k https://worker.localhost/health
-curl -k https://worker.localhost/ready
+curl -k https://pr-agent.localhost/health
+curl -k https://pr-agent.localhost/ready
 ```
 
-If `web.localhost` does not resolve, add `127.0.0.1 web.localhost worker.localhost` to `/etc/hosts`, or pass `--resolve web.localhost:443:127.0.0.1` to `curl`.
+If `pr-agent.localhost` does not resolve, add `127.0.0.1 pr-agent.localhost` to `/etc/hosts`, or pass `--resolve pr-agent.localhost:443:127.0.0.1` to `curl`.
 
 Caddy uses an internal certificate. GitHub will not trust it. The Compose `cloudflared` service is the public path. Do not add a host smee or `cloudflared` process unless that service cannot reach Cloudflare.
 
 Published ports bind `127.0.0.1`. Binding `80` and `443` on all interfaces exposes the laptop on the LAN.
 
-If you already run `docker compose up -d postgres` or a published `docker run` Postgres on `5432`, stop that container first so host port `5432` is free. This file uses its own `postgres-data-dev` volume. `compose down` keeps that volume.
+This file uses its own `pr-agent-data-dev` volume. `compose down` keeps that volume. A host `npm run dev` uses `SQLITE_DIR` (default `./data`), a different directory, so both can run.
 
 For live App deliveries, put real GitHub fields in `.env` and start with `PR_AGENT_ENV_FILE=.env docker compose -f docker-compose.dev.yml up -d --build`.
 
-Do not start [docker-compose.yml](docker-compose.yml) at the same time. That file is the self-host path. It has no Caddy, no tunnel, and does not publish Postgres.
+Do not start [docker-compose.yml](docker-compose.yml) at the same time. That file is the self-host path. It has no Caddy and no tunnel.
 
 <details>
 <summary>Tests, Node and npm, and the landing site</summary>
 
-`docker-compose.dev.yml` publishes Postgres at `localhost:5432`. Integration tests use that URL. Unit tests do not need the database, Caddy, or the tunnel.
+Tests need no Docker, database server, Caddy, or tunnel. Each integration suite gets a temporary `SQLITE_DIR`.
 
 ```bash
 npm run test
-DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent npm run test:integration
+npm run test:integration
 npm run check:code
+npm run verify   # integration on a disposable SQLITE_DIR, artifact in verify-artifacts/
 ```
 
-Vitest does not load `.env` for you. Export `DATABASE_URL` in the shell for integration runs. Inventory-only suite that may skip DB cases and the Docker-dependent compose suite when those dependencies are absent: `npm run test:integration:inventory`.
-
-For host development, install Node 24.22.1 LTS with npm 11.19.1 or a newer npm 11 release, then run `npm ci`. The supported Node range is `^24.22.1`. `npm run dev` watches imported TypeScript and loads `.env` when present. Restart after environment or configuration changes. Give web and worker distinct `PORT` values.
+For host development, install Node 24.22.1 LTS with npm 11.19.1 or a newer npm 11 release, then run `npm ci`. The supported Node range is `^24.22.1`. `npm run dev` watches imported TypeScript and loads `.env` when present. Restart after environment or configuration changes. A second `npm run dev` needs its own `SQLITE_DIR`.
 
 One root `package-lock.json` covers the backend and landing workspace. Use `npm ci --workspaces=false` for backend build dependencies, `npm ci --omit=dev --workspaces=false` for backend production, or `npm ci --workspace=pr-agent-landing --include-workspace-root=false` for the site. `.npmrc` owns the seven-day release-age policy, disabled dependency lifecycle scripts, legacy peer resolution, and strict engines. The only release-age exclusion is `@tanstack/redact`.
 
@@ -422,23 +416,22 @@ The marketing site under `site/` is a separate workspace package (`pr-agent-land
 
 ## Data privacy
 
-Agent sessions keep computation in memory. Retries start fresh sessions; saved
-work and publication evidence still protect recovery. Unused encrypted session
-snapshots and phase checkpoints are removed by migration 036.
+Agent conversations, including prompts, repository excerpts, tool results, and
+model replies, are stored in `pi_durable.sqlite` on your data volume so a
+restart can resume a review. When that file grows past its size or age cap, it
+is moved to `archive/` under `SQLITE_DIR` and a fresh one starts. Archived files
+stay until you delete them.
 
-Review recovery stores redacted structured briefs, reports, publication
-plans, and summary inputs on your infrastructure. Finding details, fix directions,
-and suggested code can contain code excerpts. It does not retain raw checkout
-files, prompts, reasoning, or transcripts. Migration 037 adds this separate store.
-Work-item retention deletes its rows. Disabling scheduled retention leaves the
-rows.
+Review recovery keeps the brief, specialist reports, accepted findings, and
+publish progress in the same file. Finding details, fix directions, and
+suggested code can contain code excerpts.
 
-| Topic         | Rule                                                                                                                              |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| Self-hosted   | Postgres, pg-boss, webhook bodies, and work-item state stay on your infrastructure. You own the GitHub App credentials.           |
-| LLM providers | Review text leaves your network only when the worker calls `PI_PROVIDER` / `PI_MODEL`. Read that provider's data policy.          |
-| Ask safety    | `/ask` applies outbound redaction before posting. Questions aimed at bot internals can get a short refusal without an LLM call.   |
-| Retention     | Agent event rows older than 30 days are deleted with the other cleanup. Set `AGENT_EVENTS_RETENTION_SECONDS` to `0` to keep them. |
+| Topic         | Rule                                                                                                                                |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Self-hosted   | `app_state.sqlite`, `pi_durable.sqlite`, webhook metadata, and work state stay on your data volume. You own the App credentials.    |
+| LLM providers | Review text leaves your network only when PR Agent calls `PI_PROVIDER` / `PI_MODEL`. Read that provider's data policy.              |
+| Ask safety    | `/ask` applies outbound redaction before posting. Questions aimed at bot internals can get a short refusal without an LLM call.     |
+| Retention     | Finished work and webhook metadata older than 30 days are deleted daily. `agent_feedback` follows `AGENT_EVENTS_RETENTION_SECONDS`. |
 
 Repository searches, including `/triage`, share a bounded output budget. A truncated search is incomplete, not proof that code is absent. Sensitive-path gates still apply. See [workspace search diagnostics](docs/agent-work-ops.md#workspace-search-diagnostics).
 
@@ -446,8 +439,6 @@ Duplicate deliveries retain local metadata only: incoming delivery ID, body fing
 
 <details>
 <summary>Logging</summary>
-
-Coalesced CI deliveries keep their identities on your retained projection job. Worker logs still name the original delivery. See [the queue runbook](docs/agent-work-ops.md#ci-projection-delivery-attribution) to trace an absorbed delivery.
 
 If a replacement review owns the progress comment, late specialist ticks from the earlier run are skipped or rejected with an ownership warning.
 
@@ -460,9 +451,9 @@ Structured logs use [evlog](https://www.evlog.dev) on your hosts. `LOG_REDACT` d
 
 PR Agent can send work and webhook events to [PostHog](https://posthog.com). Set `POSTHOG_PROJECT_TOKEN` in `.env`. Leave it empty and nothing is sent, including AI traces. Use `POSTHOG_HOST` only if your project is not on the default host.
 
-A configured project also receives one AI trace per worker execution. That trace includes credential-redacted prompts, reasoning, and tool arguments and results. Text is bounded, and a cut is marked. Tool spans include a hash of the redacted input, and execute includes a hash of the script. A cancelled or failed session also includes its last turns, the last tool input and output, partial findings, and why it stopped. Repository text can still be sensitive. Removing the token is the opt-out. Ordinary work and webhook events stay metadata. They do not include prompts or tool payloads. Work events can include how the pull request checkout was fetched, with Git exit codes but no Git output. Classified failures can include sanitized, bounded error messages. Raw error payloads are not sent.
+A configured project also receives one AI trace per work run attempt. That trace includes credential-redacted prompts, reasoning, and tool arguments and results. Text is bounded, and a cut is marked. Tool spans include a hash of the redacted input, and execute includes a hash of the script. A cancelled or failed session also includes its last turns, the last tool input and output, partial findings, and why it stopped. Repository text can still be sensitive. Removing the token is the opt-out. Ordinary work and webhook events stay metadata. They do not include prompts or tool payloads. Work events can include how the pull request checkout was fetched, with Git exit codes but no Git output. Classified failures can include sanitized, bounded error messages. Raw error payloads are not sent.
 
-The work item is the session. The execution is the trace. Query `posthog.ai_events` for content. PostHog keeps that content for 30 days. Model, tokens, latency, and ids remain after the content drop. AI events are billed. Set a billing limit. They do not update person profiles.
+The work run is the session. The execution is the trace. Query `posthog.ai_events` for content. PostHog keeps that content for 30 days. Model, tokens, latency, and ids remain after the content drop. AI events are billed. Set a billing limit. They do not update person profiles.
 
 Env catalog: [docs/configuration.md](docs/configuration.md).
 
@@ -476,6 +467,6 @@ Env catalog: [docs/configuration.md](docs/configuration.md).
 | [Features](docs/features.md)                         | `FEATURE_*` modes and slash commands          |
 | [Configuration](docs/configuration.md)               | Env vars, defaults, and code constants        |
 | [Operations](docs/operations.md)                     | TLS, host panels, scripts, production overlay |
-| [Queue runbook](docs/agent-work-ops.md)              | Inspect and recover durable work              |
+| [Work run runbook](docs/agent-work-ops.md)           | Inspect and recover durable work, reset       |
 | [Development](docs/development.md)                   | Module layout and import rules                |
 | [Domain terms](CONTEXT.md)                           | Product vocabulary                            |

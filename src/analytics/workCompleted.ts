@@ -134,6 +134,7 @@ export type RecordWorkCompletedInput = {
   readonly durationMs: number;
   readonly attemptCount: number;
   readonly ci?: CiWorkTelemetry;
+  readonly webhookReceivedAt?: number;
   readonly workspaceCheckout?: WorkspaceCheckoutAnalytics;
 };
 
@@ -343,6 +344,9 @@ export function recordWorkCompleted(input: RecordWorkCompletedInput) {
           : (effectiveDegradedReason ?? failure?.errorKind ?? outcome),
       duration_ms: profile?.durationMs ?? input.durationMs,
       attempt_count: profile?.attemptCount ?? input.attemptCount,
+      ...(input.webhookReceivedAt != null
+        ? { webhook_to_completed_ms: Math.max(0, Date.now() - input.webhookReceivedAt) }
+        : {}),
       owner: item.owner,
       repo: item.repo,
       pr_number: item.prNumber,

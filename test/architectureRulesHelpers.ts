@@ -33,7 +33,7 @@ function specifierMatches(row: CodeRow, specifier: string) {
 }
 
 function assignsWorkItemStatus(text: string) {
-  if (!/update\s+agent_work_items/i.test(text))
+  if (!/update\s+(?:agent_work_items|work_runs)\b/i.test(text))
     return ((pinnedReturn: boolean) => pinnedReturn)(false);
   const setAt = text.search(/\bset\b/i);
   if (setAt < 0) return ((pinnedReturn: boolean) => pinnedReturn)(false);

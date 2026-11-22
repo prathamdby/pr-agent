@@ -1,4 +1,4 @@
-import type { Pool, PoolClient } from "pg";
+import type { DatabaseSync } from "node:sqlite";
 import type { PiSessionCreateParams } from "./types.ts";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Config } from "../../settings/index.ts";
@@ -6,7 +6,6 @@ import { combineAbortSignals, type AgentRunnerToolExecutor } from "../providers/
 import { createDurableLifecycleEventSink, resolveAgentEventsContext } from "./agentEventSink.ts";
 import { thinkingPolicyFromCeiling } from "./thinkingPolicy.ts";
 import { modelAssignmentForRole, resolveModelPolicy } from "./modelPolicy.ts";
-import { CODE_MODE_EXECUTE_NAME } from "../codemode/types.ts";
 import { attachReportObstacle } from "../feedback/reportObstacle.ts";
 import { createPiSession } from "./piSession.ts";
 import { compactionPolicyForRole } from "./compactionPolicy.ts";
@@ -20,7 +19,7 @@ import {
 } from "./types.ts";
 
 export type FeatureSessionContext = {
-  readonly pool: Pool;
+  readonly db?: DatabaseSync;
   readonly workItemId: string;
   readonly installationId: number;
   readonly owner?: string;
@@ -48,14 +47,19 @@ export async function createFeaturePiSession(params: {
   readonly specialistId?: string;
   readonly cfg: Config;
   readonly systemPrompt: string;
+  readonly systemPromptSharedHead?: string;
+  readonly promptCacheKey?: string;
   readonly tools: readonly PiTool[];
   readonly executors: Record<string, AgentRunnerToolExecutor>;
+  readonly durableTools?: PiSessionCreateParams["durableTools"];
+  readonly toolMeta?: PiSessionCreateParams["toolMeta"];
+  readonly codemode?: boolean;
+  readonly ownership?: PiSessionCreateParams["ownership"];
+  readonly providerSessionId?: string;
   readonly cwd?: string;
   readonly eventSink?: (event: AgentLifecycleEvent) => void;
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
-  readonly sessionContext?: Omit<FeatureSessionContext, "pool"> & {
-    readonly pool: Pool | PoolClient;
-  };
+  readonly sessionContext?: FeatureSessionContext;
   readonly hostSignal?: AbortSignal;
   readonly attemptModel?: ModelAssignment;
 }) {
@@ -71,28 +75,20 @@ export async function createFeaturePiSession(params: {
     } catch {}
     durableEventSink?.(event);
   };
-  const executors = { ...params.executors };
-  const execute = executors[CODE_MODE_EXECUTE_NAME];
   const sessionAbort = new AbortController();
-  if (execute) {
-    executors[CODE_MODE_EXECUTE_NAME] = async (args, ctx?) =>
-      execute(args, {
-        signal: combineAbortSignals([ctx?.signal, sessionAbort.signal, params.hostSignal]),
-        toolCallId: ctx?.toolCallId ?? CODE_MODE_EXECUTE_NAME,
-        emit: (event) => {
-          ctx?.emit?.(event);
-          eventSink(event);
-        },
-        role: params.role,
-        provider: primary.provider,
-        model: primary.model,
+  const executors: Record<string, AgentRunnerToolExecutor> = {};
+  for (const [name, executor] of Object.entries(params.executors)) {
+    executors[name] = (args, ctx) =>
+      executor(args, {
+        ...(ctx ?? { signal: sessionAbort.signal, toolCallId: "" }),
+        signal: combineAbortSignals([ctx?.signal, sessionAbort.signal]),
       });
   }
   const attached = attachReportObstacle(
     { tools: params.tools, executors },
     agentEventsContext
       ? {
-          pool: agentEventsContext.pool,
+          ...(params.sessionContext?.db !== undefined ? { db: params.sessionContext.db } : {}),
           workItemId: agentEventsContext.workItemId,
           installationId: agentEventsContext.installationId,
           owner: agentEventsContext.owner,
@@ -122,11 +118,24 @@ export async function createFeaturePiSession(params: {
     promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
     toolPolicy: DEFAULT_TOOL_POLICY,
     systemPrompt: params.systemPrompt,
+    ...(params.systemPromptSharedHead != null
+      ? { systemPromptSharedHead: params.systemPromptSharedHead }
+      : {}),
+    ...(params.promptCacheKey != null ? { promptCacheKey: params.promptCacheKey } : {}),
     cwd: params.cwd,
     eventSink,
     cfg: params.cfg,
     tools: attached.tools,
     executors: attached.executors,
+    ...(params.durableTools !== undefined ? { durableTools: params.durableTools } : {}),
+    ...(params.toolMeta !== undefined ? { toolMeta: params.toolMeta } : {}),
+    ...(params.codemode !== undefined ? { codemode: params.codemode } : {}),
+    ...(params.ownership !== undefined ? { ownership: params.ownership } : {}),
+    ...(params.providerSessionId !== undefined
+      ? { providerSessionId: params.providerSessionId }
+      : params.promptCacheKey != null
+        ? { providerSessionId: params.promptCacheKey }
+        : {}),
     refreshBeforeTool: params.refreshBeforeTool,
     hostSignal: params.hostSignal,
   });

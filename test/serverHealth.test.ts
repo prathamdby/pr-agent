@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { Effect, Fiber, Layer } from "effect";
-import { AgentWorkScheduler } from "../src/agentWork/scheduler.ts";
+import { WebhookIntake } from "../src/effect/webhookIntake.ts";
 import type { WebhookHeaders } from "../src/agentWork/types.ts";
 import type { Config } from "../src/settings/index.ts";
 import { initEvlog } from "../src/evlog.ts";
@@ -188,22 +188,25 @@ type Handle = { server: http.Server; fiber: Fiber.Fiber<void, unknown> };
 
 function startEffectServer({
   pingResult = true,
+  accepting = true,
   cfg = testCfg,
   recordIgnored = () => Effect.void,
 }: {
   readonly pingResult?: boolean;
+  readonly accepting?: boolean;
   readonly cfg?: Config;
   readonly recordIgnored?: (headers: WebhookHeaders) => Effect.Effect<void, Error>;
 } = {}) {
   return ((pinnedReturn: Promise<Handle>) => pinnedReturn)(
     new Promise((resolve, reject) => {
       let captured: http.Server | undefined;
-      const schedulerLayer = Layer.succeed(
-        AgentWorkScheduler,
-        AgentWorkScheduler.of({
+      const intakeLayer = Layer.succeed(
+        WebhookIntake,
+        WebhookIntake.of({
           submit: (command) =>
             recordIgnored(command.kind === "slash" ? command.input.headers : command.headers),
           ping: () => Effect.succeed(pingResult),
+          accepting: () => accepting,
         }),
       );
       const layer = buildEffectWebhookLayer(
@@ -216,7 +219,7 @@ function startEffectServer({
           captured.once("error", reject);
           return captured;
         },
-        schedulerLayer,
+        intakeLayer,
       );
       const fiber = Effect.runFork(Layer.launch(layer));
     }),
@@ -254,7 +257,7 @@ describe("effect webhook server (end-to-end)", () => {
   });
 
   it.each(["/ready", "/ready?probe=1"])(
-    "returns 200 ready for GET %s when the DB ping succeeds",
+    "returns 200 ready for GET %s when app_state and the harness are up",
     async (path) => {
       handle = await startEffectServer({ pingResult: true });
       const addr = handle.server.address();
@@ -267,7 +270,7 @@ describe("effect webhook server (end-to-end)", () => {
   );
 
   it.each(["/ready", "/ready?probe=1"])(
-    "returns 503 not ready for GET %s when the DB ping fails",
+    "returns 503 not ready for GET %s when app_state or the harness is down",
     async (path) => {
       handle = await startEffectServer({ pingResult: false });
       const addr = handle.server.address();
@@ -458,6 +461,29 @@ describe("effect webhook server (end-to-end)", () => {
     });
     expect(res.status).toBe(422);
     expect(res.body).toBe("unprocessable entity");
+  });
+
+  it("returns 503 on /webhooks during shutdown without running intake", async () => {
+    let intakeCalls = 0;
+    handle = await startEffectServer({
+      accepting: false,
+      recordIgnored: () =>
+        Effect.sync(() => {
+          intakeCalls += 1;
+        }),
+    });
+    const addr = handle.server.address();
+    if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
+    const body = Buffer.from(JSON.stringify({ zen: "smoke", installation: { id: 1 } }));
+    const res = await postSigned(addr.port, "/webhooks", body, {
+      "x-hub-signature-256": signBody(testCfg.webhook.secret, body),
+      "x-github-event": "ping",
+      "x-github-delivery": "e2e-shutdown",
+    });
+    expect(res.status).toBe(503);
+    expect(res.body).toBe("service unavailable");
+    expect(intakeCalls).toBe(0);
+    expect((await get(addr.port, "/health")).status).toBe(200);
   });
 
   it("returns 503 service unavailable when intake submit fails", async () => {

@@ -387,8 +387,8 @@ describe("orchestrator prompts", () => {
 
   it("requires one duplicate-aware publish_thread judgment call and permits zero findings", () => {
     const outcome = {
-      kind: "report",
-      specialist: "correctness",
+      kind: "complete",
+      specialist: "correctness" as const,
       durationMs: 1,
       report: {
         status: "findings",
@@ -404,7 +404,7 @@ describe("orchestrator prompts", () => {
           },
         ],
       },
-    } satisfies Extract<SpecialistOutcome, { readonly kind: "report" }>;
+    } satisfies Extract<SpecialistOutcome, { readonly kind: "complete" }>;
 
     const prompt = renderJudgmentTurn(
       outcome,

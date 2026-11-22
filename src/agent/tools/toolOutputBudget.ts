@@ -86,11 +86,10 @@ function clampLongLines(lines: readonly string[]) {
     pinnedReturn)(clamped === null ? null : { lines: clamped, clampedLines });
 }
 
-function isMidLineByteCut(fullText: string, capped: CappedTextOutput) {
-  if (!capped.truncated || capped.content.length === 0)
-    return ((pinnedReturn: boolean) => pinnedReturn)(false);
-  if (capped.content.endsWith("\n")) return ((pinnedReturn: boolean) => pinnedReturn)(false);
-  return ((pinnedReturn: boolean) => pinnedReturn)(fullText[capped.content.length] !== "\n");
+export function completePrefixLength(text: string, prefix: string) {
+  return prefix.length === text.length || prefix.endsWith("\n") || text[prefix.length] === "\n"
+    ? prefix.length
+    : prefix.lastIndexOf("\n") + 1;
 }
 
 function mergeClampedLines(prefixClamped: readonly number[], byteCutLine: number | undefined) {
@@ -149,7 +148,8 @@ export function readTextWithOutputBudget(
     const capped = capTextOutput(body, maxResponseBytes, "response byte budget exceeded");
     const endLine = endLineForText(capped.content);
     const shownPrefixClamped = clamped?.clampedLines.filter((line) => line <= endLine) ?? [];
-    const byteCutLine = endLine > 0 && isMidLineByteCut(body, capped) ? endLine : undefined;
+    const byteCutLine =
+      completePrefixLength(body, capped.content) < capped.content.length ? endLine : undefined;
     const clampedLines = mergeClampedLines(shownPrefixClamped, byteCutLine);
     const resumeStartLine = byteCutLine ?? endLine + 1;
     const notes: string[] = [];
@@ -207,7 +207,9 @@ export function readTextWithOutputBudget(
   const shownPrefixClamped =
     clamped?.clampedLines.filter((line) => line >= startLine && line <= endLine) ?? [];
   const byteCutLine =
-    endLine >= startLine && isMidLineByteCut(selectedText, capped) ? endLine : undefined;
+    completePrefixLength(selectedText, capped.content) < capped.content.length
+      ? endLine
+      : undefined;
   const clampedLines = mergeClampedLines(shownPrefixClamped, byteCutLine);
 
   const notes: string[] = [];

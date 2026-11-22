@@ -1,5 +1,8 @@
-import { boundJsonValue } from "../execution/marshal.ts";
-import { CODE_MODE_SERIALIZE_MAX_ARRAY_LENGTH } from "../../settings/index.ts";
+import {
+  CODE_MODE_HOST_TO_GUEST_MAX_BYTES,
+  CODE_MODE_SERIALIZE_MAX_ARRAY_LENGTH,
+  CODE_MODE_SERIALIZE_MAX_STRING_BYTES,
+} from "../../settings/index.ts";
 import { isRecord } from "../../util/typeGuards.ts";
 
 export type ChangedFileRecord = {
@@ -61,28 +64,19 @@ function decodeContinuation(token: string) {
   });
 }
 
-function sameEntry(left: ChangedFileRecord, right: unknown) {
-  if (!isRecord(right)) return ((pinnedReturn: boolean) => pinnedReturn)(false);
-  if (right.path !== left.path || right.status !== left.status)
-    return ((pinnedReturn: boolean) => pinnedReturn)(false);
-  if (right.presentInCheckout !== left.presentInCheckout)
-    return ((pinnedReturn: boolean) => pinnedReturn)(false);
-  return ((pinnedReturn: boolean) => pinnedReturn)(right.oldPath === left.oldPath);
-}
-
 function pageFits(page: ChangedFilePage) {
-  const bounded = boundJsonValue(page);
-  if (
-    bounded.truncation !== null ||
-    !isRecord(bounded.value) ||
-    !Array.isArray(bounded.value.files)
-  ) {
+  if (page.files.length > CODE_MODE_SERIALIZE_MAX_ARRAY_LENGTH)
     return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  for (const file of page.files) {
+    if (
+      Buffer.byteLength(file.path, "utf8") > CODE_MODE_SERIALIZE_MAX_STRING_BYTES ||
+      (file.oldPath !== undefined &&
+        Buffer.byteLength(file.oldPath, "utf8") > CODE_MODE_SERIALIZE_MAX_STRING_BYTES)
+    )
+      return ((pinnedReturn: boolean) => pinnedReturn)(false);
   }
-  const files = bounded.value.files;
   return ((pinnedReturn: boolean) => pinnedReturn)(
-    files.length === page.files.length &&
-      page.files.every((file, index) => sameEntry(file, files[index])),
+    Buffer.byteLength(JSON.stringify(page), "utf8") <= CODE_MODE_HOST_TO_GUEST_MAX_BYTES,
   );
 }
 

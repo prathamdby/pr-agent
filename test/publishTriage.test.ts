@@ -1,55 +1,26 @@
-const publicationWrites = vi.hoisted(() => ({
-  write: vi
-    .fn<import("../src/agentWork/publishOnce.ts").PublishRecordStore["write"]>()
-    .mockResolvedValue(undefined),
-}));
-vi.mock("../src/agentWork/publishOnce.ts", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.ts")>();
-  return {
-    ...actual,
-    createPublishContext: (
-      client: import("pg").Pool | import("pg").PoolClient,
-      identity: import("../src/agentWork/publishOnce.ts").PublicationIdentity,
-    ) =>
-      actual.createPublishContext(client, identity, {
-        ...actual.postgresPublishRecords,
-        write: publicationWrites.write,
-      }),
-  };
-});
-const recordPublishStep = publicationWrites.write;
-import { createFakePublishStore } from "../src/agentWork/fakePublishStore.ts";
-const publishStoreState = vi.hoisted(() => {
-  let store: import("../src/agentWork/publishOnce.ts").PublishIntentStore;
-  return {
-    get store() {
-      return store;
-    },
-    set store(value) {
-      store = value;
-    },
-  };
-});
-vi.mock("../src/agentWork/operationIntentRepository.ts", async () => {
-  const { operationIntentRepositoryMock } = await import("./helpers/operationIntentMock.ts");
-  return operationIntentRepositoryMock(publishStoreState);
-});
+import { afterEach } from "vitest";
+import {
+  legacyIntentStore,
+  openExecutorDurableHarness,
+  seedPublishStep,
+  testPublication,
+  type ExecutorDurableHarness,
+} from "./helpers/executorDurableHarness.ts";
+const recordPublishStep = vi.fn();
+let harness: ExecutorDurableHarness;
+const publishStoreState = {
+  get store() {
+    return legacyIntentStore(harness.db);
+  },
+};
 beforeEach(() => {
-  publishStoreState.store = createFakePublishStore();
+  harness = openExecutorDurableHarness();
 });
-vi.mock("../src/review/findingIdentity/threadMutationLock.ts", () => ({
-  threadMutationLock: () =>
-    ((
-      pinnedReturn: import("../src/review/findingIdentity/threadMutationLock.ts").ThreadMutationLock,
-    ) => pinnedReturn)((apply) => apply()),
-}));
-vi.mock("../src/agentWork/reconcilePendingIntents.ts", () => ({
-  reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
-  findCompletedPublishRecordId: vi.fn(async () => null),
-}));
+afterEach(() => {
+  harness.close();
+});
 import { createWritableRepositoryReader } from "../src/prWorkspace/repositoryReader.ts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
 import {
   StaleHeadPushError,
   type WritablePrCheckout,
@@ -63,21 +34,7 @@ import {
   upsertProgressBody,
 } from "./helpers/publishPrSurface.ts";
 
-vi.mock("../src/agentWork/workItemStateRepository.ts", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/agentWork/workItemStateRepository.ts")>()),
-  shouldSkipWork: vi.fn(async () => false),
-}));
-
-vi.mock("../src/agentWork/prActorLease.ts", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/prActorLease.ts")>();
-  return {
-    ...actual,
-    assertPrActorLeaseHeld: vi.fn().mockResolvedValue(undefined),
-    isPrActorLeaseHeld: vi.fn().mockResolvedValue(true),
-  };
-});
-
-import { triagePushOperationKey } from "../src/agentWork/publishOnce.ts";
+import { triagePushOperationKey } from "../src/state/featurePublication.ts";
 import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.ts";
 import {
   isTriagePushOutcome,
@@ -143,18 +100,23 @@ function emptyCheckout(push: () => Promise<void>) {
   });
 }
 
-function pool(detail?: unknown) {
-  return ((pinnedReturn: Pool) => pinnedReturn)({
-    query: vi.fn(async () => ({ rows: detail === undefined ? [] : [{ detail }] })),
-  } as unknown as Pool);
+function pool(detail?: Record<string, unknown>) {
+  if (detail !== undefined) {
+    for (const step of ["triage_push", "triage_thread_actions"]) {
+      seedPublishStep(harness.db, { lens: "triage", step, detail });
+    }
+  }
+  return testPublication(harness.db, { onRecord: recordPublishStep });
 }
 
 function poolWithPriorRunActedIds() {
-  return ((pinnedReturn: Pool) => pinnedReturn)({
-    query: vi.fn(async (_sql, args: readonly unknown[]) => ({
-      rows: args[0] === "wi" ? [] : [{ detail: { actedThreadIds: [1] } }],
-    })),
-  } as unknown as Pool);
+  seedPublishStep(harness.db, {
+    workId: "other",
+    lens: "triage",
+    step: "triage_thread_actions",
+    detail: { actedThreadIds: [1] },
+  });
+  return testPublication(harness.db, { onRecord: recordPublishStep });
 }
 
 function triagePushRecords() {
@@ -182,9 +144,8 @@ describe("publishTriage", () => {
     const fake = publishTestPrSurface();
     controls = fake.controls;
     const result = await publishTriage({
-      pool: pool(),
+      publication: pool(),
       workItemId: "wi",
-      leaseEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       prSurface: fake.surface,
@@ -221,9 +182,8 @@ describe("publishTriage", () => {
     const fake = publishTestPrSurface();
     controls = fake.controls;
     const result = await publishTriage({
-      pool: pool(),
+      publication: pool(),
       workItemId: "wi",
-      leaseEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       prSurface: fake.surface,
@@ -301,9 +261,8 @@ describe("publishTriage", () => {
     });
 
     const result = await publishTriage({
-      pool: pool(),
+      publication: pool(),
       workItemId: "wi",
-      leaseEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       prSurface: fake.surface,
@@ -372,9 +331,8 @@ describe("publishTriage", () => {
       };
 
       const result = await publishTriage({
-        pool: pool(),
+        publication: pool(),
         workItemId: "wi",
-        leaseEpoch: 1,
         resourceKey: "o/r#1",
         installationId: 42,
         prSurface: fake.surface,
@@ -409,9 +367,8 @@ describe("publishTriage", () => {
     const fake = publishTestPrSurface();
     controls = fake.controls;
     const result = await publishTriage({
-      pool: pool(),
+      publication: pool(),
       workItemId: "wi",
-      leaseEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       prSurface: fake.surface,
@@ -460,9 +417,8 @@ describe("publishTriage", () => {
     );
     controls = fake.controls;
     const result = await publishTriage({
-      pool: pool(),
+      publication: pool(),
       workItemId: "wi",
-      leaseEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       prSurface: fake.surface,
@@ -510,9 +466,8 @@ describe("publishTriage", () => {
     const fake = publishTestPrSurface();
     controls = fake.controls;
     await publishTriage({
-      pool: pool(),
+      publication: pool(),
       workItemId: "wi",
-      leaseEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       prSurface: fake.surface,
@@ -543,9 +498,8 @@ describe("publishTriage", () => {
     const fake = publishTestPrSurface();
     controls = fake.controls;
     const result = await publishTriage({
-      pool: pool(),
+      publication: pool(),
       workItemId: "wi",
-      leaseEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       prSurface: fake.surface,
@@ -579,9 +533,8 @@ describe("publishTriage", () => {
     const fake = publishTestPrSurface();
     controls = fake.controls;
     await publishTriage({
-      pool: pool(),
+      publication: pool(),
       workItemId: "wi",
-      leaseEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       prSurface: fake.surface,
@@ -618,9 +571,8 @@ describe("publishTriage", () => {
     );
     controls = fake.controls;
     const result = await publishTriage({
-      pool: pool(),
+      publication: pool(),
       workItemId: "wi",
-      leaseEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       prSurface: fake.surface,
@@ -672,9 +624,8 @@ describe("publishTriage", () => {
     const fake = publishTestPrSurface();
     controls = fake.controls;
     const result = await publishTriage({
-      pool: pool(),
+      publication: pool(),
       workItemId: "wi",
-      leaseEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       prSurface: fake.surface,
@@ -715,9 +666,8 @@ describe("publishTriage", () => {
     const fake = publishTestPrSurface();
     controls = fake.controls;
     await publishTriage({
-      pool: pool({ actedThreadIds: [1] }),
+      publication: pool({ actedThreadIds: [1] }),
       workItemId: "wi",
-      leaseEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       prSurface: fake.surface,
@@ -748,9 +698,8 @@ describe("publishTriage", () => {
     const fake = publishTestPrSurface();
     controls = fake.controls;
     await publishTriage({
-      pool: pool(),
+      publication: pool(),
       workItemId: "wi",
-      leaseEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       prSurface: fake.surface,
@@ -781,9 +730,8 @@ describe("publishTriage", () => {
     const fake = publishTestPrSurface();
     controls = fake.controls;
     await publishTriage({
-      pool: poolWithPriorRunActedIds(),
+      publication: poolWithPriorRunActedIds(),
       workItemId: "wi",
-      leaseEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       prSurface: fake.surface,
@@ -814,9 +762,8 @@ describe("publishTriage", () => {
     const fake = publishTestPrSurface();
     controls = fake.controls;
     const result = await publishTriage({
-      pool: pool(),
+      publication: pool(),
       workItemId: "wi",
-      leaseEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       prSurface: fake.surface,
@@ -849,9 +796,8 @@ describe("publishTriage", () => {
     const fake = publishTestPrSurface();
     controls = fake.controls;
     await publishTriage({
-      pool: pool(),
+      publication: pool(),
       workItemId: "wi",
-      leaseEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       prSurface: fake.surface,
@@ -887,9 +833,8 @@ describe("publishTriage", () => {
     const fake = publishTestPrSurface();
     controls = fake.controls;
     await publishTriage({
-      pool: pool(),
+      publication: pool(),
       workItemId: "wi",
-      leaseEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       prSurface: fake.surface,
@@ -928,9 +873,8 @@ describe("publishTriage", () => {
     const fake = publishTestPrSurface();
     controls = fake.controls;
     await publishTriageReportOnly({
-      pool: pool(),
+      publication: pool(),
       workItemId: "wi",
-      leaseEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       prSurface: fake.surface,
@@ -1103,9 +1047,8 @@ describe("publishTriage push outcomes", () => {
         if (outcome === "closed") throw new TriageClosedPullRequestError();
       });
       const result = await publishTriage({
-        pool: pool(),
+        publication: pool(),
         workItemId: "wi",
-        leaseEpoch: 1,
         resourceKey: "o/r#1",
         installationId: 42,
         prSurface: fake.surface,
@@ -1134,9 +1077,8 @@ describe("publishTriage push outcomes", () => {
         if (outcome === "stale") throw new StaleHeadPushError();
       });
       const result = await publishTriage({
-        pool: pool(),
+        publication: pool(),
         workItemId: "wi",
-        leaseEpoch: 1,
         resourceKey: "o/r#1",
         installationId: 42,
         prSurface: fake.surface,
@@ -1167,14 +1109,13 @@ describe("publishTriage push outcomes", () => {
     const fake = publishTestPrSurface();
     const push = vi.fn(async () => undefined);
     const result = await recoverTriagePublication({
-      pool: pool({
+      publication: pool({
         pushOutcome: "pushed",
         pushedHeadSha: "abcdef123456",
         payload: { verdicts: [fixedVerdict] },
         commits: [{ sha: "abcdef123456", subject: "fix: guard user", diff: "+ok\n" }],
       }),
       workItemId: "wi",
-      leaseEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       prSurface: fake.surface,
@@ -1199,14 +1140,13 @@ describe("publishTriage push outcomes", () => {
     const fake = publishTestPrSurface();
     const push = vi.fn(async () => undefined);
     const result = await recoverTriagePublication({
-      pool: pool({
+      publication: pool({
         pushOutcome: "not-needed",
         pushedHeadSha: "abcdef123456",
         payload: { verdicts: [fixedVerdict] },
         commits: [],
       }),
       workItemId: "wi",
-      leaseEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       prSurface: fake.surface,
@@ -1229,9 +1169,8 @@ describe("publishTriage push outcomes", () => {
   it("skips already-resolved GitHub threads without degrading", async () => {
     const fake = publishTestPrSurface(new Map([[1, { threadNodeId: "node", isResolved: true }]]));
     const result = await publishTriage({
-      pool: pool(),
+      publication: pool(),
       workItemId: "wi",
-      leaseEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       prSurface: fake.surface,
@@ -1255,9 +1194,8 @@ describe("publishTriage push outcomes", () => {
     const firstPush = vi.fn(async () => undefined);
     const first = publishTestPrSurface();
     await publishTriage({
-      pool: pool(),
+      publication: pool(),
       workItemId: "wi",
-      leaseEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       prSurface: first.surface,
@@ -1276,9 +1214,8 @@ describe("publishTriage push outcomes", () => {
     const secondPush = vi.fn(async () => undefined);
     const second = publishTestPrSurface();
     const result = await publishTriage({
-      pool: pool(),
+      publication: pool(),
       workItemId: "wi",
-      leaseEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       prSurface: second.surface,
@@ -1298,7 +1235,7 @@ describe("publishTriage push outcomes", () => {
     expect(
       (
         await publishStoreState.store.getOperationIntent(
-          pool(),
+          undefined,
           "wi",
           triagePushOperationKey("o/r#1"),
         )
@@ -1309,7 +1246,7 @@ describe("publishTriage push outcomes", () => {
   it("resumes a reconciled push when the stored head is ahead of the pre-push head", async () => {
     const baseHead = "a".repeat(40);
     const pushedHead = "abcdef123456";
-    await publishStoreState.store.persistOperationIntent(pool(), {
+    await publishStoreState.store.persistOperationIntent(undefined, {
       workItemId: "wi",
       operationKey: triagePushOperationKey("o/r#1"),
       mutationKind: "github.triage_push",
@@ -1326,47 +1263,23 @@ describe("publishTriage push outcomes", () => {
         },
       },
     });
-    await publishStoreState.store.reconcileOperationIntent(pool(), {
+    await publishStoreState.store.reconcileOperationIntent(undefined, {
       workItemId: "wi",
       operationKey: triagePushOperationKey("o/r#1"),
       status: "reconciled",
     });
-    const workItemPool = {
-      query: vi.fn(async (sql: string) => {
-        if (sql.includes("FROM agent_work_items")) {
-          return {
-            rows: [
-              {
-                id: "wi",
-                webhook_event_id: null,
-                type: "triage",
-                source: "slash",
-                status: "running",
-                owner: "o",
-                repo: "r",
-                pr_number: 1,
-                installation_id: 42,
-                head_sha: baseHead,
-                review_lens: null,
-                resource_key: "o/r#1",
-                attempt_count: 1,
-                cancel_requested_at: null,
-              },
-            ],
-          };
-        }
-        return { rows: [] };
-      }),
-    } as unknown as Pool;
+    const workItemPool = testPublication(harness.db, {
+      onRecord: recordPublishStep,
+      payload: { headSha: baseHead },
+    });
     const fake = publishTestPrSurface();
     fake.controls.setPullRequestBranchInfo({ headRef: "main", sameRepo: true });
     fake.controls.setHeadSha(pushedHead);
     fake.controls.setPushedCommits([{ sha: pushedHead, subject: "fix: guard user" }]);
 
     const result = await recoverTriagePublication({
-      pool: workItemPool,
+      publication: workItemPool,
       workItemId: "wi",
-      leaseEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       prSurface: fake.surface,
@@ -1384,7 +1297,7 @@ describe("publishTriage push outcomes", () => {
     expect(
       (
         await publishStoreState.store.getOperationIntent(
-          pool(),
+          undefined,
           "wi",
           triagePushOperationKey("o/r#1"),
         )
@@ -1395,7 +1308,7 @@ describe("publishTriage push outcomes", () => {
   it("keeps a reconciled push reconciled when recovery cannot rebuild it", async () => {
     const baseHead = "a".repeat(40);
     const pushedHead = "abcdef123456";
-    await publishStoreState.store.persistOperationIntent(pool(), {
+    await publishStoreState.store.persistOperationIntent(undefined, {
       workItemId: "wi",
       operationKey: triagePushOperationKey("o/r#1"),
       mutationKind: "github.triage_push",
@@ -1412,38 +1325,15 @@ describe("publishTriage push outcomes", () => {
         },
       },
     });
-    await publishStoreState.store.reconcileOperationIntent(pool(), {
+    await publishStoreState.store.reconcileOperationIntent(undefined, {
       workItemId: "wi",
       operationKey: triagePushOperationKey("o/r#1"),
       status: "reconciled",
     });
-    const workItemPool = {
-      query: vi.fn(async (sql: string) => {
-        if (sql.includes("FROM agent_work_items")) {
-          return {
-            rows: [
-              {
-                id: "wi",
-                webhook_event_id: null,
-                type: "triage",
-                source: "slash",
-                status: "running",
-                owner: "o",
-                repo: "r",
-                pr_number: 1,
-                installation_id: 42,
-                head_sha: baseHead,
-                review_lens: null,
-                resource_key: "o/r#1",
-                attempt_count: 1,
-                cancel_requested_at: null,
-              },
-            ],
-          };
-        }
-        return { rows: [] };
-      }),
-    } as unknown as Pool;
+    const workItemPool = testPublication(harness.db, {
+      onRecord: recordPublishStep,
+      payload: { headSha: baseHead },
+    });
     const fake = publishTestPrSurface();
     fake.controls.setPullRequestBranchInfo({ headRef: "main", sameRepo: true });
     fake.controls.setHeadSha("b".repeat(40));
@@ -1451,9 +1341,8 @@ describe("publishTriage push outcomes", () => {
 
     await expect(
       recoverTriagePublication({
-        pool: workItemPool,
+        publication: workItemPool,
         workItemId: "wi",
-        leaseEpoch: 1,
         resourceKey: "o/r#1",
         installationId: 42,
         prSurface: fake.surface,
@@ -1469,12 +1358,12 @@ describe("publishTriage push outcomes", () => {
     ).rejects.toMatchObject({
       code: "operation_intent.mutation_outcome_unknown",
       message:
-        "Reconciled mutation has no stashed result and recover cannot rebuild it; remutate forbidden",
+        "Reconciled mutation has no stored result and recovery cannot rebuild it; remutate forbidden",
     });
     expect(
       (
         await publishStoreState.store.getOperationIntent(
-          pool(),
+          undefined,
           "wi",
           triagePushOperationKey("o/r#1"),
         )
@@ -1483,12 +1372,12 @@ describe("publishTriage push outcomes", () => {
   });
 
   it("does not treat an unknown push-intent outcome as a push result", async () => {
-    await publishStoreState.store.persistOperationIntent(pool(), {
+    await publishStoreState.store.persistOperationIntent(undefined, {
       workItemId: "wi",
       operationKey: triagePushOperationKey("o/r#1"),
       mutationKind: "github.triage_push",
     });
-    await publishStoreState.store.reconcileOperationIntent(pool(), {
+    await publishStoreState.store.reconcileOperationIntent(undefined, {
       workItemId: "wi",
       operationKey: triagePushOperationKey("o/r#1"),
       status: "outcome_unknown",
@@ -1498,9 +1387,8 @@ describe("publishTriage push outcomes", () => {
 
     await expect(
       publishTriage({
-        pool: pool(),
+        publication: pool(),
         workItemId: "wi",
-        leaseEpoch: 1,
         resourceKey: "o/r#1",
         installationId: 42,
         prSurface: fake.surface,
@@ -1520,7 +1408,7 @@ describe("publishTriage push outcomes", () => {
   });
 
   it("re-checks PR state after recover reconciles a landed push without calling checkout.push", async () => {
-    await publishStoreState.store.persistOperationIntent(pool(), {
+    await publishStoreState.store.persistOperationIntent(undefined, {
       workItemId: "wi",
       operationKey: triagePushOperationKey("o/r#1"),
       mutationKind: "github.triage_push",
@@ -1537,7 +1425,7 @@ describe("publishTriage push outcomes", () => {
         },
       },
     });
-    await publishStoreState.store.reconcileOperationIntent(pool(), {
+    await publishStoreState.store.reconcileOperationIntent(undefined, {
       workItemId: "wi",
       operationKey: triagePushOperationKey("o/r#1"),
       status: "outcome_unknown",
@@ -1561,9 +1449,8 @@ describe("publishTriage push outcomes", () => {
     });
 
     const result = await publishTriage({
-      pool: pool(),
+      publication: pool(),
       workItemId: "wi",
-      leaseEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       prSurface: fake.surface,
@@ -1582,7 +1469,7 @@ describe("publishTriage push outcomes", () => {
     expect(
       (
         await publishStoreState.store.getOperationIntent(
-          pool(),
+          undefined,
           "wi",
           triagePushOperationKey("o/r#1"),
         )
@@ -1610,9 +1497,8 @@ describe("publishTriage push outcomes", () => {
     ];
 
     await publishTriagePreview({
-      pool: pool(),
+      publication: pool(),
       workItemId: "wi",
-      leaseEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       prSurface: fake.surface,
@@ -1682,9 +1568,8 @@ describe("publishTriage push outcomes", () => {
   it("marks a bulk run Partial when some findings apply and others fail", async () => {
     const fake = publishTestPrSurface();
     const result = await publishTriage({
-      pool: pool(),
+      publication: pool(),
       workItemId: "wi",
-      leaseEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       prSurface: fake.surface,

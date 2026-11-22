@@ -1,8 +1,5 @@
-import { createPublishContext } from "./publishOnce.ts";
-import type { Pool } from "pg";
 import type { VerificationFailureSurface } from "../review/ci/ciSummaryCell.ts";
 import { isUsableReviewTimestamp } from "../review/run/reviewPriorFeedback.ts";
-import { VERIFICATION_PUBLISH_LENS } from "../settings/index.ts";
 import { isRecord } from "../util/typeGuards.ts";
 
 type VerificationThreadVerdict = "skipped" | "dismissed" | "fixed" | "already-resolved";
@@ -45,8 +42,6 @@ export type VerificationThreadLedger = {
   readonly threads: Readonly<Record<string, VerificationThreadState>>;
   readonly failureSignal?: VerificationFailureSignal;
 };
-
-const VERIFICATION_THREAD_ACTIONS_STEP = "verification_thread_actions" as const;
 
 function isVerdict(value: unknown): value is VerificationThreadVerdict {
   return (
@@ -264,44 +259,6 @@ export function parseVerificationThreadLedger(detail: unknown) {
   return ((pinnedReturn: VerificationThreadLedger) => pinnedReturn)(
     withParsedFailureSignal(threads, record),
   );
-}
-
-export async function loadVerificationThreadLedger(
-  pool: Pool,
-  params: {
-    readonly resourceKey: string;
-  },
-) {
-  const detail = await createPublishContext(pool, {
-    resourceKey: params.resourceKey,
-    reviewLens: VERIFICATION_PUBLISH_LENS,
-  }).latest(VERIFICATION_THREAD_ACTIONS_STEP);
-  return ((pinnedReturn: VerificationThreadLedger | Promise<VerificationThreadLedger>) =>
-    pinnedReturn)(parseVerificationThreadLedger(detail));
-}
-
-export async function saveVerificationThreadLedger(
-  pool: Pool,
-  params: {
-    readonly workItemId: string;
-    readonly resourceKey: string;
-    readonly ledger: VerificationThreadLedger;
-    readonly leaseEpoch: number | null;
-  },
-) {
-  await createPublishContext(pool, {
-    workItemId: params.workItemId,
-    resourceKey: params.resourceKey,
-    reviewLens: VERIFICATION_PUBLISH_LENS,
-    step: VERIFICATION_THREAD_ACTIONS_STEP,
-    detail: {
-      threads: params.ledger.threads,
-      ...(params.ledger.failureSignal != null
-        ? { failureSignal: params.ledger.failureSignal }
-        : {}),
-    },
-    leaseEpoch: params.leaseEpoch,
-  }).record();
 }
 
 export function upsertVerificationThreadState(

@@ -347,7 +347,10 @@ export function mergeCiSummaryWithFacts(input: CiAuthorInput, llm: CiSummaryLlmF
   });
 }
 
-export function createAgentCiSummaryAuthor(cfg: Config) {
+export function createAgentCiSummaryAuthor(
+  cfg: Config,
+  createSession: typeof createFeaturePiSession = createFeaturePiSession,
+) {
   return ((pinnedReturn: CiSummaryAuthor) => pinnedReturn)(async (input) => {
     if (input.status !== "failing") {
       return {
@@ -361,7 +364,7 @@ export function createAgentCiSummaryAuthor(cfg: Config) {
       };
     }
 
-    const session = await createFeaturePiSession({
+    const session = await createSession({
       role: "ci_summary",
       cfg,
       systemPrompt: CI_SUMMARY_SYSTEM_PROMPT,

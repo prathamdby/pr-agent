@@ -142,7 +142,7 @@ async function prepareEntry(entry: CacheEntry, params: PreparePrRepositoryViewPa
   );
 }
 
-async function acquirePrRepositoryView(params: PreparePrRepositoryViewParams) {
+export async function openPrRepositoryView(params: PreparePrRepositoryViewParams) {
   const key = cacheKey(params);
   let entry = cache.get(key);
   if (!entry) {
@@ -154,12 +154,13 @@ async function acquirePrRepositoryView(params: PreparePrRepositoryViewParams) {
   const reused = entry.view != null || entry.prepare != null;
   try {
     const view = await prepareEntry(entry, params);
-    return ((pinnedReturn: PrRepositoryView | Promise<PrRepositoryView>) => pinnedReturn)({
+    return {
       workspace: view.workspace,
       preflight: view.preflight,
       agentCwd: view.agentCwd,
       reused,
-    });
+      release: () => releasePrRepositoryView(params),
+    };
   } catch (e) {
     await releasePrRepositoryView(params);
     throw e;
@@ -206,10 +207,10 @@ export async function withPrRepositoryView<T>(
   params: PreparePrRepositoryViewParams,
   fn: (view: PrRepositoryView) => Promise<T>,
 ) {
-  const view = await acquirePrRepositoryView(params);
+  const view = await openPrRepositoryView(params);
   try {
     return ((pinnedReturn: T | Promise<T>) => pinnedReturn)(await fn(view));
   } finally {
-    await releasePrRepositoryView(params);
+    await view.release();
   }
 }

@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Effect, Layer } from "effect";
-import { AgentWorkScheduler } from "../src/agentWork/scheduler.ts";
+import { WebhookIntake } from "../src/effect/webhookIntake.ts";
 import { processWebhookPostRequestEffect } from "../src/effect/programs/processWebhookRequestEffect.ts";
 import * as evlog from "../src/evlog.ts";
 import * as appAuth from "../src/github/appAuth.ts";
@@ -23,7 +23,7 @@ function request(event: string, body: Buffer, signature = true) {
 }
 function run(
   req: { headers: Record<string, string | undefined>; rawBody: Buffer },
-  submit: AgentWorkScheduler["Service"]["submit"],
+  submit: WebhookIntake["Service"]["submit"],
   runCfg = cfg,
 ) {
   return Effect.runPromise(
@@ -33,7 +33,11 @@ function run(
       intakeLog: evlog.createOperationLogger({ method: "POST", path: "/webhooks" }),
     }).pipe(
       Effect.provide(
-        Layer.succeed(AgentWorkScheduler, { submit, ping: () => Effect.succeed(true) }),
+        Layer.succeed(WebhookIntake, {
+          submit,
+          ping: () => Effect.succeed(true),
+          accepting: () => true,
+        }),
       ),
     ),
   );

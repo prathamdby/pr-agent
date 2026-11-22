@@ -1,28 +1,24 @@
-import { createPublishContext } from "../../agentWork/publishOnce.ts";
-import type { Pool, PoolClient } from "pg";
-import { withSessionLock } from "../../db/sessionLock.ts";
 import {
-  claimSummaryCommentCreation,
-  getProgressCommentOwner,
-  getProgressCommentRevision,
-  getProgressStubPostedAtMs,
-  getSummaryCommentGithubId,
-} from "../../agentWork/publishRecordRepository.ts";
+  claimPublishStep,
+  ensureRediscoveredSummaryComment,
+  latestCommentGithubId,
+  sharedPublishRecord,
+  writePublishStep,
+  type PublishDb,
+} from "../../state/publish.ts";
 import { logWarn } from "../../evlog.ts";
-import { AppError } from "../../errors/appError.ts";
 import type { IssueCommentRef, PrSurface } from "../../github/prSurface.ts";
 import {
-  POSTGRES_LOCK_TIMEOUT_MS,
   REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS,
   type AnyReviewLens,
 } from "../../settings/index.ts";
 import { parseProgressRevisionState, withProgressRevisionComment } from "../run/commentMarkers.ts";
 import { REVIEW_SUMMARY_SENTINEL } from "../reviewSchema.ts";
-import { errorMessage } from "../../errors/errorMessage.ts";
 import type {
   InstallationOperation,
   ReviewCapabilityPolicy,
 } from "../../github/installationCapabilities.ts";
+import type { ReviewPublishTarget } from "./reviewPublishSession.ts";
 
 function capabilityNotice(policy: ReviewCapabilityPolicy | undefined) {
   if (!policy) return ((pinnedReturn: string | null) => pinnedReturn)(null);
@@ -59,12 +55,16 @@ function capabilityNotice(policy: ReviewCapabilityPolicy | undefined) {
   );
 }
 
-export type SummaryCommentCoordination = {
-  pool: Pool;
-  workItemId: string;
-  resourceKey: string;
-  leaseEpoch?: number | null;
-};
+export type SummaryCommentCoordination = ReviewPublishTarget;
+
+export function upsertSummaryProgressComment(
+  prSurface: PrSurface,
+  body: string,
+  sentinel: string,
+  known: IssueCommentRef | null,
+) {
+  return prSurface.upsertProgressComment(body, sentinel, known);
+}
 
 export type RecordPublishStepFn = (
   step: "inline_review" | "summary_comment" | "labels",
@@ -84,17 +84,33 @@ export function attachSummaryCommentCoordination(
   );
 }
 
+export function recordPublishStepFor(
+  coordination: SummaryCommentCoordination,
+  reviewLens: AnyReviewLens,
+) {
+  return attachSummaryCommentCoordination(async (step, detail) => {
+    writePublishStep(coordination.db, {
+      workId: coordination.workItemId,
+      prKey: coordination.resourceKey,
+      reviewLens,
+      step,
+      ...(detail?.githubId !== undefined ? { githubId: detail.githubId } : {}),
+      ...(detail?.meta !== undefined
+        ? { detail: step === "inline_review" ? { batches: [detail.meta] } : detail.meta }
+        : {}),
+    });
+  }, coordination);
+}
+
 async function resolveKnownSummaryCommentRef(
   prSurface: PrSurface,
   sentinel: string,
   hintCommentId: number | null | undefined,
 ) {
   const resolved = await prSurface.resolveProgressComment(sentinel, hintCommentId);
-  return ((
-    pinnedReturn:
-      | ({ id: number; url: string } | null)
-      | Promise<{ id: number; url: string } | null>,
-  ) => pinnedReturn)(resolved ? { id: resolved.id, url: resolved.url } : null);
+  return ((pinnedReturn: { id: number; url: string } | null) => pinnedReturn)(
+    resolved ? { id: resolved.id, url: resolved.url } : null,
+  );
 }
 
 type ProgressCommentRevision = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
@@ -107,316 +123,155 @@ type SummaryCommentUpsertResult = {
 };
 
 type SummaryCommentUpsertParams = {
-  pool: Pool | PoolClient;
-  workItemId?: string;
-  leaseEpoch?: number | null;
-  resourceKey: string;
-  reviewLens: AnyReviewLens;
-  prSurface: PrSurface;
-  body: string;
-  sentinel: string;
-  hintCommentId?: number | null;
-  progressRevision?: ProgressCommentRevision;
-  ciHeadSha?: string;
-  ciVersion?: number;
-  shouldPublish?: (client: PoolClient) => Promise<boolean>;
-};
-
-type RevisionedUpsertParams = Omit<SummaryCommentUpsertParams, "pool" | "progressRevision"> & {
-  readonly pool: Pool;
+  readonly coordination: SummaryCommentCoordination;
+  readonly reviewLens: AnyReviewLens;
+  readonly prSurface: PrSurface;
+  readonly body: string;
+  readonly sentinel: string;
+  readonly hintCommentId?: number | null;
   readonly progressRevision: ProgressCommentRevision;
+  readonly ciHeadSha?: string;
+  readonly ciVersion?: number;
+  readonly shouldPublish?: (db: PublishDb) => Promise<boolean>;
 };
 
-async function upsertSummaryCommentWithoutRevision(params: SummaryCommentUpsertParams) {
-  const { pool, workItemId, resourceKey, reviewLens, prSurface, body, sentinel } = params;
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-  const storedId = await getSummaryCommentGithubId(pool, resourceKey, reviewLens);
+async function upsertSummaryCommentWithoutRevision(
+  params: SummaryCommentUpsertParams & { readonly body: string },
+) {
+  const { coordination, reviewLens, prSurface, body, sentinel } = params;
+  const storedId =
+    latestCommentGithubId(coordination.db, coordination.resourceKey, reviewLens) ??
+    (await ensureRediscoveredSummaryComment(coordination.db, prSurface, {
+      workId: coordination.workItemId,
+      prKey: coordination.resourceKey,
+      reviewLens,
+      sentinel,
+    }));
   const hintId = params.hintCommentId ?? storedId ?? null;
   const knownFromStored = await resolveKnownSummaryCommentRef(prSurface, sentinel, hintId);
-  if (knownFromStored) {
-    return ((pinnedReturn: SummaryCommentUpsertResult | Promise<SummaryCommentUpsertResult>) =>
-      pinnedReturn)(prSurface.upsertProgressComment(body, sentinel, knownFromStored));
-  }
-
-  if (workItemId == null) {
-    const scanned = await prSurface.findProgressComment(sentinel);
-    return ((pinnedReturn: SummaryCommentUpsertResult | Promise<SummaryCommentUpsertResult>) =>
-      pinnedReturn)(prSurface.upsertProgressComment(body, sentinel, scanned));
-  }
-
-  const claimWon =
-    params.leaseEpoch == null
-      ? await claimSummaryCommentCreation(pool, workItemId, resourceKey, reviewLens)
-      : await claimSummaryCommentCreation(
-          pool,
-          workItemId,
-          resourceKey,
-          reviewLens,
-          params.leaseEpoch,
+  if (knownFromStored)
+    return ((pinnedReturn: Promise<SummaryCommentUpsertResult>) => pinnedReturn)(
+      prSurface.upsertProgressComment(body, sentinel, knownFromStored),
+    );
+  const claimWon = claimPublishStep(coordination.db, {
+    workId: coordination.workItemId,
+    prKey: coordination.resourceKey,
+    reviewLens,
+    step: "summary_comment_claim",
+  });
+  if (!claimWon) {
+    for (const delay of [0, ...REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS.slice(0, 2)]) {
+      if (delay > 0) await sleep(delay);
+      const polledId = latestCommentGithubId(coordination.db, coordination.resourceKey, reviewLens);
+      if (polledId == null) continue;
+      const known = await resolveKnownSummaryCommentRef(prSurface, sentinel, polledId);
+      if (known)
+        return ((pinnedReturn: Promise<SummaryCommentUpsertResult>) => pinnedReturn)(
+          prSurface.upsertProgressComment(body, sentinel, known),
         );
-  if (claimWon) {
-    const scanned = await prSurface.findProgressComment(sentinel);
-    return ((pinnedReturn: SummaryCommentUpsertResult | Promise<SummaryCommentUpsertResult>) =>
-      pinnedReturn)(prSurface.upsertProgressComment(body, sentinel, scanned));
-  }
-
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt > 0) {
-      const delay =
-        REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS[attempt - 1] ??
-        REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS.at(-1) ??
-        0;
-      await new Promise<void>((resolve) => setTimeout(resolve, delay));
-    }
-    const polledId = await getSummaryCommentGithubId(pool, resourceKey, reviewLens);
-    if (polledId == null) continue;
-    const knownFromPoll = await resolveKnownSummaryCommentRef(prSurface, sentinel, polledId);
-    if (knownFromPoll) {
-      return ((pinnedReturn: SummaryCommentUpsertResult | Promise<SummaryCommentUpsertResult>) =>
-        pinnedReturn)(prSurface.upsertProgressComment(body, sentinel, knownFromPoll));
     }
   }
-
   const scanned = await prSurface.findProgressComment(sentinel);
-  return ((pinnedReturn: SummaryCommentUpsertResult | Promise<SummaryCommentUpsertResult>) =>
-    pinnedReturn)(prSurface.upsertProgressComment(body, sentinel, scanned));
+  return ((pinnedReturn: Promise<SummaryCommentUpsertResult>) => pinnedReturn)(
+    prSurface.upsertProgressComment(body, sentinel, scanned),
+  );
 }
-
-type PreparedRevisionUpsert =
-  | { readonly kind: "skipped"; readonly result: SummaryCommentUpsertResult }
-  | {
-      readonly kind: "write";
-      readonly body: string;
-      readonly hintCommentId?: number | null;
-      readonly stubPostedAtMs: number | null;
-    };
 
 function skippedRevisionResult(
   currentComment: IssueCommentRef | null,
   hintCommentId?: number | null,
 ) {
-  if (currentComment) {
-    return ((pinnedReturn: SummaryCommentUpsertResult) => pinnedReturn)({
-      id: currentComment.id,
-      updated: false,
-      skipped: true,
-    });
-  }
-  if (hintCommentId != null) {
-    return ((pinnedReturn: SummaryCommentUpsertResult) => pinnedReturn)({
-      id: hintCommentId,
-      updated: false,
-      skipped: true,
-    });
-  }
   return ((pinnedReturn: SummaryCommentUpsertResult) => pinnedReturn)({
-    id: 0,
+    id: currentComment?.id ?? hintCommentId ?? 0,
     updated: false,
     skipped: true,
   });
 }
 
-async function prepareSummaryCommentAtRevision(
-  params: Omit<SummaryCommentUpsertParams, "pool" | "progressRevision"> & {
-    readonly progressRevision: ProgressCommentRevision;
-    readonly currentComment: IssueCommentRef | null;
-  },
-  client: PoolClient,
-) {
-  const [progressOwner, storedRevision] = await Promise.all([
-    getProgressCommentOwner(client, params.resourceKey, params.reviewLens),
-    getProgressCommentRevision(client, params.resourceKey, params.reviewLens),
-  ]);
-  const currentComment = params.currentComment;
-  const bodyRevision = currentComment
-    ? parseProgressRevisionState(currentComment.body ?? "")
-    : null;
-  if (params.shouldPublish && !(await params.shouldPublish(client))) {
-    return ((pinnedReturn: PreparedRevisionUpsert | Promise<PreparedRevisionUpsert>) =>
-      pinnedReturn)({
-      kind: "skipped",
-      result: skippedRevisionResult(currentComment, params.hintCommentId),
-    });
-  }
-  if (
-    progressOwner != null &&
-    params.workItemId != null &&
-    progressOwner.workItemId !== params.workItemId
-  ) {
-    if (params.progressRevision > 0 || (currentComment == null && params.hintCommentId == null)) {
-      logWarn("review_progress_skipped_foreign_owner", {
-        resourceKey: params.resourceKey,
-        reviewLens: params.reviewLens,
-        workItemId: params.workItemId,
-        ownerWorkItemId: progressOwner.workItemId,
-        progressGeneration: progressOwner.generation,
-        progressRevision: params.progressRevision,
-      });
-    }
-    return ((pinnedReturn: PreparedRevisionUpsert | Promise<PreparedRevisionUpsert>) =>
-      pinnedReturn)({
-      kind: "skipped",
-      result: skippedRevisionResult(currentComment, params.hintCommentId),
-    });
-  }
-  const storedRevisionForRun =
-    storedRevision != null && storedRevision.workItemId === params.workItemId
-      ? storedRevision.revision
-      : -1;
-  const bodyRevisionForRun =
-    bodyRevision != null && bodyRevision.workItemId === params.workItemId
-      ? bodyRevision.revision
-      : -1;
-  if (currentComment && bodyRevisionForRun >= params.progressRevision) {
-    return ((pinnedReturn: PreparedRevisionUpsert | Promise<PreparedRevisionUpsert>) =>
-      pinnedReturn)({
-      kind: "skipped",
-      result: { id: currentComment.id, updated: false, skipped: true },
-    });
-  }
-  if (storedRevisionForRun > params.progressRevision) {
-    return ((pinnedReturn: PreparedRevisionUpsert | Promise<PreparedRevisionUpsert>) =>
-      pinnedReturn)({
-      kind: "skipped",
-      result: skippedRevisionResult(currentComment, params.hintCommentId),
-    });
-  }
-
-  const stubPostedAtMs =
-    params.workItemId != null && params.progressRevision === 0
-      ? Date.now()
-      : params.workItemId != null
-        ? await getProgressStubPostedAtMs(client, params.resourceKey, params.reviewLens)
-        : null;
-
-  if (params.workItemId != null) {
-    await createPublishContext(client, {
-      workItemId: params.workItemId,
-      resourceKey: params.resourceKey,
-      reviewLens: params.reviewLens,
-      step: "progress_comment",
-      leaseEpoch: params.leaseEpoch ?? null,
-      detail: {
-        progressRevision: params.progressRevision,
-        ...(stubPostedAtMs != null ? { stubPostedAtMs } : {}),
-        ...(params.ciHeadSha != null
-          ? { headSha: params.ciHeadSha, version: params.ciVersion ?? 0 }
-          : {}),
-      },
-    }).record();
-  }
-
-  return ((pinnedReturn: PreparedRevisionUpsert | Promise<PreparedRevisionUpsert>) => pinnedReturn)(
-    {
-      kind: "write",
-      body: withProgressRevisionComment(params.body, params.progressRevision, params.workItemId),
-      hintCommentId: currentComment?.id ?? params.hintCommentId,
-      stubPostedAtMs,
-    },
+function numberDetail(detail: Record<string, unknown> | undefined, key: string) {
+  const value = detail?.[key];
+  return ((pinnedReturn: number | null) => pinnedReturn)(
+    typeof value === "number" && Number.isFinite(value) ? value : null,
   );
 }
 
-async function upsertSummaryCommentAtRevision(params: RevisionedUpsertParams) {
-  const progressRevision = params.progressRevision;
-
-  return ((pinnedReturn: SummaryCommentUpsertResult | Promise<SummaryCommentUpsertResult>) =>
-    pinnedReturn)(
-    withSessionLock(
-      params.pool,
-      { kind: "progress", resourceKey: params.resourceKey, reviewLens: params.reviewLens },
-      {
-        mode: "wait",
-        deadline: performance.now() + POSTGRES_LOCK_TIMEOUT_MS,
-        capacityError: (poolMax) =>
-          Object.assign(
-            new AppError({
-              domain: "review",
-              kind: "progress_lock_capacity",
-              message: "Progress publication needs a pool with at least two connections",
-              context: { poolMax },
-            }),
-            { mutationAccepted: false },
-          ),
-        timeoutError: Object.assign(
-          new AppError({
-            domain: "review",
-            kind: "progress_lock_timeout",
-            message: "Progress publication lock acquisition timed out",
-            context: { timeoutMs: POSTGRES_LOCK_TIMEOUT_MS },
-          }),
-          { mutationAccepted: false },
-        ),
-        onAcquireError: (error) => {
-          throw Object.assign(
-            error instanceof AppError
-              ? error
-              : new AppError({
-                  domain: "review",
-                  kind: "progress_lock_failed",
-                  message: "Progress publication lock acquisition failed",
-                  cause: error,
-                }),
-            { mutationAccepted: false },
-          );
-        },
-        onUnlockError: (error) => {
-          logWarn("review_progress_unlock_failed", {
-            resourceKey: params.resourceKey,
-            reviewLens: params.reviewLens,
-            message: errorMessage(error),
-          });
-        },
-      },
-      async (client) => {
-        const currentComment = await params.prSurface.findProgressComment(params.sentinel);
-        const prepared = await prepareSummaryCommentAtRevision(
-          { ...params, progressRevision, currentComment },
-          client,
-        );
-        if (prepared.kind === "skipped") {
-          return prepared.result;
-        }
-        const result = await upsertSummaryCommentWithoutRevision({
-          ...params,
-          pool: client,
-          body: prepared.body,
-          hintCommentId: prepared.hintCommentId,
-        });
-        if (params.workItemId != null) {
-          await createPublishContext(client, {
-            workItemId: params.workItemId,
-            resourceKey: params.resourceKey,
-            reviewLens: params.reviewLens,
-            step: "progress_comment",
-            githubId: result.id,
-            leaseEpoch: params.leaseEpoch ?? null,
-            detail: {
-              progressRevision: params.progressRevision,
-              updated: result.updated,
-              ...(prepared.stubPostedAtMs != null
-                ? { stubPostedAtMs: prepared.stubPostedAtMs }
-                : {}),
-              ...(params.ciHeadSha != null
-                ? { headSha: params.ciHeadSha, version: params.ciVersion ?? 0 }
-                : {}),
-            },
-          }).record();
-        }
-        return result;
-      },
-    ),
+async function upsertSummaryCommentAtRevision(params: SummaryCommentUpsertParams) {
+  const { coordination, reviewLens } = params;
+  const workItemId = coordination.workItemId;
+  const currentComment = await params.prSurface.findProgressComment(params.sentinel);
+  const progress = sharedPublishRecord(
+    coordination.db,
+    coordination.resourceKey,
+    reviewLens,
+    "progress_comment",
   );
+  if (params.shouldPublish && !(await params.shouldPublish(coordination.db)))
+    return skippedRevisionResult(currentComment, params.hintCommentId);
+  if (progress !== undefined && progress.workId !== workItemId) {
+    if (params.progressRevision > 0 || (currentComment == null && params.hintCommentId == null)) {
+      logWarn("review_progress_skipped_foreign_owner", {
+        resourceKey: coordination.resourceKey,
+        reviewLens,
+        workItemId,
+        ownerWorkItemId: progress.workId,
+        progressGeneration: numberDetail(progress.detail, "progressGeneration") ?? 0,
+        progressRevision: params.progressRevision,
+      });
+    }
+    return skippedRevisionResult(currentComment, params.hintCommentId);
+  }
+  const storedRevision = numberDetail(progress?.detail, "progressRevision") ?? -1;
+  const bodyRevision = currentComment
+    ? parseProgressRevisionState(currentComment.body ?? "")
+    : null;
+  const bodyRevisionForRun =
+    bodyRevision != null && bodyRevision.workItemId === workItemId ? bodyRevision.revision : -1;
+  if (currentComment && bodyRevisionForRun >= params.progressRevision)
+    return ((pinnedReturn: SummaryCommentUpsertResult) => pinnedReturn)({
+      id: currentComment.id,
+      updated: false,
+      skipped: true,
+    });
+  if (storedRevision > params.progressRevision)
+    return skippedRevisionResult(currentComment, params.hintCommentId);
+  const stubPostedAtMs =
+    params.progressRevision === 0 ? Date.now() : numberDetail(progress?.detail, "stubPostedAtMs");
+  const progressDetail = {
+    progressRevision: params.progressRevision,
+    ...(stubPostedAtMs != null ? { stubPostedAtMs } : {}),
+    ...(params.ciHeadSha != null
+      ? { headSha: params.ciHeadSha, version: params.ciVersion ?? 0 }
+      : {}),
+  };
+  writePublishStep(coordination.db, {
+    workId: workItemId,
+    prKey: coordination.resourceKey,
+    reviewLens,
+    step: "progress_comment",
+    detail: progressDetail,
+  });
+  const result = await upsertSummaryCommentWithoutRevision({
+    ...params,
+    body: withProgressRevisionComment(params.body, params.progressRevision, workItemId),
+    hintCommentId: currentComment?.id ?? params.hintCommentId,
+  });
+  writePublishStep(coordination.db, {
+    workId: workItemId,
+    prKey: coordination.resourceKey,
+    reviewLens,
+    step: "progress_comment",
+    githubId: result.id,
+    detail: { ...progressDetail, updated: result.updated },
+  });
+  return ((pinnedReturn: SummaryCommentUpsertResult) => pinnedReturn)(result);
 }
 
 export type ReviewSummaryCommentDeps = {
   readonly prSurface: PrSurface;
   readonly reviewLens: AnyReviewLens;
-  readonly coordination?: {
-    readonly pool: Pool;
-    readonly resourceKey: string;
-    readonly workItemId?: string;
-    readonly leaseEpoch?: number | null;
-  };
+  readonly coordination?: SummaryCommentCoordination;
 };
 
 type ReviewSummaryCommentWrite = {
@@ -429,48 +284,45 @@ type ReviewSummaryCommentWrite = {
 
 export type ReviewSummaryCommentTick = ReviewSummaryCommentWrite & {
   readonly progressRevision: TickRevision;
-  readonly shouldPublish?: (client: PoolClient) => Promise<boolean>;
+  readonly shouldPublish?: (db: PublishDb) => Promise<boolean>;
+};
+
+export type ReviewSummaryCommentWriter = {
+  readonly tick: (params: ReviewSummaryCommentTick) => Promise<SummaryCommentUpsertResult>;
+  readonly conclude: (params: ReviewSummaryCommentWrite) => Promise<SummaryCommentUpsertResult>;
 };
 
 export function createReviewSummaryComment(deps: ReviewSummaryCommentDeps) {
-  const write = (
+  const write = async (
     params: ReviewSummaryCommentWrite & {
       readonly shouldPublish?: ReviewSummaryCommentTick["shouldPublish"];
     },
     progressRevision: ProgressCommentRevision,
   ) => {
-    const { coordination } = deps;
+    const coordination = deps.coordination;
     const notice = capabilityNotice(deps.prSurface.capabilities);
     const body = notice == null ? params.body : `${params.body}\n\n${notice}`;
-    if (coordination == null) {
-      return ((pinnedReturn: Promise<SummaryCommentUpsertResult>) => pinnedReturn)(
-        deps.prSurface.upsertProgressComment(
-          body,
-          REVIEW_SUMMARY_SENTINEL,
-          params.knownExisting ?? null,
-        ),
-      );
-    }
-    return ((pinnedReturn: Promise<SummaryCommentUpsertResult>) => pinnedReturn)(
-      upsertSummaryCommentAtRevision({
-        pool: coordination.pool,
-        resourceKey: coordination.resourceKey,
-        workItemId: coordination.workItemId,
-        leaseEpoch: coordination.leaseEpoch,
-        reviewLens: deps.reviewLens,
-        prSurface: deps.prSurface,
+    if (coordination == null)
+      return deps.prSurface.upsertProgressComment(
         body,
-        sentinel: REVIEW_SUMMARY_SENTINEL,
-        hintCommentId: params.hintCommentId,
-        progressRevision,
-        ciHeadSha: params.ciHeadSha,
-        ciVersion: params.ciVersion,
-        shouldPublish: params.shouldPublish,
-      }),
-    );
+        REVIEW_SUMMARY_SENTINEL,
+        params.knownExisting ?? null,
+      );
+    return upsertSummaryCommentAtRevision({
+      coordination,
+      reviewLens: deps.reviewLens,
+      prSurface: deps.prSurface,
+      body,
+      sentinel: REVIEW_SUMMARY_SENTINEL,
+      hintCommentId: params.hintCommentId,
+      progressRevision,
+      ...(params.ciHeadSha !== undefined ? { ciHeadSha: params.ciHeadSha } : {}),
+      ...(params.ciVersion !== undefined ? { ciVersion: params.ciVersion } : {}),
+      ...(params.shouldPublish !== undefined ? { shouldPublish: params.shouldPublish } : {}),
+    });
   };
-  return {
-    tick: (params: ReviewSummaryCommentTick) => write(params, params.progressRevision),
-    conclude: (params: ReviewSummaryCommentWrite) => write(params, 7),
-  };
+  return ((pinnedReturn: ReviewSummaryCommentWriter) => pinnedReturn)({
+    tick: (params) => write(params, params.progressRevision),
+    conclude: (params) => write(params, 7),
+  });
 }

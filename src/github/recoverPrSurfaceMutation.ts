@@ -1,5 +1,3 @@
-import type { OperationIntentRow } from "../agentWork/operationIntentRepository.ts";
-import type { OperationIntentRecovery } from "../agentWork/publishOnce.ts";
 import { isRecord } from "../util/typeGuards.ts";
 import { findCommentIdByMarker, findPublishedThreadBatch } from "./prSurfaceHelpers.ts";
 import type {
@@ -7,6 +5,28 @@ import type {
   PrSurfaceMutationMethods,
   ProgressCommentUpsert,
 } from "./prSurfaceTypes.ts";
+
+export type OperationIntentStatus = "pending" | "reconciled" | "failed" | "outcome_unknown";
+
+export type OperationIntentRow = {
+  readonly id: string;
+  readonly workItemId: string;
+  readonly operationKey: string;
+  readonly mutationKind: string;
+  readonly status: OperationIntentStatus;
+  readonly publishRecordId: string | null;
+  readonly leaseEpoch?: number | null;
+  readonly detail: Record<string, unknown>;
+};
+
+export type OperationIntentRecovery<T> =
+  | {
+      readonly kind: "reconciled";
+      readonly value: T;
+      readonly publishRecordId?: string | null;
+      readonly detail?: Record<string, unknown>;
+    }
+  | { readonly kind: "absent" };
 
 const PR_SURFACE_WIRE_NAMES = {
   setAcknowledgementReaction: "setAcknowledgementReaction",
@@ -392,4 +412,58 @@ export async function recoverPrSurfaceMutation(surface: PrSurface, intent: Opera
   return ((
     pinnedReturn: OperationIntentRecovery<unknown> | Promise<OperationIntentRecovery<unknown>>,
   ) => pinnedReturn)(recovery);
+}
+
+const BOT_ARTIFACT_MARKER_RE =
+  /<!-- pr-agent:(?:operation-intent [a-f0-9]{24}|progress-revision[^>]*|review-pointer[^>]*) -->/;
+
+export type RediscoveredBotArtifacts = {
+  readonly summaryCommentId: number | null;
+  readonly standingReview: {
+    readonly reviewId: number;
+    readonly state: "APPROVED" | "CHANGES_REQUESTED" | "COMMENTED";
+    readonly commitId: string | null;
+  } | null;
+};
+
+export async function rediscoverBotArtifacts(
+  surface: PrSurface,
+  params: { readonly sentinel: string; readonly headSha?: string },
+) {
+  const botLogin = await surface.getBotLogin();
+  const comments = (await surface.listConversationComments()).comments;
+  const summary = comments.find(
+    (comment) =>
+      comment.authorLogin === botLogin &&
+      comment.inReplyToId == null &&
+      comment.body.includes(params.sentinel) &&
+      BOT_ARTIFACT_MARKER_RE.test(comment.body),
+  );
+  const reviews = await surface.listPullRequestReviews();
+  const standing = reviews.find(
+    (review) =>
+      review.authorLogin === botLogin &&
+      (review.state === "APPROVED" ||
+        review.state === "CHANGES_REQUESTED" ||
+        review.state === "COMMENTED") &&
+      (params.headSha == null || review.commitId === params.headSha) &&
+      OPERATION_INTENT_MARKER_RE.test(review.body ?? ""),
+  );
+  const standingState =
+    standing?.state === "APPROVED" ||
+    standing?.state === "CHANGES_REQUESTED" ||
+    standing?.state === "COMMENTED"
+      ? standing.state
+      : undefined;
+  return ((pinnedReturn: RediscoveredBotArtifacts) => pinnedReturn)({
+    summaryCommentId: summary?.id ?? null,
+    standingReview:
+      standing !== undefined && standingState !== undefined
+        ? { reviewId: standing.id, state: standingState, commitId: standing.commitId }
+        : null,
+  });
+}
+
+export function hasBotArtifactMarker(body: string) {
+  return BOT_ARTIFACT_MARKER_RE.test(body);
 }

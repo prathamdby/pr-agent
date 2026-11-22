@@ -28,11 +28,11 @@ Approval is the default, so trusted opens now spend review tokens; use `manual`
 to opt out. `auto` reviews every open and does not check trust. `once` is the default. A push
 while an auto review is still running cancels that review and replaces it with
 one for the new head; a push after the review finishes does not re-review.
-`every_push` also starts a review for each later push to an open admitted pull request. A running `/review` finishes, and one follow-up then reviews the newest head. A later push keeps a follow-up that already has a review job. A follow-up with no review job, or one that has left the queue, is replaced by one new review. A push never cancels a slash review.
+`every_push` also starts a review for each later push to an open admitted pull request. A running `/review` finishes, and one follow-up then reviews the newest head. A later push keeps a follow-up that already has a pending work run. A follow-up that is no longer pending is replaced by one new review. A push never cancels a slash review.
 An audit of this repository's last 60 merged pull requests counted 74 reviewed heads and 154 distinct CI-run head SHAs, about 2.1 times the `once` review volume. That audit was not remeasured for this change. The push count misses a push whose CI did not run, so 2.1 is a slight undercount of pushes and an upper bound on reviews only before supersede collapse and approval gating. Supersede still collapses a burst of pushes onto one surviving head. `FEATURE_VERIFICATION=off` never auto-resolves fixed threads, and a later review can still fail the check on findings that are already fixed.
 Custom trigger sets are intentionally not supported.
 
-`/cancel` blocks new review output when the worker's final publication check sees
+`/cancel` blocks new review output when the final publication check sees
 the cancellation. Requests already in flight cannot be withdrawn. The cancellation
 notice and check closure still run. There is no additional feature mode.
 
@@ -60,9 +60,9 @@ completion that finishes first can allow a fresh run. `/ask` and `/help` do
 not use this active-work gate. Ask instead deduplicates per triggering
 comment: repeated accepted deliveries of the same `/ask` or App-bot mention
 (same installation, PR, comment surface, and comment ID) join the retained
-run in any status without a second answer, ack, quota charge, or queue job.
+run in any status without a second answer, ack, quota charge, or new work run.
 A new comment is a new question, even with identical text in the same
-thread. The join lasts until the work item is purged by
+thread. The join lasts until the work run is purged by
 `AGENT_WORK_RETENTION_SECONDS`.
 
 | Setting                  | Values                             | Default    | Spends tokens?         | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                             |
@@ -95,8 +95,8 @@ Notes:
   `FEATURE_*` mode. When it is true, a tests coverage gap must name read paths
   that have a content read recorded by that specialist. Path checks apply either way.
 - Recovery is part of review. It is not a ninth feature and not a `FEATURE_*`
-  mode. A restart can reuse a validated brief or report. Evidence is read
-  again. Publication uses the normal gates. It does not restore a transcript.
+  mode. A restart restores the same conversations, pinned checkout, spent tool
+  budget and evidence already shown. A new attempt starts with its own budget.
   See [configuration.md](configuration.md).
 - A typed GitHub review-thread resolution denial stops verification rather than
   claiming the thread was resolved. A reply accepted before that denial remains
@@ -155,11 +155,11 @@ Notes:
   is `neutral` and the status `error`, never `success`.
   Concurrent closes keep the first verdict. A later cancellation or recovery
   does not replace it. The optional status uses that same verdict.
-  Crash recovery serializes its failure decision with lease renewals and
-  restarted jobs. Busy or timed-out recovery passes leave work alone and retry later.
+  Crash recovery runs in boot Phase A, before any agent work resumes, so it
+  never races a live attempt.
 - Finding identity lives on the pull request. Each published finding carries a
   hidden ID marker, and every run rebuilds the open findings from GitHub, so a
-  wiped database does not repost them. A dismissed finding stays dismissed
+  wiped data volume does not repost them. A dismissed finding stays dismissed
   within its pull request. Nothing carries across pull requests; durable
   preferences belong in `.pr-agent/*.mdc`.
 - Review closes only proven duplicates. When two open bot threads report the

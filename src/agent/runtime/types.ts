@@ -1,8 +1,10 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
+import type { ConversationOwnership, ToolRegistration } from "@earendil-works/pi-durable";
 import type { Config } from "../../settings/index.ts";
 import type { AgentRunnerToolExecutor, AgentRunnerTurn } from "../providers/interface.ts";
 import type { AgentLifecycleEvent } from "./lifecycleEvents.ts";
 import type { PromptCachePolicy } from "./promptCachePolicy.ts";
+import type { EvidenceLedger } from "../../review/findings/evidenceLedger.ts";
 
 export type { AgentLifecycleEvent } from "./lifecycleEvents.ts";
 export type { PromptCachePolicy } from "./promptCachePolicy.ts";
@@ -54,6 +56,7 @@ export type PiSessionSendOptions = {
   readonly phase: AgentSessionPhase;
   readonly maxToolRounds?: number;
   readonly reservedTerminalTool?: string;
+  readonly stopAtMs?: number;
   readonly deadlineMs?: number;
   readonly checkpointId: string;
 };
@@ -69,11 +72,23 @@ export type PiSessionCreateParams = {
   readonly promptCachePolicy: PromptCachePolicy;
   readonly toolPolicy: ToolPolicy;
   readonly systemPrompt: string;
+  readonly systemPromptSharedHead?: string;
+  readonly promptCacheKey?: string;
   readonly cwd?: string;
   readonly eventSink: (event: AgentLifecycleEvent) => void;
   readonly cfg: Config;
   readonly tools: readonly PiTool[];
   readonly executors: Record<string, AgentRunnerToolExecutor>;
+  readonly durableTools?: readonly ToolRegistration[];
+  readonly codemode?: boolean;
+  readonly toolMeta?: Readonly<
+    Record<
+      string,
+      { readonly callers?: readonly ("model" | "tools")[]; readonly replay?: "safe" | "unsafe" }
+    >
+  >;
+  readonly ownership?: ConversationOwnership;
+  readonly providerSessionId?: string;
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
   readonly hostSignal?: AbortSignal;
 };
@@ -84,6 +99,7 @@ export type PiSession = {
   readonly send: (prompt: string, opts: PiSessionSendOptions) => Promise<AgentRunnerTurn>;
   readonly abort: () => Promise<void>;
   readonly dispose: () => Promise<void>;
+  readonly creditEvidence?: (ledger: EvidenceLedger) => void;
 };
 
 export const DEFAULT_THINKING_POLICY: ThinkingPolicy = {

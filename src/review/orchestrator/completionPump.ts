@@ -28,7 +28,7 @@ export async function pumpSpecialistCompletions(args: {
           ...errorLogFields(appError),
         });
         completed.push({
-          kind: "error",
+          kind: "failed",
           specialist,
           error: appError,
           durationMs: 0,

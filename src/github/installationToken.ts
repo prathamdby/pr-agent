@@ -4,7 +4,6 @@ import {
   TOKEN_FRESHNESS_BUFFER_MS,
 } from "../settings/index.ts";
 import {
-  mintInstallationAuth,
   mintScopedInstallationAuth,
   type InstallationToken,
   type InstallationTokenOptions,
@@ -15,24 +14,10 @@ export type { InstallationToken };
 export async function mintInstallationToken(
   cfg: Pick<Config, "github">,
   installationId: number,
-  options?: InstallationTokenOptions,
+  options: InstallationTokenOptions,
 ) {
-  if (options) {
-    const auth = await mintScopedInstallationAuth(cfg, installationId, options);
-    const now = Date.now();
-    const parsed = Date.parse(auth.expires_at);
-    const expiresAtTs = Number.isFinite(parsed) ? parsed : now + INSTALLATION_TOKEN_FALLBACK_TTL_MS;
-    return ((pinnedReturn: InstallationToken | Promise<InstallationToken>) => pinnedReturn)({
-      token: auth.token,
-      expiresAtTs,
-      ttlMs: Math.max(0, expiresAtTs - now),
-      permissions: auth.permissions,
-      repositories: auth.repositories?.map((repository) => repository.name) ?? options.repositories,
-      repositorySelection: auth.repository_selection,
-    });
-  }
-  const auth = await mintInstallationAuth(cfg, installationId);
-  const parsed = auth.expiresAt ? Date.parse(auth.expiresAt) : Number.NaN;
+  const auth = await mintScopedInstallationAuth(cfg, installationId, options);
+  const parsed = Date.parse(auth.expires_at);
   const now = Date.now();
   const expiresAtTs = Number.isFinite(parsed) ? parsed : now + INSTALLATION_TOKEN_FALLBACK_TTL_MS;
   return ((pinnedReturn: InstallationToken | Promise<InstallationToken>) => pinnedReturn)({
@@ -40,6 +25,8 @@ export async function mintInstallationToken(
     expiresAtTs,
     ttlMs: Math.max(0, expiresAtTs - now),
     permissions: auth.permissions,
+    repositories: options.repositories,
+    repositorySelection: auth.repository_selection,
   });
 }
 

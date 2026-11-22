@@ -16,12 +16,10 @@ import { basename, dirname, join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { promisify } from "node:util";
 import { describe, expect, it, afterEach } from "vitest";
-import { runCodeModeScript } from "../src/agent/codemode/runScript.ts";
-import type { CodeModeCapabilityExecutors } from "../src/agent/codemode/types.ts";
 import {
   buildWorkspaceTools,
   type LocalWorkspaceToolLimits,
-} from "../src/agent/tools/workspaceToolset.ts";
+} from "../src/agent/runtime/durable/piTools.ts";
 import {
   disposeSpillFile,
   READ_SPILL_FILENAME_PREFIX,
@@ -49,9 +47,29 @@ import {
   LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
   LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
 } from "../src/settings/index.ts";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import type {
+  ConversationId,
+  GenerationHooks,
+  HookApi,
+  ToolExecutionApi,
+  ToolRegistration,
+} from "@earendil-works/pi-durable";
+import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
 import { createTestEvidenceLedger } from "./helpers/evidenceTestHelpers.ts";
-import { hashNormalizedLineText } from "../src/review/findings/evidenceLedger.ts";
-import { recordMarshalledEvidence } from "../src/agent/execution/marshal.ts";
+import { createEvidenceHooks } from "../src/agent/runtime/durable/evidenceMemo.ts";
+import { creditBoundEvidence } from "../src/agent/runtime/durable/session.ts";
+import {
+  dropSessionState,
+  registerSessionState,
+  type DurableSessionState,
+} from "../src/agent/runtime/durable/sessionState.ts";
+import {
+  hashNormalizedLineText,
+  revalidateEvidenceDescriptors,
+  type DeliveredFileRead,
+} from "../src/review/findings/evidenceLedger.ts";
+import type { AgentRunnerToolExecutor } from "../src/agent/providers/interface.ts";
 import { rankPathsByQuery } from "../src/prWorkspace/fff/workspaceSearch.ts";
 import {
   buildSymbolIndex,
@@ -238,17 +256,358 @@ async function writeWorkspaceFiles(root: string, files: Readonly<Record<string, 
   await exec("git", ["add", "."], { cwd: root });
 }
 
+const evidenceHooks = () => createEvidenceHooks()[0]?.handlers as GenerationHooks;
+
+function bindEvidenceSession(conversationId: ConversationId) {
+  const state: DurableSessionState = {
+    role: "specialist",
+    provider: "test",
+    model: "test-model",
+    systemPrompt: "",
+    toolDefinitions: [],
+    eventSink: () => undefined,
+    executors: {},
+    evidence: {
+      attempts: new Map(),
+      visible: [],
+      bound: [],
+      credited: new Set(),
+      reconLines: [],
+      spillRoots: new Set(),
+      spillBytes: 0,
+      spillExpired: false,
+    },
+    sendSeq: 0,
+    aborted: false,
+    currentSend: {
+      opts: { phase: "specialist", checkpointId: "test" },
+      countedCalls: new Set(),
+      blockedCalls: new Set(),
+      stopped: false,
+      reservedFired: false,
+      lastActivityAt: 0,
+      assistantIndex: 0,
+    },
+  };
+  registerSessionState(conversationId, state);
+  return state;
+}
+
+const evidenceApi = (conversationId: ConversationId) =>
+  ((pinnedReturn: HookApi) => pinnedReturn)({
+    conversationId,
+    memo: async () => undefined,
+  } as unknown as HookApi);
+
+function toolResultMessage(toolCallId: string, text: string) {
+  return ((pinnedReturn: Message) => pinnedReturn)({
+    role: "toolResult",
+    toolCallId,
+    toolName: "read_pinned",
+    content: [{ type: "text", text }],
+    isError: false,
+    timestamp: 0,
+  });
+}
+
+const assistantMessage = ((pinnedReturn: AssistantMessage) => pinnedReturn)({
+  role: "assistant",
+  content: [{ type: "text", text: "done" }],
+  api: "openai-completions",
+  provider: "test",
+  model: "test-model",
+  usage: {},
+  stopReason: "stop",
+  timestamp: 0,
+} as unknown as AssistantMessage);
+
+async function creditMessages(
+  state: DurableSessionState,
+  conversationId: ConversationId,
+  messages: readonly Message[],
+  ledger: ReturnType<typeof createTestEvidenceLedger>,
+) {
+  const hooks = evidenceHooks();
+  const api = evidenceApi(conversationId);
+  await hooks.beforeRequest?.({ messages }, api, BACKGROUND_CONTEXT);
+  await hooks.afterResponse?.(assistantMessage, api, BACKGROUND_CONTEXT);
+  creditBoundEvidence(state, ledger);
+}
+
+async function creditToolResult(
+  state: DurableSessionState,
+  conversationId: ConversationId,
+  toolCallId: string,
+  result: unknown,
+  ledger: ReturnType<typeof createTestEvidenceLedger>,
+) {
+  await creditMessages(
+    state,
+    conversationId,
+    [toolResultMessage(toolCallId, JSON.stringify(result))],
+    ledger,
+  );
+}
+
+async function emitEvidenceBlock(
+  emit: ToolRegistration,
+  conversationId: ConversationId,
+  callId: string,
+  input: { path: string; startLine: number; endLine: number },
+) {
+  const api = { conversationId, callId } as unknown as ToolExecutionApi;
+  const result = (await emit.execute(input, api, BACKGROUND_CONTEXT)) as {
+    output: readonly { type: string; text?: string }[];
+  };
+  return ((pinnedReturn: string) => pinnedReturn)(
+    result.output.map((part) => part.text ?? "").join("\n"),
+  );
+}
+
+let lastEvidenceConversationId: ConversationId | undefined;
+let evidenceSeedSeq = 9200;
+const seedConversationId = () => {
+  evidenceSeedSeq += 1;
+  lastEvidenceConversationId = evidenceSeedSeq as ConversationId;
+  return ((pinnedReturn: ConversationId) => pinnedReturn)(lastEvidenceConversationId);
+};
+
+describe("request-visible evidence crediting", () => {
+  afterEach(() => {
+    if (lastEvidenceConversationId !== undefined) {
+      dropSessionState(lastEvidenceConversationId);
+      lastEvidenceConversationId = undefined;
+    }
+  });
+  const seed = async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-evidence-"));
+    await writeWorkspaceFiles(root, {
+      "src/changed.ts": "export const changed = true;\n",
+      "src/small.ts": "line one\nline two\nline three\n",
+      "src/eof.ts": "first\nlast-line-no-newline",
+    });
+    const workspace = mockWorkspace(root, ["src/changed.ts", "src/small.ts", "src/eof.ts"]);
+    const bundle = buildWorkspaceTools(workspace.reader, {
+      limits: testLimits(),
+      headSha: "deadbeef",
+    });
+    const emit = bundle.durableTools.find((tool) => tool.name === "emitEvidence");
+    if (emit === undefined) throw new Error("emitEvidence missing");
+    const conversationId = seedConversationId() as ConversationId;
+    const state = bindEvidenceSession(conversationId);
+    const ledger = createTestEvidenceLedger("deadbeef");
+    return { root, state, ledger, emit, conversationId, bundle };
+  };
+
+  it("credits a printed emitEvidence block inside a codemode result", async () => {
+    const { root, state, ledger, emit, conversationId } = await seed();
+    try {
+      const block = await emitEvidenceBlock(emit, conversationId, "emit-a", {
+        path: "src/small.ts",
+        startLine: 1,
+        endLine: 2,
+      });
+      await creditMessages(
+        state,
+        conversationId,
+        [toolResultMessage("codemode-1", `script output\n${block}\nmore output`)],
+        ledger,
+      );
+      expect(ledger.covers("src/small.ts", 1, 2)).toBe(true);
+      expect(ledger.covers("src/small.ts", 3, 3)).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("credits a complete EOF line without a trailing newline", async () => {
+    const { root, state, ledger, conversationId, bundle } = await seed();
+    try {
+      const out = await bundle.executors.read_pinned?.(
+        { path: "src/eof.ts" },
+        {
+          toolCallId: "eof-1",
+          conversationId,
+          signal: new AbortController().signal,
+        },
+      );
+      await creditToolResult(state, conversationId, "eof-1", out, ledger);
+      expect(ledger.covers("src/eof.ts", 1, 2)).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("credits a suffix-visible attempt with a descriptor that revalidates", async () => {
+    const { root, state, ledger, conversationId, bundle } = await seed();
+    try {
+      await bundle.executors.read_pinned?.(
+        { path: "src/small.ts" },
+        {
+          toolCallId: "tail-1",
+          conversationId,
+          signal: new AbortController().signal,
+        },
+      );
+      await creditMessages(
+        state,
+        conversationId,
+        [toolResultMessage("tail-1", JSON.stringify({ content: "line two\nline three\n" }))],
+        ledger,
+      );
+      expect(ledger.covers("src/small.ts", 2, 3)).toBe(true);
+      expect(ledger.covers("src/small.ts", 1, 1)).toBe(false);
+      const descriptors = ledger
+        .snapshot()
+        .map((read) => read.descriptor)
+        .filter((descriptor) => descriptor !== undefined);
+      expect(descriptors.length).toBeGreaterThan(0);
+      const revalidated = await revalidateEvidenceDescriptors(
+        ledger,
+        descriptors,
+        async (descriptor) =>
+          ((pinnedReturn: DeliveredFileRead | null) => pinnedReturn)({
+            path: "src/small.ts",
+            headSha: "deadbeef",
+            tool: "read_pinned",
+            startLine: descriptor.startLine,
+            endLine: descriptor.endLine,
+            content: "line two\nline three\n",
+            clampedLines: [],
+          }),
+      );
+      expect(revalidated).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not credit a nested codemode read that is never printed", async () => {
+    const { root, state, ledger, conversationId, bundle } = await seed();
+    try {
+      await bundle.executors.read_pinned?.(
+        { path: "src/small.ts" },
+        {
+          toolCallId: "nested-read",
+          conversationId,
+          signal: new AbortController().signal,
+        },
+      );
+      await creditMessages(
+        state,
+        conversationId,
+        [toolResultMessage("codemode-2", "line one\nline two\nline three")],
+        ledger,
+      );
+      expect(ledger.snapshot()).toHaveLength(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not credit a result dropped from the request", async () => {
+    const { root, state, ledger, conversationId, bundle } = await seed();
+    try {
+      await bundle.executors.read_pinned?.(
+        { path: "src/small.ts" },
+        {
+          toolCallId: "dropped-1",
+          conversationId,
+          signal: new AbortController().signal,
+        },
+      );
+      await creditMessages(state, conversationId, [], ledger);
+      expect(ledger.snapshot()).toHaveLength(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not credit a synthesized missing-result placeholder", async () => {
+    const { root, state, ledger, conversationId, bundle } = await seed();
+    try {
+      await bundle.executors.read_pinned?.(
+        { path: "src/small.ts" },
+        {
+          toolCallId: "missing-1",
+          conversationId,
+          signal: new AbortController().signal,
+        },
+      );
+      const placeholder = {
+        role: "toolResult",
+        toolCallId: "missing-1",
+        toolName: "read_pinned",
+        content: [{ type: "text", text: "" }],
+        isError: false,
+        details: { reason: "missing_result" },
+      } as unknown as Message;
+      await creditMessages(state, conversationId, [placeholder], ledger);
+      expect(ledger.snapshot()).toHaveLength(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not credit identical evidence text at the wrong location", async () => {
+    const { root, state, ledger, emit, conversationId } = await seed();
+    try {
+      const block = await emitEvidenceBlock(emit, conversationId, "emit-b", {
+        path: "src/small.ts",
+        startLine: 1,
+        endLine: 2,
+      });
+      const wrongLocation = block.replace("src/small.ts:1-2", "src/small.ts:5-6");
+      await creditMessages(
+        state,
+        conversationId,
+        [toolResultMessage("codemode-3", wrongLocation)],
+        ledger,
+      );
+      expect(ledger.snapshot()).toHaveLength(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not credit an emitEvidence block with a mismatched hash", async () => {
+    const { root, state, ledger, emit, conversationId } = await seed();
+    try {
+      const block = await emitEvidenceBlock(emit, conversationId, "emit-c", {
+        path: "src/small.ts",
+        startLine: 1,
+        endLine: 2,
+      });
+      const mismatched = block.replace(/sha256:[0-9a-f]{64}/, `sha256:${"0".repeat(64)}`);
+      await creditMessages(
+        state,
+        conversationId,
+        [toolResultMessage("codemode-4", mismatched)],
+        ledger,
+      );
+      expect(ledger.snapshot()).toHaveLength(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("local workspace tools", () => {
   it("exposes investigation-protocol guidance on each tool description", () => {
-    const { piTools } = buildWorkspaceTools(mockWorkspace("/tmp", ["src/changed.ts"]).reader, {
-      limits: testLimits(),
-    });
-    const byName = Object.fromEntries(piTools.map((tool) => [tool.name, tool.description]));
+    const { piTools, durableTools } = buildWorkspaceTools(
+      mockWorkspace("/tmp", ["src/changed.ts"]).reader,
+      {
+        limits: testLimits(),
+      },
+    );
+    const byName = Object.fromEntries(
+      [...durableTools, ...piTools].map((tool) => [tool.name, tool.description]),
+    );
 
     expect(byName.listChangedFiles).toContain("The other tools take paths from this list");
     expect(byName.getWorkspaceDiff).toContain("cheapest first read");
     expect(byName.searchWorkspace).toContain("literal text");
-    expect(byName.readWorkspaceFile).toContain("The same call returns the same note");
+    expect(byName.read_pinned).toContain("The same call returns the same note");
     expect(byName.getWorkspaceBlame).toContain("decides a finding");
   });
 
@@ -292,8 +651,10 @@ describe("local workspace tools", () => {
       });
       live.push(published);
 
-      const securityRead = await security.executors.readWorkspaceFile?.({ path: "src/admin.ts" });
-      const summaryRead = await summary.executors.readWorkspaceFile?.({ path: "src/admin.ts" });
+      const conversationId = 9101 as ConversationId;
+      bindEvidenceSession(conversationId);
+      const securityRead = await security.executors.read_pinned?.({ path: "src/admin.ts" });
+      const summaryRead = await summary.executors.read_pinned?.({ path: "src/admin.ts" });
 
       expect(securityRead).toMatchObject({
         reviewThreads: [expect.objectContaining({ findingId: "f_hist" })],
@@ -310,7 +671,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("readWorkspaceFile returns full content under the response cap", async () => {
+  it("read_pinned returns full content under the response cap", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       await writeWorkspaceFiles(root, {
@@ -320,7 +681,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/small.ts"]);
       const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "src/small.ts" })) as {
+      const out = (await executors.read_pinned?.({ path: "src/small.ts" })) as {
         content: string;
         size: number;
         startLine: number;
@@ -389,11 +750,16 @@ describe("local workspace tools", () => {
         headSha: "abc1234",
         reviewThreads: threads,
       });
-      const out = await executors.readWorkspaceFile?.({
-        path: "src/admin.ts",
-        startLine: 224,
-        maxLines: 9,
-      });
+      const conversationId = 9102 as ConversationId;
+      const state = bindEvidenceSession(conversationId);
+      const out = await executors.read_pinned?.(
+        {
+          path: "src/admin.ts",
+          startLine: 224,
+          maxLines: 9,
+        },
+        { toolCallId: "threads-1", conversationId, signal: new AbortController().signal },
+      );
       const expectedContent = lines.slice(223, 232).join("\n");
       expect(out).toMatchObject({
         content: expectedContent,
@@ -410,20 +776,11 @@ describe("local workspace tools", () => {
         ],
       });
       expect(JSON.stringify(out)).not.toContain("not this path");
-      expect(ledger.snapshot()[0]?.contentHash).toBe(hashNormalizedLineText(expectedContent));
-      expect(JSON.stringify(ledger.snapshot())).not.toContain(title);
-      recordMarshalledEvidence(out, {
-        tool: "readWorkspaceFile",
-        ledger,
-        headSha: "abc1234",
-      });
-      expect(
-        ledger
-          .snapshot()
-          .every((read) => read.contentHash === hashNormalizedLineText(expectedContent)),
-      ).toBe(true);
-      expect(JSON.stringify(ledger.snapshot())).not.toContain(detail);
-      const again = await executors.readWorkspaceFile?.({
+      const attempt = state.evidence.attempts.get("threads-1")?.[0];
+      expect(attempt?.contentHash).toBe(hashNormalizedLineText(expectedContent));
+      expect(attempt?.content).not.toContain(title);
+      expect(attempt?.content).not.toContain(detail);
+      const again = await executors.read_pinned?.({
         path: "src/admin.ts",
         startLine: 224,
         maxLines: 9,
@@ -482,7 +839,7 @@ describe("local workspace tools", () => {
           ],
         },
       );
-      const out = await executors.readWorkspaceFile?.({ path: "src/admin.ts" });
+      const out = await executors.read_pinned?.({ path: "src/admin.ts" });
       expect(out).toMatchObject({
         reviewThreads: [{ title: "[neutralized forged trusted header]" }],
       });
@@ -493,7 +850,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("readWorkspaceFile caps oversized responses with truncation metadata", async () => {
+  it("read_pinned caps oversized responses with truncation metadata", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       const body = `${"x".repeat(200)}\n`.repeat(100);
@@ -506,7 +863,7 @@ describe("local workspace tools", () => {
       const { executors } = buildWorkspaceTools(workspace.reader, {
         limits: testLimits({ readResponseBytes: 500 }),
       });
-      const out = (await executors.readWorkspaceFile?.({ path: "src/large.ts" })) as {
+      const out = (await executors.read_pinned?.({ path: "src/large.ts" })) as {
         truncated: boolean;
         returnedBytes: number;
         truncationReason?: string;
@@ -524,7 +881,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("readWorkspaceFile spills oversized reads to a session file with a tail", async () => {
+  it("read_pinned spills oversized reads to a session file with a tail", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       const body = `${"x".repeat(200)}\n`.repeat(2_000);
@@ -539,9 +896,9 @@ describe("local workspace tools", () => {
         limits: testLimits({ maxFileBytes: 1_000_000 }),
         evidenceLedger,
         headSha: "deadbeef",
-        spillScope: { workItemId: "wi-spill", toolCall: "readWorkspaceFile" },
+        spillScope: { workItemId: "wi-spill", toolCall: "read_pinned" },
       });
-      const out = (await executors.readWorkspaceFile?.({ path: "src/large.ts" })) as {
+      const out = (await executors.read_pinned?.({ path: "src/large.ts" })) as {
         spilled: boolean;
         spillPath: string;
         size: number;
@@ -564,7 +921,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("readWorkspaceFile returns a fitting line window inline with evidence", async () => {
+  it("read_pinned returns a fitting line window inline with evidence", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       const body = `${"y".repeat(200)}\n`.repeat(2_000);
@@ -579,13 +936,18 @@ describe("local workspace tools", () => {
         limits: testLimits({ maxFileBytes: 1_000_000 }),
         evidenceLedger,
         headSha: "deadbeef",
-        spillScope: { workItemId: "wi-spill", toolCall: "readWorkspaceFile" },
+        spillScope: { workItemId: "wi-spill", toolCall: "read_pinned" },
       });
-      const out = (await executors.readWorkspaceFile?.({
-        path: "src/large.ts",
-        startLine: 10,
-        maxLines: 5,
-      })) as {
+      const conversationId = 9103 as ConversationId;
+      const state = bindEvidenceSession(conversationId);
+      const out = (await executors.read_pinned?.(
+        {
+          path: "src/large.ts",
+          startLine: 10,
+          maxLines: 5,
+        },
+        { toolCallId: "win-1", conversationId, signal: new AbortController().signal },
+      )) as {
         spilled?: boolean;
         content: string;
         startLine: number;
@@ -598,6 +960,7 @@ describe("local workspace tools", () => {
       expect(out.startLine).toBe(10);
       expect(out.endLine).toBe(14);
       expect(out.content.length).toBeGreaterThan(0);
+      await creditToolResult(state, conversationId, "win-1", out, evidenceLedger);
       expect(evidenceLedger.covers("src/large.ts", 10, 14)).toBe(true);
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -632,13 +995,13 @@ describe("local workspace tools", () => {
       const { executors, disposeSpillFiles } = buildWorkspaceTools(workspace.reader, {
         limits: testLimits({ maxFileBytes: 1_000_000 }),
         headSha: "deadbeef",
-        spillScope: { workItemId: "wi-spill", toolCall: "readWorkspaceFile" },
+        spillScope: { workItemId: "wi-spill", toolCall: "read_pinned" },
       });
-      const outA = (await executors.readWorkspaceFile?.({ path: "src/large-a.ts" })) as {
+      const outA = (await executors.read_pinned?.({ path: "src/large-a.ts" })) as {
         spilled: boolean;
         spillPath: string;
       };
-      const outB = (await executors.readWorkspaceFile?.({ path: "src/large-b.ts" })) as {
+      const outB = (await executors.read_pinned?.({ path: "src/large-b.ts" })) as {
         spilled: boolean;
         spillPath: string;
       };
@@ -660,7 +1023,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("readWorkspaceFile clamps a minified mega-line instead of letting it eat the budget", async () => {
+  it("read_pinned clamps a minified mega-line instead of letting it eat the budget", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       const minified = `"use strict";${"m".repeat(50_000)}`;
@@ -671,7 +1034,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/bundle.js"]);
       const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "src/bundle.js" })) as {
+      const out = (await executors.read_pinned?.({ path: "src/bundle.js" })) as {
         content: string;
         truncated: boolean;
         endLine: number;
@@ -689,7 +1052,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("readWorkspaceFile strips a leading BOM and normalizes CRLF", async () => {
+  it("read_pinned strips a leading BOM and normalizes CRLF", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       await writeWorkspaceFiles(root, {
@@ -699,7 +1062,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/legacy.ts"]);
       const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "src/legacy.ts" })) as {
+      const out = (await executors.read_pinned?.({ path: "src/legacy.ts" })) as {
         content: string;
         startLine: number;
         endLine: number;
@@ -713,7 +1076,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("readWorkspaceFile supports line-window reads with line metadata", async () => {
+  it("read_pinned supports line-window reads with line metadata", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       await writeWorkspaceFiles(root, {
@@ -723,7 +1086,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/window.ts"]);
       const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({
+      const out = (await executors.read_pinned?.({
         path: "src/window.ts",
         startLine: 2,
         maxLines: 2,
@@ -747,7 +1110,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("readWorkspaceFile refuses oversized files before response capping", async () => {
+  it("read_pinned refuses oversized files before response capping", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       await writeWorkspaceFiles(root, {
@@ -759,7 +1122,7 @@ describe("local workspace tools", () => {
       const { executors } = buildWorkspaceTools(workspace.reader, {
         limits: testLimits({ maxFileBytes: 100, readResponseBytes: 50 }),
       });
-      const out = (await executors.readWorkspaceFile?.({ path: "src/huge.ts" })) as {
+      const out = (await executors.read_pinned?.({ path: "src/huge.ts" })) as {
         refused?: boolean;
         reason?: string;
       };
@@ -773,7 +1136,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("readWorkspaceFile refuses binary files", async () => {
+  it("read_pinned refuses binary files", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       await writeWorkspaceFiles(root, {
@@ -783,7 +1146,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/binary.bin"]);
       const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "src/binary.bin" })) as {
+      const out = (await executors.read_pinned?.({ path: "src/binary.bin" })) as {
         refused?: boolean;
         reason?: string;
       };
@@ -1226,7 +1589,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("readWorkspaceFile records evidence in the ledger on success", async () => {
+  it("read_pinned records evidence in the ledger on success", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-evidence-"));
     try {
       await writeWorkspaceFiles(root, {
@@ -1241,22 +1604,28 @@ describe("local workspace tools", () => {
         evidenceLedger,
         headSha: "deadbeef",
       });
-      await executors.readWorkspaceFile?.({
-        path: "src/small.ts",
-        startLine: 2,
-        maxLines: 2,
-      });
+      const conversationId = 9104 as ConversationId;
+      const state = bindEvidenceSession(conversationId);
+      const result = await executors.read_pinned?.(
+        {
+          path: "src/small.ts",
+          startLine: 2,
+          maxLines: 2,
+        },
+        { toolCallId: "read-1", conversationId, signal: new AbortController().signal },
+      );
+      await creditToolResult(state, conversationId, "read-1", result, evidenceLedger);
 
       expect(evidenceLedger.covers("src/small.ts", 2, 3)).toBe(true);
       expect(evidenceLedger.covers("src/small.ts", 1, 1)).toBe(false);
       expect(evidenceLedger.snapshot()).toHaveLength(1);
-      expect(evidenceLedger.snapshot()[0]?.tool).toBe("readWorkspaceFile");
+      expect(evidenceLedger.snapshot()[0]?.tool).toBe("read_pinned");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  it("readWorkspaceFile does not record evidence for a clamped line", async () => {
+  it("read_pinned does not record evidence for a clamped line", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-evidence-"));
     try {
       await writeWorkspaceFiles(root, {
@@ -1270,21 +1639,33 @@ describe("local workspace tools", () => {
         evidenceLedger,
         headSha: "deadbeef",
       });
-      await executors.readWorkspaceFile?.({ path: "src/min.ts" });
+      const conversationId = 9105 as ConversationId;
+      const state = bindEvidenceSession(conversationId);
+      const ctx = (callId: string) => ({
+        toolCallId: callId,
+        conversationId,
+        signal: new AbortController().signal,
+      });
+      const firstRead = await executors.read_pinned?.({ path: "src/min.ts" }, ctx("clamp-1"));
+      await creditToolResult(state, conversationId, "clamp-1", firstRead, evidenceLedger);
 
       expect(evidenceLedger.covers("src/min.ts", 2, 2)).toBe(false);
       expect(evidenceLedger.covers("src/min.ts", 1, 3)).toBe(false);
       expect(evidenceLedger.covers("src/min.ts", 1, 1)).toBe(true);
       expect(evidenceLedger.covers("src/min.ts", 3, 3)).toBe(true);
 
-      await executors.readWorkspaceFile?.({ path: "src/min.ts", startLine: 2, maxLines: 1 });
+      const secondRead = await executors.read_pinned?.(
+        { path: "src/min.ts", startLine: 2, maxLines: 1 },
+        ctx("clamp-2"),
+      );
+      await creditToolResult(state, conversationId, "clamp-2", secondRead, evidenceLedger);
       expect(evidenceLedger.covers("src/min.ts", 2, 2)).toBe(true);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  it("readWorkspaceFile does not record evidence for a line cut by the response byte budget", async () => {
+  it("read_pinned does not record evidence for a line cut by the response byte budget", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-evidence-"));
     try {
       await writeWorkspaceFiles(root, {
@@ -1298,7 +1679,17 @@ describe("local workspace tools", () => {
         evidenceLedger,
         headSha: "deadbeef",
       });
-      await executors.readWorkspaceFile?.({ path: "src/cut.ts" });
+      const conversationId = 9106 as ConversationId;
+      const state = bindEvidenceSession(conversationId);
+      const result = await executors.read_pinned?.(
+        { path: "src/cut.ts" },
+        {
+          toolCallId: "cut-1",
+          conversationId,
+          signal: new AbortController().signal,
+        },
+      );
+      await creditToolResult(state, conversationId, "cut-1", result, evidenceLedger);
 
       expect(evidenceLedger.covers("src/cut.ts", 1, 1)).toBe(true);
       expect(evidenceLedger.covers("src/cut.ts", 2, 2)).toBe(false);
@@ -1322,7 +1713,17 @@ describe("local workspace tools", () => {
         headSha: "deadbeef",
       });
 
-      await executors.getWorkspaceDiff?.({ path: "src/changed.ts" });
+      const conversationId = 9107 as ConversationId;
+      const state = bindEvidenceSession(conversationId);
+      const result = await executors.getWorkspaceDiff?.(
+        { path: "src/changed.ts" },
+        {
+          toolCallId: "diff-1",
+          conversationId,
+          signal: new AbortController().signal,
+        },
+      );
+      await creditToolResult(state, conversationId, "diff-1", result, evidenceLedger);
 
       expect(evidenceLedger.covers("src/changed.ts", 2, 3)).toBe(true);
       expect(evidenceLedger.snapshot()[0]?.tool).toBe("getWorkspaceDiff");
@@ -1331,7 +1732,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("readWorkspaceFile includes coverage when path is missing from checkout", async () => {
+  it("read_pinned includes coverage when path is missing from checkout", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       await writeWorkspaceFiles(root, {
@@ -1340,7 +1741,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts"], { checkoutMode: "sparse" });
       const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "src/missing.ts" })) as {
+      const out = (await executors.read_pinned?.({ path: "src/missing.ts" })) as {
         refused?: boolean;
         coverage?: { mode: string };
       };
@@ -1452,7 +1853,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("resolveSymbol hits do not satisfy evidence ledger without readWorkspaceFile", async () => {
+  it("resolveSymbol hits do not satisfy evidence ledger without read_pinned", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-symbol-evidence-"));
     try {
       await writeWorkspaceFiles(root, {
@@ -1484,15 +1885,15 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("resolveSymbol description requires readWorkspaceFile before citing", () => {
+  it("resolveSymbol description requires read_pinned before citing", () => {
     const { piTools } = buildWorkspaceTools(mockWorkspace("/tmp", ["src/changed.ts"]).reader, {
       limits: testLimits(),
     });
     const resolveSymbol = piTools.find((tool) => tool.name === "resolveSymbol");
-    expect(resolveSymbol?.description).toContain("readWorkspaceFile");
+    expect(resolveSymbol?.description).toContain("read_pinned");
   });
 
-  it("readWorkspaceFile names a FIFO instead of reporting it missing", async () => {
+  it("read_pinned names a FIFO instead of reporting it missing", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       await writeWorkspaceFiles(root, { "src/changed.ts": "export {};\n" });
@@ -1501,7 +1902,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "logs/live.pipe"]);
       const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "logs/live.pipe" })) as {
+      const out = (await executors.read_pinned?.({ path: "logs/live.pipe" })) as {
         refused?: boolean;
         reason?: string;
       };
@@ -1514,7 +1915,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("readWorkspaceFile rejects an in-tree directory symlink", async () => {
+  it("read_pinned rejects an in-tree directory symlink", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       await writeWorkspaceFiles(root, { "src/changed.ts": "export {};\n" });
@@ -1523,7 +1924,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "docs-link"]);
       const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
-      await expect(executors.readWorkspaceFile?.({ path: "docs-link" })).rejects.toMatchObject({
+      await expect(executors.read_pinned?.({ path: "docs-link" })).rejects.toMatchObject({
         code: "pr_workspace.symlink_escape",
       });
     } finally {
@@ -1531,7 +1932,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("readWorkspaceFile rejects an in-tree FIFO symlink", async () => {
+  it("read_pinned rejects an in-tree FIFO symlink", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       await writeWorkspaceFiles(root, { "src/changed.ts": "export {};\n" });
@@ -1541,9 +1942,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "logs/innocent.txt"]);
       const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
-      await expect(
-        executors.readWorkspaceFile?.({ path: "logs/innocent.txt" }),
-      ).rejects.toMatchObject({
+      await expect(executors.read_pinned?.({ path: "logs/innocent.txt" })).rejects.toMatchObject({
         code: "pr_workspace.symlink_escape",
       });
     } finally {
@@ -1551,7 +1950,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("readWorkspaceFile blocks a symlink that escapes the workspace root", async () => {
+  it("read_pinned blocks a symlink that escapes the workspace root", async () => {
     const outside = await mkdtemp(join(tmpdir(), "workspace-tools-outside-"));
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
@@ -1562,7 +1961,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "docs/notes.md"]);
       const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
-      await expect(executors.readWorkspaceFile?.({ path: "docs/notes.md" })).rejects.toMatchObject({
+      await expect(executors.read_pinned?.({ path: "docs/notes.md" })).rejects.toMatchObject({
         code: "pr_workspace.symlink_escape",
       });
     } finally {
@@ -1574,7 +1973,7 @@ describe("local workspace tools", () => {
   const HOSTILE_NAME = "Meeting\u202fnotes\u2019 re\u0301sume\u0301 3.04\u202fPM.txt";
   const CLEAN_NAME = "Meeting notes\u2019 r\u00e9sum\u00e9 3.04 PM.txt";
 
-  it("readWorkspaceFile names a socket instead of reporting it missing", async () => {
+  it("read_pinned names a socket instead of reporting it missing", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     const server = createServer();
     try {
@@ -1587,7 +1986,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "logs/agent.sock"]);
       const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "logs/agent.sock" })) as {
+      const out = (await executors.read_pinned?.({ path: "logs/agent.sock" })) as {
         refused?: boolean;
         reason?: string;
       };
@@ -1600,7 +1999,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("readWorkspaceFile notes the repair but still refuses a too-large resolved twin", async () => {
+  it("read_pinned notes the repair but still refuses a too-large resolved twin", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       const nfcPath = "docs/caf\u00e9.md";
@@ -1616,7 +2015,7 @@ describe("local workspace tools", () => {
         evidenceLedger,
         headSha: "deadbeef",
       });
-      const out = (await executors.readWorkspaceFile?.({ path: "docs/caf\u0065\u0301.md" })) as {
+      const out = (await executors.read_pinned?.({ path: "docs/caf\u0065\u0301.md" })) as {
         path: string;
         refused?: boolean;
         reason?: string;
@@ -1635,7 +2034,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("readWorkspaceFile suggests a sibling at exactly the similarity threshold", async () => {
+  it("read_pinned suggests a sibling at exactly the similarity threshold", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       await writeWorkspaceFiles(root, {
@@ -1645,7 +2044,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "cd.yml"]);
       const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "ci.yml" })) as {
+      const out = (await executors.read_pinned?.({ path: "ci.yml" })) as {
         refused?: boolean;
         similarPaths?: string[];
       };
@@ -1657,7 +2056,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("readWorkspaceFile caps similarPaths at five suggestions", async () => {
+  it("read_pinned caps similarPaths at five suggestions", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       const siblings = [
@@ -1678,7 +2077,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", ...siblings]);
       const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "config.ts" })) as {
+      const out = (await executors.read_pinned?.({ path: "config.ts" })) as {
         refused?: boolean;
         similarPaths?: string[];
       };
@@ -1691,7 +2090,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("readWorkspaceFile repairs a unicode-equivalent filename and records evidence under the resolved path", async () => {
+  it("read_pinned repairs a unicode-equivalent filename and records evidence under the resolved path", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       const hostilePath = `notes/${HOSTILE_NAME}`;
@@ -1707,7 +2106,16 @@ describe("local workspace tools", () => {
         evidenceLedger,
         headSha: "deadbeef",
       });
-      const out = (await executors.readWorkspaceFile?.({ path: `notes/${CLEAN_NAME}` })) as {
+      const conversationId = 9108 as ConversationId;
+      const state = bindEvidenceSession(conversationId);
+      const out = (await executors.read_pinned?.(
+        { path: `notes/${CLEAN_NAME}` },
+        {
+          toolCallId: "uni-1",
+          conversationId,
+          signal: new AbortController().signal,
+        },
+      )) as {
         path: string;
         content?: string;
         note?: string;
@@ -1716,6 +2124,7 @@ describe("local workspace tools", () => {
       expect(out.path).toBe(hostilePath);
       expect(out.content).toContain("rotate the keys");
       expect(out.note).toContain("unicode-equivalent");
+      await creditToolResult(state, conversationId, "uni-1", out, evidenceLedger);
       expect(evidenceLedger.covers(hostilePath, 1, 1)).toBe(true);
       expect(evidenceLedger.covers(`notes/${CLEAN_NAME}`, 1, 1)).toBe(false);
     } finally {
@@ -1723,7 +2132,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("readWorkspaceFile adds no repair note for the exact on-disk spelling", async () => {
+  it("read_pinned adds no repair note for the exact on-disk spelling", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       const hostilePath = `notes/${HOSTILE_NAME}`;
@@ -1734,7 +2143,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", hostilePath]);
       const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: hostilePath })) as {
+      const out = (await executors.read_pinned?.({ path: hostilePath })) as {
         content?: string;
         note?: string;
       };
@@ -1746,7 +2155,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("readWorkspaceFile refuses to guess between homoglyph twins", async () => {
+  it("read_pinned refuses to guess between homoglyph twins", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       await writeWorkspaceFiles(root, {
@@ -1757,7 +2166,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "a\u2019b.txt", "a'b.txt"]);
       const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "a\u2018b.txt" })) as {
+      const out = (await executors.read_pinned?.({ path: "a\u2018b.txt" })) as {
         refused?: boolean;
         note?: string;
       };
@@ -1769,7 +2178,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("readWorkspaceFile suggests but does not repair a visibly different spelling", async () => {
+  it("read_pinned suggests but does not repair a visibly different spelling", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       const hostilePath = `notes/${HOSTILE_NAME}`;
@@ -1780,7 +2189,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", hostilePath]);
       const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({
+      const out = (await executors.read_pinned?.({
         path: "notes/Meeting notes' resume 3.04 PM.txt",
       })) as {
         refused?: boolean;
@@ -1796,7 +2205,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("readWorkspaceFile suggests AGENTS.md for AGENT.md", async () => {
+  it("read_pinned suggests AGENTS.md for AGENT.md", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       await writeWorkspaceFiles(root, {
@@ -1806,7 +2215,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "AGENTS.md"]);
       const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "AGENT.md" })) as {
+      const out = (await executors.read_pinned?.({ path: "AGENT.md" })) as {
         refused?: boolean;
         similarPaths?: string[];
       };
@@ -1818,7 +2227,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("readWorkspaceFile offers no suggestions for an unrelated name", async () => {
+  it("read_pinned offers no suggestions for an unrelated name", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       await writeWorkspaceFiles(root, {
@@ -1828,7 +2237,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "AGENTS.md"]);
       const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "zzz_qqq.bin" })) as {
+      const out = (await executors.read_pinned?.({ path: "zzz_qqq.bin" })) as {
         refused?: boolean;
         similarPaths?: string[];
       };
@@ -1840,7 +2249,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("readWorkspaceFile keeps gated sensitive paths out of similarPaths", async () => {
+  it("read_pinned keeps gated sensitive paths out of similarPaths", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       await writeWorkspaceFiles(root, {
@@ -1850,7 +2259,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "config/keys.pem"]);
       const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "config/keys.pub" })) as {
+      const out = (await executors.read_pinned?.({ path: "config/keys.pub" })) as {
         refused?: boolean;
         similarPaths?: string[];
       };
@@ -1862,7 +2271,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("readWorkspaceFile notes an empty file and records no evidence", async () => {
+  it("read_pinned notes an empty file and records no evidence", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       await writeWorkspaceFiles(root, {
@@ -1877,7 +2286,7 @@ describe("local workspace tools", () => {
         evidenceLedger,
         headSha: "deadbeef",
       });
-      const out = (await executors.readWorkspaceFile?.({ path: "src/empty.ts" })) as {
+      const out = (await executors.read_pinned?.({ path: "src/empty.ts" })) as {
         content?: string;
         note?: string;
         refused?: boolean;
@@ -1892,7 +2301,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("readWorkspaceFile notes a startLine beyond end of file and records no evidence", async () => {
+  it("read_pinned notes a startLine beyond end of file and records no evidence", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       await writeWorkspaceFiles(root, {
@@ -1907,7 +2316,7 @@ describe("local workspace tools", () => {
         evidenceLedger,
         headSha: "deadbeef",
       });
-      const out = (await executors.readWorkspaceFile?.({
+      const out = (await executors.read_pinned?.({
         path: "src/window.ts",
         startLine: 900,
         maxLines: 50,
@@ -1950,7 +2359,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("readWorkspaceFile still reads when startLine equals the last line", async () => {
+  it("read_pinned still reads when startLine equals the last line", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       await writeWorkspaceFiles(root, {
@@ -1960,7 +2369,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/window.ts"]);
       const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({
+      const out = (await executors.read_pinned?.({
         path: "src/window.ts",
         startLine: 3,
         maxLines: 10,
@@ -2235,12 +2644,12 @@ describe("local workspace tools", () => {
       return { root, repo, workspace, executors };
     }
 
-    describe("readWorkspaceFile", () => {
+    describe("read_pinned", () => {
       it("caps oversized reads at the shared response budget with a resume offset", async () => {
         const bigFile = ("x".repeat(1_000) + "\n").repeat(400);
         const { executors } = await setup({ "src/big.txt": bigFile });
 
-        const out = (await executors.readWorkspaceFile({ path: "src/big.txt" })) as {
+        const out = (await executors.read_pinned({ path: "src/big.txt" })) as {
           truncated?: boolean;
           truncationReason?: string;
           resumeStartLine?: number;
@@ -2258,7 +2667,7 @@ describe("local workspace tools", () => {
       it("supports line-window reads like every other feature", async () => {
         const { executors } = await setup({ "src/app.ts": "a\nb\nc\nd\n" });
 
-        const out = (await executors.readWorkspaceFile({
+        const out = (await executors.read_pinned({
           path: "src/app.ts",
           startLine: 2,
           maxLines: 2,
@@ -2300,7 +2709,7 @@ describe("local workspace tools", () => {
         expect((await stat(workspace.privateGitDir)).isDirectory()).toBe(true);
         expect(workspace.privateGitDir.startsWith(`${workspace.agentCwd}/`)).toBe(false);
 
-        const read = (await executors.readWorkspaceFile({ path: "src/app.ts" })) as {
+        const read = (await executors.read_pinned({ path: "src/app.ts" })) as {
           content?: string;
         };
         expect(read.content).toBe("export const needle = 1;\n");
@@ -2870,11 +3279,15 @@ describe("local workspace tools", () => {
           expected,
         );
 
-        const { stdout } = await exec("ps", ["-o", "pid=,args=", "--ppid", String(process.pid)]);
-        const hostPids = stdout
-          .split("\n")
-          .filter((line) => line.includes("prWorkspace/fff/host"))
-          .map((line) => Number.parseInt(line.trim(), 10));
+        const { stdout } = await exec("ps", ["-ax", "-o", "ppid=,pid=,command="]);
+        const hostPids = stdout.split("\n").flatMap((line) => {
+          const match = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
+          return match &&
+            Number(match[1]) === process.pid &&
+            match[3].includes("prWorkspace/fff/host")
+            ? [Number(match[2])]
+            : [];
+        });
         expect(hostPids.length).toBeGreaterThan(0);
         for (const pid of hostPids) process.kill(pid, "SIGKILL");
 
@@ -3022,42 +3435,29 @@ describe("local workspace tools", () => {
 
         const readGuest = async (
           label: string,
-          capabilities: CodeModeCapabilityExecutors,
+          tools: Record<string, AgentRunnerToolExecutor | undefined>,
           requested: readonly { readonly case: string; readonly path: string }[],
         ) => {
-          const result = await runCodeModeScript({
-            executorKind: "in_process",
-            capabilities,
-            code: `
-              const cases = ${JSON.stringify(requested)};
-              const rows = [];
-              for (const item of cases) {
-                const result = await tools.getWorkspaceDiff({ path: item.path });
-                rows.push({
-                  surface: ${JSON.stringify(label)},
-                  case: item.case,
-                  availability: result.availability ?? null,
-                  reason: result.reason ?? null,
-                  currentPath: result.currentPath ?? null,
-                  diffLength: typeof result.diff === "string" ? result.diff.length : null,
-                  truncation: result.truncation ?? null,
-                });
-              }
-              rows
-            `,
-          });
-          expect(result.ok).toBe(true);
-          if (!result.ok) return [];
-          expect(result.toolCalls.every((call) => call.status === "completed")).toBe(true);
-          return result.output as Array<{
-            surface: string;
-            case: string;
-            availability: string | null;
-            reason: string | null;
-            currentPath: string | null;
-            diffLength: number | null;
-            truncation: unknown;
-          }>;
+          const rows = [];
+          for (const item of requested) {
+            const result = (await tools.getWorkspaceDiff?.({ path: item.path })) as {
+              availability?: string;
+              reason?: string | null;
+              currentPath?: string;
+              diff?: string;
+              truncation?: unknown;
+            };
+            rows.push({
+              surface: label,
+              case: item.case,
+              availability: result.availability ?? null,
+              reason: result.reason ?? null,
+              currentPath: result.currentPath ?? null,
+              diffLength: typeof result.diff === "string" ? result.diff.length : null,
+              truncation: result.truncation ?? null,
+            });
+          }
+          return rows;
         };
 
         const verification = await readGuest("verification", executors, cases);
@@ -3307,7 +3707,7 @@ describe("local workspace tools", () => {
 
     it("blocks read of control-plane paths", async () => {
       const { executors } = await setup();
-      await expect(executors.readWorkspaceFile({ path: "package.json" })).rejects.toMatchObject({
+      await expect(executors.read_triage({ path: "package.json" })).rejects.toMatchObject({
         code: "triage.sensitive_path_blocked",
       });
     });
@@ -3316,7 +3716,7 @@ describe("local workspace tools", () => {
       const bigFile = ("x".repeat(1_000) + "\n").repeat(400);
       const { executors } = await setup({ files: { "src/app.ts": bigFile } });
 
-      const out = (await executors.readWorkspaceFile({ path: "src/app.ts" })) as {
+      const out = (await executors.read_triage({ path: "src/app.ts" })) as {
         truncated?: boolean;
         truncationReason?: string;
         resumeStartLine?: number;
@@ -3334,7 +3734,7 @@ describe("local workspace tools", () => {
     it("supports line-window reads like every other feature", async () => {
       const { executors } = await setup({ files: { "src/app.ts": "a\nb\nc\nd\n" } });
 
-      const out = (await executors.readWorkspaceFile({
+      const out = (await executors.read_triage({
         path: "src/app.ts",
         startLine: 2,
         maxLines: 2,
@@ -3371,7 +3771,7 @@ describe("local workspace tools", () => {
         state: createTriageWorkspaceToolState(),
       });
 
-      await expect(executors.readWorkspaceFile({ path: "docs/notes.md" })).rejects.toMatchObject({
+      await expect(executors.read_triage({ path: "docs/notes.md" })).rejects.toMatchObject({
         code: "pr_workspace.symlink_escape",
       });
     });

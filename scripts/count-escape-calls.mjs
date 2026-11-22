@@ -60,7 +60,7 @@ export function countEscapeCalls(root) {
   };
   try {
     snapshot = api.createSnapshot({ openProjects: [config] });
-    project = snapshot.getProject(config);
+    project = snapshot.getConfiguredProject(config);
     if (!project) throw new Error(`missing TypeScript project for ${root}`);
     walk(root);
     return count;

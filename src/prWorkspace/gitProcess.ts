@@ -1,4 +1,5 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
 import { performance } from "node:perf_hooks";
 import {
   LOCAL_WORKSPACE_GIT_GROUP_POLL_MS,
@@ -50,6 +51,22 @@ function signalGroup(pgid: number, signal: NodeJS.Signals | 0) {
     return ((pinnedReturn: SignalOutcome) => pinnedReturn)(
       code === "ESRCH" ? "gone" : { errorCode: code },
     );
+  }
+}
+
+const exec = promisify(execFile);
+
+async function groupHasNoLiveMembers(pgid: number) {
+  try {
+    const { stdout } = await exec("/bin/ps", ["-A", "-o", "pgid=,stat="], {
+      timeout: LOCAL_WORKSPACE_GIT_KILL_CONFIRM_MS,
+    });
+    return !stdout.split("\n").some((row) => {
+      const [id, state] = row.trim().split(/\s+/);
+      return Number(id) === pgid && !state?.startsWith("Z");
+    });
+  } catch {
+    return false;
   }
 }
 
@@ -151,7 +168,11 @@ export function runGitProcess(args: readonly string[], options: GitProcessOption
         const outcome = signalGroup(groupId, signal);
         if (outcome === "delivered") return true;
         if (outcome === "gone") finishTermination("complete");
-        else finishTermination("failed", outcome.errorCode);
+        else if (process.platform === "darwin" && outcome.errorCode === "EPERM") {
+          void groupHasNoLiveMembers(groupId).then((gone) =>
+            finishTermination(gone ? "complete" : "failed", gone ? null : outcome.errorCode),
+          );
+        } else finishTermination("failed", outcome.errorCode);
         return false;
       };
 
@@ -162,7 +183,9 @@ export function runGitProcess(args: readonly string[], options: GitProcessOption
           return;
         }
         if (stage === "confirm") {
-          finishTermination("complete");
+          void groupHasNoLiveMembers(pgid).then((gone) =>
+            finishTermination(gone ? "complete" : "failed", gone ? null : "group_still_running"),
+          );
           return;
         }
         if (!signalRunningGroup(pgid, "SIGKILL")) return;

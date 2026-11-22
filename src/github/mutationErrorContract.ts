@@ -6,6 +6,13 @@ export function isKnownNoAcceptanceMutationError(error: unknown) {
   if (isProvenInlineAnchorRejection(error)) return ((pinnedReturn: boolean) => pinnedReturn)(true);
   if (
     isAppError(error) &&
+    (error.code === "operation_intent.mutation_gate_failed" ||
+      error.code === "operation_intent.mutation_conflict")
+  ) {
+    return ((pinnedReturn: boolean) => pinnedReturn)(true);
+  }
+  if (
+    isAppError(error) &&
     error.code === "github.review_thread_resolution_denied" &&
     error.context.mutationAccepted === false
   ) {

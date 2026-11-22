@@ -5,7 +5,7 @@ const CREDENTIALS =
   /-----BEGIN (?:[A-Z0-9]+ )?PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z0-9]+ )?PRIVATE KEY-----|(?:ghs_[A-Za-z0-9._-]+|gh[phorsu]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|npm_[A-Za-z0-9]{36}|sk_(?:live|test)_[A-Za-z0-9]+|sk-[A-Za-z0-9_-]+|xox(?:[a-z]-|e\.)[A-Za-z0-9.-]+|AKIA[A-Z0-9]{16}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})|(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|rediss?):\/\/[^\s:]+:[^\s@]+@/gi;
 
 export function createTraceRedactor(
-  cfg: Pick<Config, "github" | "models" | "webhook" | "runtime" | "posthog">,
+  cfg: Pick<Config, "github" | "models" | "webhook" | "posthog">,
 ) {
   const secrets = new Set<string>();
   const addSecret = (value: string | undefined) => {
@@ -16,7 +16,6 @@ export function createTraceRedactor(
   [
     cfg.github.privateKey,
     cfg.webhook.secret,
-    cfg.runtime.databaseUrl,
     ...Object.values(cfg.models.providerKeys),
     cfg.posthog.projectToken,
   ].forEach(addSecret);

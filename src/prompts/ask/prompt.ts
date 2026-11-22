@@ -1,5 +1,5 @@
 import type { AskCiState, AskRunParams } from "../../agent/ask/askRunTypes.ts";
-import { GUEST_CAPABILITY_SPECS } from "../../agent/codemode/guestCatalogue.ts";
+import { GUEST_CAPABILITY_SPECS } from "../shared/tools.ts";
 import { scopePushbackGuidance } from "../shared/behavior.ts";
 import { communicationGuidance } from "../shared/communication.ts";
 import { formatPullRequestDiscussion } from "../shared/context.ts";
@@ -8,7 +8,7 @@ import { renderCodeModeHarness, unavailableConversationToolsGuidance } from "../
 
 export const askInvestigationHarness = renderCodeModeHarness({
   guest: GUEST_CAPABILITY_SPECS,
-  nativeTools: ["execute", "report_obstacle"],
+  nativeTools: ["codemode", "report_obstacle"],
   cellBoundary: "The answer goes in your final plain-text reply, not in a cell.",
   extra: [`The workspace is a PR head checkout. ${unavailableConversationToolsGuidance}`],
 });
@@ -115,7 +115,7 @@ export function buildAskUserContent(params: AskPromptInput) {
     }
     blocks.push(wrapUntrustedBlock("code_anchor", anchorLines.join("\n")));
   } else {
-    blocks.push("Inspect changed files through `execute({ code })`.");
+    blocks.push("Inspect changed files through `codemode({ code })`.");
   }
 
   return ((pinnedReturn: string) => pinnedReturn)(blocks.join("\n\n"));

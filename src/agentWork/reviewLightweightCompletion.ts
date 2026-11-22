@@ -1,7 +1,4 @@
 import { decodeProgressComment } from "../github/prSurfaceResults.ts";
-import { createPublishContext } from "./publishOnce.ts";
-import type { Pool } from "pg";
-import type { PgBoss } from "pg-boss";
 import { evaluateTrivialChangeExemption } from "../review/run/reviewChangeGate.ts";
 import type { ReviewPreflightMetadata } from "../review/placement/reviewPreflightFiles.ts";
 import { createReviewSummaryComment } from "../review/publish/reviewSummaryComment.ts";
@@ -13,13 +10,20 @@ import { REVIEW_SUMMARY_SENTINEL, type ReviewMode } from "../review/reviewSchema
 import type { PrSurface } from "../github/prSurface.ts";
 import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.ts";
 import { recoverMarkedProgressComment } from "../github/recoverPrSurfaceMutation.ts";
-import { loadRenderableHeadCi, requestHeadCiProjection } from "./ciProjection.ts";
 import { summaryCommentVerdictMeta } from "./reviewVerdict.ts";
-import { getSummaryCommentGithubId } from "./publishRecordRepository.ts";
-import { shouldSkipWork } from "./workItemStateRepository.ts";
-import type { AgentWorkItem } from "./types.ts";
-import { operationIntentMarker, reviewSummaryOperationKey, publishOnce } from "./publishOnce.ts";
-import { fenceForEpoch } from "./writeFence.ts";
+import type { ReviewWorkItem } from "./types.ts";
+import {
+  latestCommentGithubId,
+  operationIntentMarker,
+  publishOnce,
+  reviewSummaryOperationKey,
+  writePublishStep,
+} from "../state/publish.ts";
+import type {
+  ReviewHeadCiPort,
+  ReviewPublishTarget,
+} from "../review/publish/reviewPublishSession.ts";
+import { waitingCiSummary } from "../review/ci/ciFacts.ts";
 import { loadFindingInventoryOrUnavailable } from "../review/findingIdentity/findingInventory.ts";
 import {
   buildFindingView,
@@ -44,15 +48,18 @@ export type LightweightAutoReviewResult =
     };
 
 export async function tryLightweightAutoReviewCompletion(
-  pool: Pool,
+  target: ReviewPublishTarget,
   params: {
-    item: AgentWorkItem;
+    item: Pick<
+      ReviewWorkItem,
+      "id" | "source" | "owner" | "repo" | "prNumber" | "headSha" | "resourceKey"
+    >;
     reviewLens: ReviewMode;
     prSurface: PrSurface;
     preflight: ReviewPreflightMetadata;
     model: string;
-    leaseEpoch: number | null;
-    boss?: PgBoss;
+    headCi?: ReviewHeadCiPort;
+    isCurrent: () => boolean;
     checkFailSeverity: "P0" | "P1" | "P2" | "P3";
   },
 ) {
@@ -68,19 +75,13 @@ export async function tryLightweightAutoReviewCompletion(
     return ((pinnedReturn: LightweightAutoReviewResult | Promise<LightweightAutoReviewResult>) =>
       pinnedReturn)({ handled: false });
 
-  if (await shouldSkipWork(pool, params.item)) {
+  if (!params.isCurrent()) {
     return ((pinnedReturn: LightweightAutoReviewResult | Promise<LightweightAutoReviewResult>) =>
       pinnedReturn)({ handled: true, published: false, reason: "skipped" });
   }
 
   const metricsSnapshot = snapshotReviewRunMetrics();
-  const renderedCi = await loadRenderableHeadCi(
-    pool,
-    params.item.owner,
-    params.item.repo,
-    params.item.headSha,
-    params.item.installationId,
-  );
+  const renderedCi = (await params.headCi?.load(params.item.headSha)) ?? waitingCiSummary(0);
   const findingView = buildFindingView(
     await loadFindingInventoryOrUnavailable(params.prSurface, {
       renames: new Map(),
@@ -114,46 +115,45 @@ export async function tryLightweightAutoReviewCompletion(
       findingsSection: renderFindingsSection(findingView, findingsBudget),
     }),
   );
-  const storedId = await getSummaryCommentGithubId(
-    pool,
-    params.item.resourceKey,
-    params.reviewLens,
-  );
+  const storedId = latestCommentGithubId(target.db, params.item.resourceKey, params.reviewLens);
   const knownExisting = await params.prSurface.resolveProgressComment(sentinel, storedId);
   const summary = await publishOnce<{
     readonly id: number;
     readonly updated: boolean;
   }>({
     decodeResult: decodeProgressComment,
-    fence: fenceForEpoch(params.leaseEpoch),
-    client: pool,
-    workItemId: params.item.id,
+    db: target.db,
+    workId: target.workItemId,
+    prKey: target.resourceKey,
+    resourceTarget: `summary_comment:${params.reviewLens}`,
+    ...(target.laneEpoch !== undefined ? { laneEpoch: target.laneEpoch } : {}),
+    ...(target.shutdownRequested !== undefined
+      ? { shutdownRequested: target.shutdownRequested }
+      : {}),
     operationKey,
     mutationKind: "github.review_summary_comment",
-    leaseEpoch: params.leaseEpoch,
-    detail: {
+    identity: {
       step: "summary_comment",
       resourceKey: params.item.resourceKey,
       reviewLens: params.reviewLens,
       operationMarker,
     },
-    recover: () =>
-      recoverMarkedProgressComment(params.prSurface, {
+    recover: async () => {
+      const recovered = await recoverMarkedProgressComment(params.prSurface, {
         operationMarker,
         sentinel,
         knownExistingId: knownExisting?.id,
-      }),
+      });
+      return recovered.kind === "reconciled"
+        ? { found: true as const, value: recovered.value }
+        : { found: false as const };
+    },
     isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
     mutate: () =>
       createReviewSummaryComment({
         prSurface: params.prSurface,
         reviewLens: params.reviewLens,
-        coordination: {
-          pool,
-          resourceKey: params.item.resourceKey,
-          workItemId: params.item.id,
-          leaseEpoch: params.leaseEpoch,
-        },
+        coordination: target,
       }).conclude({
         body: bodyWithMarker,
         hintCommentId: knownExisting?.id ?? storedId,
@@ -161,19 +161,10 @@ export async function tryLightweightAutoReviewCompletion(
         ciVersion: renderedCi.version,
       }),
   });
-  await requestHeadCiProjection(
-    params.boss,
-    {
-      installationId: params.item.installationId,
-      owner: params.item.owner,
-      repo: params.item.repo,
-      headSha: params.item.headSha,
-    },
-    { kind: "when_due", pool, renderedVersion: renderedCi.version },
-  );
-  await createPublishContext(pool, {
-    workItemId: params.item.id,
-    resourceKey: params.item.resourceKey,
+  params.headCi?.requestProjection(params.item.headSha, renderedCi.version);
+  writePublishStep(target.db, {
+    workId: target.workItemId,
+    prKey: target.resourceKey,
     reviewLens: params.reviewLens,
     step: "summary_comment",
     githubId: summary.id,
@@ -186,16 +177,14 @@ export async function tryLightweightAutoReviewCompletion(
         checkFailSeverity: params.checkFailSeverity,
       }),
     },
-    leaseEpoch: params.leaseEpoch,
-  }).record();
+  });
   await tryPublishCloseOutcomeReview({
     prSurface: params.prSurface,
     outcome: { kind: "published", ...check },
     headSha: params.item.headSha,
     summaryCommentId: summary.id,
-    workItemId: params.item.id,
-    pool,
-    leaseEpoch: params.leaseEpoch,
+    target,
+    reviewLens: params.reviewLens,
     owner: params.item.owner,
     repo: params.item.repo,
     prNumber: params.item.prNumber,

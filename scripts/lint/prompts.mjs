@@ -43,7 +43,6 @@ export const OUTSIDE_IMPORTABLE_SHARED = [
 export const INSIDE_IMPORTABLE_MODULES = [
   "src/settings/*Constants.ts",
   "src/settings/index.ts",
-  "src/agent/codemode/guestCatalogue.ts",
   "src/util/escape.ts",
   "src/github/markdownFormat.ts",
 ];

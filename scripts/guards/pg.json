@@ -3,7 +3,7 @@
   "kind": "module",
   "specifierPrefix": "pg",
   "skipTypeOnly": true,
-  "allow": ["src/db/", "src/agentWork/boss.ts"],
+  "allow": [],
   "mustCatch": [
     "import { Pool } from \"pg\";",
     "import {\n  Pool\n} from \"pg\";",

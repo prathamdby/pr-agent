@@ -17,14 +17,11 @@ import {
   wrapUntrustedBlock,
   wrapUntrustedEvidence,
 } from "../shared/safety.ts";
-import {
-  GUEST_CAPABILITY_SPECS,
-  type GuestCapabilitySpec,
-} from "../../agent/codemode/guestCatalogue.ts";
+import { GUEST_CAPABILITY_SPECS, type GuestCapabilitySpec } from "../shared/tools.ts";
 import { renderCodeModeHarness } from "../shared/tools.ts";
 
 const VERIFICATION_GUEST_NAMES: ReadonlySet<string> = new Set([
-  "readWorkspaceFile",
+  "read_pinned",
   "searchWorkspace",
   "getWorkspaceDiff",
 ]);
@@ -34,7 +31,7 @@ export const VERIFICATION_GUEST_SPECS: readonly GuestCapabilitySpec[] =
 
 export const verificationInvestigationHarness = renderCodeModeHarness({
   guest: VERIFICATION_GUEST_SPECS,
-  nativeTools: ["execute", "report_obstacle", "submitVerification"],
+  nativeTools: ["codemode", "report_obstacle", "submitVerification"],
   cellBoundary: "Submitting happens outside the cell: after inspection, call `submitVerification`.",
   extra: [
     "This profile has no `listChangedFiles`, `findFiles`, `getWorkspaceBlame`, or `resolveSymbol`; the inventory names the paths to inspect.",
@@ -54,7 +51,7 @@ export const verificationSystemPrompt = [
   maintainerDecisionEvidenceGuidance,
   "",
   "## Done when",
-  "- You have read the current code at each finding's location through `execute({ code })` and compared it with the finding's concern.",
+  "- You have read the current code at each finding's location through `codemode({ code })` and compared it with the finding's concern.",
   `- Submit one verdict per inventory item in one \`submitVerification\` call. ${rejectedFindingSubmissionGuidance}`,
   "",
   "## Verdicts (exactly one per inventory item)",

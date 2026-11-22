@@ -1,7 +1,13 @@
-import type { WorkExecution, WorkExecutionDependencies } from "../workDefinition.ts";
-import { productionInstallationSurface } from "../installationSurface.ts";
-import { createPublishContext } from "../publishOnce.ts";
-import type { Pool } from "pg";
+import type {
+  FeatureExecutionEnv,
+  FeatureExecutionResult,
+  FeatureWorkDependencies,
+  FeatureWorkExecution,
+} from "./featureExecution.ts";
+import {
+  inlineReviewLensesForPr,
+  type FeaturePublication,
+} from "../../state/featurePublication.ts";
 
 import {
   type Config,
@@ -55,8 +61,6 @@ import {
   gitPersonFromGithubUser,
   type GitPerson,
 } from "../../agent/triage/commitAttribution.ts";
-import { listTriageEligibleInlineReviews } from "../publishRecordRepository.ts";
-import { type DurableExecutionContext, type DurableExecutionResult } from "../durableJob.ts";
 import type { EscalationPlan } from "../retryPolicy.ts";
 import { triageMode, type TriageWorkPayload, type AgentWorkItem } from "../types.ts";
 import { toError } from "../../errors/errorMessage.ts";
@@ -70,7 +74,7 @@ type TriageDegradationReason =
   | "bulk_partial"
   | "replay_commit_errors";
 
-type TriageExecuteResult = Extract<DurableExecutionResult, { kind: "completed" }>;
+type TriageExecuteResult = FeatureExecutionResult;
 
 type EmptyInventoryOutcome = "all_resolved" | "thread_not_eligible" | "no_eligible_findings";
 
@@ -165,12 +169,12 @@ function completedFromPublish(publish: PublishTriageResult) {
   );
 }
 
-async function ensureTriageNotCancelled(env: DurableExecutionContext) {
+async function ensureTriageNotCancelled(env: FeatureExecutionEnv) {
   if (await env.shouldAbortPublish()) throw new TriageCancelledError();
 }
 
 async function ensureTriageWriteAllowed(params: {
-  readonly env: DurableExecutionContext;
+  readonly env: FeatureExecutionEnv;
   readonly prSurface: PrSurface;
 }) {
   await ensureTriageNotCancelled(params.env);
@@ -196,17 +200,16 @@ function resolveEmptyInventoryOutcome(params: {
 }
 
 async function handleForkPrReport(params: {
-  readonly env: DurableExecutionContext;
-  readonly pool: Pool;
+  readonly env: FeatureExecutionEnv;
+  readonly publication: FeaturePublication;
   readonly item: TriageWorkItem;
   readonly prSurface: PrSurface;
   readonly headSha: string;
   readonly scope: NonNullable<TriageWorkPayload["scope"]> | "all";
-  readonly leaseEpoch: number | null;
 }) {
   await ensureTriageNotCancelled(params.env);
   await publishTriageReportOnly({
-    pool: params.pool,
+    publication: params.publication,
     workItemId: params.item.id,
     resourceKey: params.item.resourceKey,
     installationId: params.item.installationId,
@@ -217,7 +220,6 @@ async function handleForkPrReport(params: {
     headSha: params.headSha,
     inventory: [],
     previouslyResolvedCount: 0,
-    leaseEpoch: params.leaseEpoch,
     body: reportOnlyBody({
       message: TRIAGE_FORK_PR_NOTICE,
       headSha: params.headSha,
@@ -234,17 +236,14 @@ async function handleForkPrReport(params: {
 async function resolveInventoryAndScope(params: {
   readonly getBotIdentity: () => Promise<BotIdentity>;
   readonly cfg: Config;
-  readonly pool: Pool;
+  readonly publication: FeaturePublication;
   readonly item: TriageWorkItem;
   readonly prSurface: PrSurface;
   readonly scope: NonNullable<TriageWorkPayload["scope"]> | "all";
 }) {
   const payload = params.item.payload;
   const botIdentity = await params.getBotIdentity();
-  const eligibleReviews = await listTriageEligibleInlineReviews(
-    params.pool,
-    params.item.resourceKey,
-  );
+  const eligibleReviews = inlineReviewLensesForPr(params.publication.db, params.item.resourceKey);
   const resolutionResult = await params.prSurface.listInlineReviewThreads();
   const findingInventory = await loadFindingInventoryFromThreads(params.prSurface, {
     threads: resolutionResult,
@@ -310,8 +309,8 @@ async function resolveInventoryAndScope(params: {
 }
 
 async function publishEmptyInventoryReport(params: {
-  readonly env: DurableExecutionContext;
-  readonly pool: Pool;
+  readonly env: FeatureExecutionEnv;
+  readonly publication: FeaturePublication;
   readonly item: TriageWorkItem;
   readonly prSurface: PrSurface;
   readonly headSha: string;
@@ -321,7 +320,6 @@ async function publishEmptyInventoryReport(params: {
   readonly previouslyResolvedCount: number;
   readonly scopedThreadRootId: number | undefined;
   readonly reportContext: TriageReportContext;
-  readonly leaseEpoch: number | null;
 }) {
   await ensureTriageNotCancelled(params.env);
   const outcome = resolveEmptyInventoryOutcome({
@@ -331,7 +329,7 @@ async function publishEmptyInventoryReport(params: {
   });
   const message = EMPTY_INVENTORY_MESSAGES[outcome];
   await publishTriageReportOnly({
-    pool: params.pool,
+    publication: params.publication,
     workItemId: params.item.id,
     resourceKey: params.item.resourceKey,
     installationId: params.item.installationId,
@@ -342,7 +340,6 @@ async function publishEmptyInventoryReport(params: {
     headSha: params.headSha,
     inventory: params.inventory,
     previouslyResolvedCount: params.previouslyResolvedCount,
-    leaseEpoch: params.leaseEpoch,
     ...params.reportContext,
     body: reportOnlyBody({
       message,
@@ -360,7 +357,7 @@ async function publishEmptyInventoryReport(params: {
 
 async function tryResumeStoredPush(params: {
   readonly cfg: Config;
-  readonly pool: Pool;
+  readonly publication: FeaturePublication;
   readonly item: TriageWorkItem;
   readonly prSurface: PrSurface;
   readonly headSha: string;
@@ -370,11 +367,10 @@ async function tryResumeStoredPush(params: {
   readonly resolutionByRootCommentId: ReadonlyMap<number, ReviewThreadResolution>;
   readonly previouslyResolvedCount: number;
   readonly reportContext: TriageReportContext;
-  readonly leaseEpoch: number | null;
   readonly signal: AbortSignal;
 }) {
   const publish = await recoverTriagePublication({
-    pool: params.pool,
+    publication: params.publication,
     workItemId: params.item.id,
     resourceKey: params.item.resourceKey,
     installationId: params.item.installationId,
@@ -388,7 +384,6 @@ async function tryResumeStoredPush(params: {
     recoveryInventory: params.recoveryInventory,
     resolutionByRootCommentId: params.resolutionByRootCommentId,
     previouslyResolvedCount: params.previouslyResolvedCount,
-    leaseEpoch: params.leaseEpoch,
     signal: params.signal,
     ...params.reportContext,
   });
@@ -426,9 +421,9 @@ async function resolveTriggererGitPerson(params: {
 }
 
 async function runFreshTriageAgent(params: {
-  readonly env: DurableExecutionContext;
+  readonly env: FeatureExecutionEnv;
   readonly cfg: Config;
-  readonly pool: Pool;
+  readonly publication: FeaturePublication;
   readonly item: TriageWorkItem;
   readonly prSurface: PrSurface;
   readonly headSha: string;
@@ -439,7 +434,6 @@ async function runFreshTriageAgent(params: {
   readonly resolutionByRootCommentId: ReadonlyMap<number, ReviewThreadResolution>;
   readonly previouslyResolvedCount: number;
   readonly reportContext: TriageReportContext;
-  readonly leaseEpoch: number | null;
   readonly signal: AbortSignal;
   readonly mode: "apply" | "preview";
   readonly escalation?: EscalationPlan;
@@ -501,13 +495,13 @@ async function runFreshTriageAgent(params: {
             scope: params.scope,
             refreshBeforeTool: async () => ensureTriageNotCancelled(params.env),
             escalation: params.escalation,
-            sessionContext: params.env.durability,
+            createSession: params.env.createSession,
             signal: params.signal,
           });
         } catch (error) {
           if (!(error instanceof TriageClosedPullRequestError)) throw error;
           await publishTriageReportOnly({
-            pool: params.pool,
+            publication: params.publication,
             workItemId: params.item.id,
             resourceKey: params.item.resourceKey,
             installationId: params.item.installationId,
@@ -518,7 +512,6 @@ async function runFreshTriageAgent(params: {
             headSha: params.headSha,
             inventory: params.inventory,
             previouslyResolvedCount: params.previouslyResolvedCount,
-            leaseEpoch: params.leaseEpoch,
             ...params.reportContext,
             body: reportOnlyBody({
               message: TRIAGE_CLOSED_PR_NOTICE,
@@ -563,7 +556,7 @@ async function runFreshTriageAgent(params: {
             },
           );
           await publishTriagePreview({
-            pool: params.pool,
+            publication: params.publication,
             workItemId: params.item.id,
             resourceKey: params.item.resourceKey,
             installationId: params.item.installationId,
@@ -574,7 +567,6 @@ async function runFreshTriageAgent(params: {
             headSha: params.headSha,
             inventory: params.inventory,
             previouslyResolvedCount: params.previouslyResolvedCount,
-            leaseEpoch: params.leaseEpoch,
             hunks,
             payload: result.payload,
             ...params.reportContext,
@@ -582,7 +574,7 @@ async function runFreshTriageAgent(params: {
           return { kind: "completed" };
         }
         const publish = await publishTriage({
-          pool: params.pool,
+          publication: params.publication,
           workItemId: params.item.id,
           resourceKey: params.item.resourceKey,
           installationId: params.item.installationId,
@@ -596,7 +588,6 @@ async function runFreshTriageAgent(params: {
           resolutionByRootCommentId: params.resolutionByRootCommentId,
           payload: result.payload,
           previouslyResolvedCount: params.previouslyResolvedCount,
-          leaseEpoch: params.leaseEpoch,
           signal: params.signal,
           ...params.reportContext,
         });
@@ -607,9 +598,9 @@ async function runFreshTriageAgent(params: {
 }
 
 async function runBulkFromPreview(params: {
-  readonly env: DurableExecutionContext;
+  readonly env: FeatureExecutionEnv;
   readonly cfg: Config;
-  readonly pool: Pool;
+  readonly publication: FeaturePublication;
   readonly item: TriageWorkItem;
   readonly prSurface: PrSurface;
   readonly headSha: string;
@@ -625,7 +616,6 @@ async function runBulkFromPreview(params: {
   readonly resolutionByRootCommentId: ReadonlyMap<number, ReviewThreadResolution>;
   readonly previouslyResolvedCount: number;
   readonly reportContext: TriageReportContext;
-  readonly leaseEpoch: number | null;
   readonly signal: AbortSignal;
   readonly preview: StoredTriagePreviewDetail;
   readonly approvedIds: ReadonlySet<number>;
@@ -675,7 +665,7 @@ async function runBulkFromPreview(params: {
         });
         await ensureTriageNotCancelled(params.env);
         const publish = await publishTriage({
-          pool: params.pool,
+          publication: params.publication,
           workItemId: params.item.id,
           resourceKey: params.item.resourceKey,
           installationId: params.item.installationId,
@@ -689,7 +679,6 @@ async function runBulkFromPreview(params: {
           resolutionByRootCommentId: params.resolutionByRootCommentId,
           payload,
           previouslyResolvedCount: params.previouslyResolvedCount,
-          leaseEpoch: params.leaseEpoch,
           signal: params.signal,
           bulkClassification: {
             excludedIds: params.excludedIds,
@@ -720,20 +709,16 @@ function bulkPreviewError(preview: StoredTriagePreviewDetail | null, headSha: st
   return undefined;
 }
 
-export function createTriageWorkExecution({
-  cfg,
-  pool,
-  installationSurface = productionInstallationSurface,
-}: WorkExecutionDependencies) {
-  const getBotIdentity = () => installationSurface.botIdentity(cfg);
+export function createTriageFeatureExecution({ cfg, botIdentity }: FeatureWorkDependencies) {
+  const getBotIdentity = botIdentity;
 
   const executeTriage: (
-    item: Parameters<WorkExecution<"triage">["execute"]>[0],
-    env: DurableExecutionContext,
+    item: Parameters<FeatureWorkExecution<"triage">["execute"]>[0],
+    env: FeatureExecutionEnv,
   ) => Promise<TriageExecuteResult | undefined> = async (item, env) => {
     const scope = item.payload.scope ?? "all";
     const mode = triageMode(item.payload);
-    const { prSurface } = env;
+    const { prSurface, publication } = env;
     const headSha = env.headSha;
     await ensureTriageNotCancelled(env);
     const branch = pullRequestBranchInfo((await prSurface.getHead()).pullRequest);
@@ -741,28 +726,22 @@ export function createTriageWorkExecution({
     if (!branch.sameRepo && mode !== "preview") {
       return handleForkPrReport({
         env,
-        pool,
+        publication,
         item,
         prSurface,
         headSha,
         scope,
-        leaseEpoch: env.leaseEpoch,
       });
     }
 
     const storedPreview =
       mode === "bulk"
-        ? parseStoredTriagePreviewDetail(
-            await createPublishContext(pool, {
-              resourceKey: item.resourceKey,
-              reviewLens: TRIAGE_PUBLISH_LENS,
-            }).latest("triage_preview"),
-          )
+        ? parseStoredTriagePreviewDetail(publication.latest(TRIAGE_PUBLISH_LENS, "triage_preview"))
         : null;
     const previewError = mode === "bulk" ? bulkPreviewError(storedPreview, headSha) : undefined;
     if (previewError != null) {
       await publishTriageReportOnly({
-        pool,
+        publication,
         workItemId: item.id,
         resourceKey: item.resourceKey,
         installationId: item.installationId,
@@ -773,7 +752,6 @@ export function createTriageWorkExecution({
         headSha,
         inventory: [],
         previouslyResolvedCount: 0,
-        leaseEpoch: env.leaseEpoch,
         body: reportOnlyBody({
           message: previewError,
           headSha,
@@ -788,7 +766,7 @@ export function createTriageWorkExecution({
     const discovered = await resolveInventoryAndScope({
       getBotIdentity,
       cfg,
-      pool,
+      publication,
       item,
       prSurface,
       scope,
@@ -807,13 +785,7 @@ export function createTriageWorkExecution({
         : null;
 
     const doneStep = mode === "preview" ? "triage_preview" : "triage_report";
-    if (
-      await createPublishContext(pool, {
-        workItemId: item.id,
-        resourceKey: item.resourceKey,
-        reviewLens: "triage",
-      }).completed(doneStep)
-    ) {
+    if (publication.completed(doneStep)) {
       return undefined;
     }
 
@@ -822,7 +794,7 @@ export function createTriageWorkExecution({
     const resumeParams = {
       env,
       cfg,
-      pool,
+      publication,
       item,
       prSurface,
       headSha,
@@ -832,7 +804,6 @@ export function createTriageWorkExecution({
       resolutionByRootCommentId: discovered.resolutionByRootCommentId,
       previouslyResolvedCount: discovered.previouslyResolvedCount,
       reportContext: discovered.reportContext,
-      leaseEpoch: env.leaseEpoch,
       signal: env.signal,
     };
 
@@ -844,7 +815,7 @@ export function createTriageWorkExecution({
     if (currentInventory.length === 0) {
       return publishEmptyInventoryReport({
         env,
-        pool,
+        publication,
         item,
         prSurface,
         headSha,
@@ -854,13 +825,12 @@ export function createTriageWorkExecution({
         previouslyResolvedCount: discovered.previouslyResolvedCount,
         scopedThreadRootId: discovered.scopedThreadRootId,
         reportContext: discovered.reportContext,
-        leaseEpoch: env.leaseEpoch,
       });
     }
 
     if (mode === "bulk" && approval != null && approval.approvedInventory.length === 0) {
       await publishTriageReportOnly({
-        pool,
+        publication,
         workItemId: item.id,
         resourceKey: item.resourceKey,
         installationId: item.installationId,
@@ -871,7 +841,6 @@ export function createTriageWorkExecution({
         headSha,
         inventory: currentInventory,
         previouslyResolvedCount: discovered.previouslyResolvedCount,
-        leaseEpoch: env.leaseEpoch,
         ...discovered.reportContext,
         body: reportOnlyBody({
           message: `No approved findings to apply. Excluded: ${
@@ -895,7 +864,6 @@ export function createTriageWorkExecution({
             message: "Bulk apply reached execution without a parsed preview",
           });
         }
-        await env.beginAttempt();
         return runBulkFromPreview({
           ...resumeParams,
           cfg,
@@ -910,7 +878,6 @@ export function createTriageWorkExecution({
         });
       case "preview":
       case "apply":
-        await env.beginAttempt();
         return runFreshTriageAgent({
           ...resumeParams,
           inventory: currentInventory,
@@ -927,7 +894,7 @@ export function createTriageWorkExecution({
     }
   };
 
-  return ((pinnedReturn: WorkExecution<"triage">) => pinnedReturn)({
+  return ((pinnedReturn: FeatureWorkExecution<"triage">) => pinnedReturn)({
     execute: async (item, env) => {
       const result = await executeTriage(item, env);
       if (result == null) return { kind: "completed" };
@@ -943,21 +910,22 @@ export function createTriageWorkExecution({
         },
       };
     },
-    onTerminalFailure: async (item, prSurface) => {
+    onTerminalFailure: async (item, prSurface, env) => {
       if (!prSurface) return;
-      if (
-        await createPublishContext(pool, {
-          workItemId: item.id,
-          resourceKey: item.resourceKey,
-          reviewLens: "triage",
-        }).completed("triage_report")
-      ) {
-        return;
-      }
-      await prSurface.replyAt(
-        { kind: "prConversation", prNumber: item.prNumber },
-        TRIAGE_FAILURE_MESSAGE,
-      );
+      if (env.publication.completed("triage_report")) return;
+      await env.publication.once({
+        decodeResult: () => undefined,
+        allowsUndefinedResult: true,
+        resourceTarget: "triage_failure_reply",
+        operationKey: `triage:failure_reply:${item.resourceKey}`,
+        mutationKind: "github.triage_failure_reply",
+        mutate: async () => {
+          await prSurface.replyAt(
+            { kind: "prConversation", prNumber: item.prNumber },
+            TRIAGE_FAILURE_MESSAGE,
+          );
+        },
+      });
     },
   });
 }

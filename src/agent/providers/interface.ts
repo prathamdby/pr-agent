@@ -18,6 +18,7 @@ export type HostCallTracer = (
 export type AgentToolCallContext = {
   readonly signal: AbortSignal;
   readonly toolCallId: string;
+  readonly conversationId?: number;
   readonly emit?: (event: AgentLifecycleEvent) => void;
   readonly traceHostCall?: HostCallTracer;
   readonly role?: AgentSessionRole;

@@ -56,6 +56,7 @@ const TOKEN_COUNT_KEYS: Record<string, true> = {
   cacheReadTokens: true,
   cacheWriteTokens: true,
   cacheWrite1hTokens: true,
+  reasoningTokens: true,
   totalTokens: true,
 };
 
@@ -97,6 +98,7 @@ function tokenAndDurationFields(raw: Record<string, unknown>) {
   const cacheReadTokens = asFiniteNumber(raw.cacheReadTokens);
   const cacheWriteTokens = asFiniteNumber(raw.cacheWriteTokens);
   const cacheWrite1hTokens = asFiniteNumber(raw.cacheWrite1hTokens);
+  const reasoningTokens = asFiniteNumber(raw.reasoningTokens);
   const totalTokens = asFiniteNumber(raw.totalTokens);
   return ((pinnedReturn: {
     readonly durationMs?: number;
@@ -105,6 +107,7 @@ function tokenAndDurationFields(raw: Record<string, unknown>) {
     readonly cacheReadTokens?: number;
     readonly cacheWriteTokens?: number;
     readonly cacheWrite1hTokens?: number;
+    readonly reasoningTokens?: number;
     readonly totalTokens?: number;
   }) => pinnedReturn)({
     ...(durationMs != null ? { durationMs } : {}),
@@ -113,6 +116,7 @@ function tokenAndDurationFields(raw: Record<string, unknown>) {
     ...(cacheReadTokens != null ? { cacheReadTokens } : {}),
     ...(cacheWriteTokens != null ? { cacheWriteTokens } : {}),
     ...(cacheWrite1hTokens != null ? { cacheWrite1hTokens } : {}),
+    ...(reasoningTokens != null ? { reasoningTokens } : {}),
     ...(totalTokens != null ? { totalTokens } : {}),
   });
 }

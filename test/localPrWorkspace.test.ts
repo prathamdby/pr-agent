@@ -521,17 +521,25 @@ describe("local PR workspace", () => {
       await git(repo, ["config", "user.email", "test@example.com"]);
       await git(repo, ["config", "user.name", "Test"]);
       await mkdir(join(repo, ".pr-agent"));
-      await mkdir(join(repo, ".PR-AGENT"));
       await writeFile(join(repo, ".pr-agent", "ok.mdc"), "base rule\n");
       await writeFile(join(repo, ".pr-agent", "big.mdc"), "b".repeat(8193));
       await writeFile(join(repo, "AGENTS.md"), "a".repeat(8973));
       await writeFile(join(repo, "secret-target.txt"), "secret-target-body\n");
       await symlink("../secret-target.txt", join(repo, ".pr-agent", "link.mdc"));
-      await writeFile(join(repo, ".PR-AGENT", "x.mdc"), "wrong-case\n");
+      await writeFile(join(root, "wrong-case.mdc"), "wrong-case\n");
       await writeFile(join(repo, "src.txt"), "one\n");
       await writeFile(join(root, "odd.txt"), "odd\n");
       const oddBlob = await git(repo, ["hash-object", "-w", join(root, "odd.txt")]);
       await git(repo, ["add", "."]);
+      const wrongCaseBlob = await git(repo, ["hash-object", "-w", join(root, "wrong-case.mdc")]);
+      await git(repo, [
+        "-c",
+        "core.ignorecase=false",
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        `100644,${wrongCaseBlob},.PR-AGENT/x.mdc`,
+      ]);
       await git(repo, [
         "update-index",
         "--add",
@@ -1022,9 +1030,10 @@ async function makeHttpPrRemote(root: string) {
 
 function isLiveProcess(pid: number) {
   try {
-    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-    const state = stat.slice(stat.lastIndexOf(")") + 2, stat.lastIndexOf(")") + 3);
-    return ((pinnedReturn: boolean) => pinnedReturn)(state !== "Z" && state !== "X");
+    const stat = execFileSync("ps", ["-p", String(pid), "-o", "stat="], {
+      encoding: "utf8",
+    }).trim();
+    return stat.length > 0 && !stat.startsWith("Z");
   } catch {
     return ((pinnedReturn: boolean) => pinnedReturn)(false);
   }
@@ -1163,14 +1172,11 @@ describe("workspace git fetch over HTTP", () => {
         expect(JSON.stringify(telemetry)).not.toContain("SYNTHETICSILENTFETCHTOKEN");
 
         const spans: Array<Record<string, unknown>> = [];
-        const drain = initTraces(
-          makeTestConfig({ runtime: { role: "worker" }, posthog: { projectToken: "phc" } }),
-          {
-            capture: (input) => spans.push(input.properties),
-            flush: async () => undefined,
-            shutdown: async () => undefined,
-          },
-        );
+        const drain = initTraces(makeTestConfig({ posthog: { projectToken: "phc" } }), {
+          capture: (input) => spans.push(input.properties),
+          flush: async () => undefined,
+          shutdown: async () => undefined,
+        });
         await startWorkTrace(
           {
             executionId: "proof-execution",

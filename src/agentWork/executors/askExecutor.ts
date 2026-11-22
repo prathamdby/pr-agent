@@ -1,36 +1,48 @@
-import { decodePostedReply } from "../../github/prSurfaceResults.ts";
+import * as v from "valibot";
 import type { BotIdentity } from "../../github/appAuth.ts";
-import type { WorkExecution, WorkExecutionDependencies } from "../workDefinition.ts";
-import { productionInstallationSurface } from "../installationSurface.ts";
-import { createPublishContext } from "../publishOnce.ts";
-import type { Pool } from "pg";
-
 import type { PrSurface } from "../../github/prSurface.ts";
 import { runAskRun } from "../../agent/ask/askRun.ts";
 import { loadPullRequestDiscussion } from "../../agent/discussion/pullRequestDiscussion.ts";
 import { formatAskReply, sanitizeAskAnswerText } from "../../agent/ask/formatAskReply.ts";
 import {
   askReplyBodyWithOperationMarker,
-  askReplyCommentIdFromIntentDetail,
+  askReplyCommentIdFromIntentResult,
   findExistingAskReplyComment,
 } from "../../agent/ask/recoverAskReply.ts";
 import { classifyFailure, classifiedFailureLogFields } from "../../errors/classifiedFailure.ts";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.ts";
 import { logWarn } from "../../evlog.ts";
 import { ASK_PUBLISH_LENS } from "../../settings/index.ts";
-import { getOperationIntent } from "../operationIntentRepository.ts";
-import { askFailureReplyOperationKey, askReplyOperationKey, publishOnce } from "../publishOnce.ts";
-import { fenceForEpoch } from "../writeFence.ts";
-import { createAskExecutionId, recordAskProviderUsage } from "../askQuota.ts";
+import {
+  askFailureReplyOperationKey,
+  askReplyOperationKey,
+  intentResult,
+  type FeaturePublication,
+} from "../../state/featurePublication.ts";
+import { createAskExecutionId, recordAskProviderUsage } from "../../state/askQuotas.ts";
 import type { AskWorkItem } from "../types.ts";
-import type { DurableExecutionResult } from "../durableJob.ts";
+import type {
+  FeatureExecutionResult,
+  FeatureWorkDependencies,
+  FeatureWorkExecution,
+} from "./featureExecution.ts";
 import { errorMessage } from "../../errors/errorMessage.ts";
 
-function replyTargetKindFromIntentDetail(
-  value: unknown,
-  fallback: AskWorkItem["payload"]["replyTarget"]["kind"],
-) {
-  return ((pinnedReturn: AskWorkItem["payload"]["replyTarget"]["kind"]) => pinnedReturn)(
+type ReplyTargetKind = AskWorkItem["payload"]["replyTarget"]["kind"];
+
+const askReplyResultSchema = v.object({
+  commentId: v.number(),
+  replyTargetKind: v.optional(v.picklist(["inlineReviewThread", "prConversation"])),
+});
+
+function decodeAskReplyResult(value: unknown) {
+  return ((pinnedReturn: v.InferOutput<typeof askReplyResultSchema>) => pinnedReturn)(
+    v.parse(askReplyResultSchema, value),
+  );
+}
+
+function replyTargetKindFromIntentResult(value: unknown, fallback: ReplyTargetKind) {
+  return ((pinnedReturn: ReplyTargetKind) => pinnedReturn)(
     value === "inlineReviewThread" || value === "prConversation" ? value : fallback,
   );
 }
@@ -162,27 +174,37 @@ type AskReplyRecovery =
 
 async function recoverDeliveredAskReplyCommentId(params: {
   readonly getBotIdentity: () => Promise<BotIdentity>;
-  readonly pool: Pool;
+  readonly publication: FeaturePublication;
   readonly prSurface: PrSurface;
   readonly item: AskWorkItem;
 }) {
-  const { pool, prSurface, item } = params;
+  const { publication, prSurface, item } = params;
   const operationKey = askReplyOperationKey(item.resourceKey, item.payload.commentId);
-  const intent = await getOperationIntent(pool, item.id, operationKey);
-  const stashed = askReplyCommentIdFromIntentDetail(intent?.detail);
+  const intent = publication.intent(operationKey);
+  const stored = intent?.state === "reconciled" ? intentResult(intent) : undefined;
+  const stashed = askReplyCommentIdFromIntentResult(stored);
   if (stashed != null) {
     return ((pinnedReturn: AskReplyRecovery | Promise<AskReplyRecovery>) => pinnedReturn)({
       kind: "recovered",
       commentId: stashed,
-      targetKind: replyTargetKindFromIntentDetail(
-        intent?.detail.replyTargetKind,
+      targetKind: replyTargetKindFromIntentResult(
+        v.is(v.object({ replyTargetKind: v.unknown() }), stored)
+          ? stored.replyTargetKind
+          : undefined,
         item.payload.replyTarget.kind,
       ),
     });
   }
 
-  if (intent == null || (intent.status !== "pending" && intent.status !== "outcome_unknown")) {
-    return ((pinnedReturn: AskReplyRecovery | Promise<AskReplyRecovery>) => pinnedReturn)(null);
+  if (
+    intent == null ||
+    intent.state === "reconciled" ||
+    intent.state === "mutation_failed" ||
+    intent.state === "outcome_unknown_terminal"
+  ) {
+    return ((pinnedReturn: AskReplyRecovery | Promise<AskReplyRecovery>) => pinnedReturn)(
+      intent?.state === "outcome_unknown_terminal" ? { kind: "outcome_unknown" } : null,
+    );
   }
 
   const bot = await params.getBotIdentity();
@@ -195,24 +217,9 @@ async function recoverDeliveredAskReplyCommentId(params: {
   });
   if (recovered == null) {
     return ((pinnedReturn: AskReplyRecovery | Promise<AskReplyRecovery>) => pinnedReturn)(
-      intent.status === "outcome_unknown" || intent.detail.__mutating === true
-        ? { kind: "outcome_unknown" }
-        : null,
+      intent.state === "reserved" ? null : { kind: "outcome_unknown" },
     );
   }
-
-  await createPublishContext(pool, {
-    workItemId: item.id,
-    resourceKey: item.resourceKey,
-    reviewLens: ASK_PUBLISH_LENS,
-    step: "ask_reply",
-  }).adopt({
-    operationKey,
-    mutationKind: "github.ask_reply",
-    result: { commentId: recovered.commentId },
-    detail: { replyTargetKind: recovered.targetKind ?? item.payload.replyTarget.kind },
-    hasUsableResult: (detail) => askReplyCommentIdFromIntentDetail(detail) != null,
-  });
   return ((pinnedReturn: AskReplyRecovery | Promise<AskReplyRecovery>) => pinnedReturn)({
     kind: "recovered",
     commentId: recovered.commentId,
@@ -224,67 +231,27 @@ type AskFailureReplyDecision = "skip" | "publish";
 
 async function decideAskFailureReply(params: {
   readonly getBotIdentity: () => Promise<BotIdentity>;
-  readonly pool: Pool;
+  readonly publication: FeaturePublication;
   readonly prSurface: PrSurface;
   readonly item: AskWorkItem;
 }) {
-  const { pool, prSurface, item } = params;
-  if (
-    await createPublishContext(pool, {
-      workItemId: item.id,
-      resourceKey: item.resourceKey,
-      reviewLens: ASK_PUBLISH_LENS,
-    }).completed("ask_reply")
-  ) {
+  if (params.publication.completed("ask_reply")) {
     return ((pinnedReturn: AskFailureReplyDecision | Promise<AskFailureReplyDecision>) =>
       pinnedReturn)("skip");
   }
-  const recovered = await recoverDeliveredAskReplyCommentId({
-    getBotIdentity: params.getBotIdentity,
-    pool,
-    prSurface,
-    item,
-  });
+  const recovered = await recoverDeliveredAskReplyCommentId(params);
   return ((pinnedReturn: AskFailureReplyDecision | Promise<AskFailureReplyDecision>) =>
     pinnedReturn)(recovered?.kind === "recovered" ? "skip" : "publish");
 }
 
-async function finalizeAskReplyPublish(params: {
-  readonly pool: Pool;
-  readonly item: AskWorkItem;
-  readonly commentId: number;
-  readonly targetKind: AskWorkItem["payload"]["replyTarget"]["kind"];
-  readonly leaseEpoch: number | null;
-}) {
-  const { pool, item, commentId, targetKind, leaseEpoch } = params;
-  await publishOnce({
-    client: pool,
-    workItemId: item.id,
-    operationKey: askReplyOperationKey(item.resourceKey, item.payload.commentId),
-    mutationKind: "github.ask_reply",
-    leaseEpoch,
-    fence: fenceForEpoch(leaseEpoch),
-    detail: {
-      step: "ask_reply",
-      resourceKey: item.resourceKey,
-      reviewLens: ASK_PUBLISH_LENS,
-      replyTargetKind: targetKind,
-    },
-    mutate: async () => ({ commentId }),
-  });
+function recordAskReply(
+  publication: FeaturePublication,
+  item: AskWorkItem,
+  detail: { readonly replyTargetKind: ReplyTargetKind; readonly commentId: number },
+) {
   try {
-    await createPublishContext(pool, {
-      workItemId: item.id,
-      resourceKey: item.resourceKey,
-      step: "ask_reply",
-      detail: {
-        replyTargetKind: targetKind,
-        commentId,
-      },
-      leaseEpoch,
-      reviewLens: "ask",
-    }).record();
-    return ((pinnedReturn: ("ok" | "degraded") | Promise<"ok" | "degraded">) => pinnedReturn)("ok");
+    publication.record({ lens: ASK_PUBLISH_LENS, step: "ask_reply", detail });
+    return ((pinnedReturn: "ok" | "degraded") => pinnedReturn)("ok");
   } catch (e) {
     const failure = classifyFailure(e, { phase: "publish" });
     logWarn("ask_publish_record_failed", {
@@ -295,46 +262,54 @@ async function finalizeAskReplyPublish(params: {
       message: errorMessage(e),
       ...classifiedFailureLogFields(failure),
     });
-    return ((pinnedReturn: ("ok" | "degraded") | Promise<"ok" | "degraded">) => pinnedReturn)(
-      "degraded",
-    );
+    return ((pinnedReturn: "ok" | "degraded") => pinnedReturn)("degraded");
   }
+}
+
+async function finalizeAskReplyPublish(params: {
+  readonly publication: FeaturePublication;
+  readonly item: AskWorkItem;
+  readonly commentId: number;
+  readonly targetKind: ReplyTargetKind;
+}) {
+  const { publication, item, commentId, targetKind } = params;
+  const value = { commentId, replyTargetKind: targetKind };
+  await publication.once({
+    decodeResult: decodeAskReplyResult,
+    resourceTarget: `ask_reply:${item.payload.commentId}`,
+    operationKey: askReplyOperationKey(item.resourceKey, item.payload.commentId),
+    mutationKind: "github.ask_reply",
+    identity: {
+      step: "ask_reply",
+      resourceKey: item.resourceKey,
+      reviewLens: ASK_PUBLISH_LENS,
+      replyTargetKind: targetKind,
+    },
+    recover: async () => ({ found: true, value }),
+    mutate: async () => value,
+  });
+  return ((pinnedReturn: "ok" | "degraded") => pinnedReturn)(
+    recordAskReply(publication, item, value),
+  );
 }
 
 async function publishNewAskReply(params: {
   readonly getBotIdentity: () => Promise<BotIdentity>;
-  readonly pool: Pool;
+  readonly publication: FeaturePublication;
   readonly prSurface: PrSurface;
   readonly item: AskWorkItem;
   readonly answer: Parameters<typeof publishAskAnswer>[3];
-  readonly leaseEpoch: number | null;
 }) {
-  const { getBotIdentity, pool, prSurface, item, answer, leaseEpoch } = params;
+  const { getBotIdentity, publication, prSurface, item, answer } = params;
   const { payload } = item;
   const operationKey = askReplyOperationKey(item.resourceKey, payload.commentId);
-  let selectedTargetKind = payload.replyTarget.kind;
-  const publishAnswer = async () => {
-    const published = await publishAskAnswer(
-      getBotIdentity,
-      prSurface,
-      item,
-      answer,
-      operationKey,
-      true,
-    );
-    selectedTargetKind = published.targetKind;
-    return { commentId: published.commentId };
-  };
 
-  const posted = await publishOnce<{ readonly commentId: number }>({
-    decodeResult: decodePostedReply,
-    fence: fenceForEpoch(leaseEpoch),
-    client: pool,
-    workItemId: item.id,
+  const posted = await publication.once({
+    decodeResult: decodeAskReplyResult,
+    resourceTarget: `ask_reply:${payload.commentId}`,
     operationKey,
     mutationKind: "github.ask_reply",
-    leaseEpoch,
-    detail: {
+    identity: {
       step: "ask_reply",
       resourceKey: item.resourceKey,
       reviewLens: ASK_PUBLISH_LENS,
@@ -350,40 +325,31 @@ async function publishNewAskReply(params: {
         operationInstance: item.id,
       });
       return recovered == null
-        ? { kind: "absent" as const }
+        ? { found: false }
         : {
-            kind: "reconciled" as const,
-            value: { commentId: recovered.commentId },
-            detail: { replyTargetKind: recovered.targetKind },
+            found: true,
+            value: { commentId: recovered.commentId, replyTargetKind: recovered.targetKind },
           };
     },
     isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
-    reconcileDetail: () => ({ replyTargetKind: selectedTargetKind }),
-    mutate: publishAnswer,
+    mutate: async () => {
+      const published = await publishAskAnswer(
+        getBotIdentity,
+        prSurface,
+        item,
+        answer,
+        operationKey,
+        true,
+      );
+      return { commentId: published.commentId, replyTargetKind: published.targetKind };
+    },
   });
-  try {
-    await createPublishContext(pool, {
-      workItemId: item.id,
-      resourceKey: item.resourceKey,
-      step: "ask_reply",
-      detail: {
-        replyTargetKind: selectedTargetKind,
-        commentId: posted.commentId,
-      },
-      leaseEpoch,
-      reviewLens: "ask",
-    }).record();
-  } catch (e) {
-    const failure = classifyFailure(e, { phase: "publish" });
-    logWarn("ask_publish_record_failed", {
-      owner: item.owner,
-      repo: item.repo,
-      pr: item.prNumber,
-      workItemId: item.id,
-      message: errorMessage(e),
-      ...classifiedFailureLogFields(failure),
-    });
-    return {
+  const status = recordAskReply(publication, item, {
+    replyTargetKind: posted.replyTargetKind ?? payload.replyTarget.kind,
+    commentId: posted.commentId,
+  });
+  if (status === "degraded") {
+    return ((pinnedReturn: FeatureExecutionResult) => pinnedReturn)({
       kind: "completed",
       degradation: ["publish_record_failed"] satisfies readonly AskDegradationReason[],
       completion: {
@@ -392,54 +358,41 @@ async function publishNewAskReply(params: {
         replyTargetKind: payload.replyTarget.kind,
         durableDegradation: "publish_record_failed",
       },
-    } satisfies DurableExecutionResult;
+    });
   }
-  return {
+  return ((pinnedReturn: FeatureExecutionResult) => pinnedReturn)({
     kind: "completed",
     completion: {
       kind: "ask",
       outcome: "published",
       replyTargetKind: payload.replyTarget.kind,
     },
-  } satisfies DurableExecutionResult;
+  });
 }
 
-export function createAskWorkExecution({
-  cfg,
-  pool,
-  installationSurface = productionInstallationSurface,
-}: WorkExecutionDependencies) {
-  const getBotIdentity = () => installationSurface.botIdentity(cfg);
-  return ((pinnedReturn: WorkExecution<"ask">) => pinnedReturn)({
+export function createAskFeatureExecution({ botIdentity }: FeatureWorkDependencies) {
+  const getBotIdentity = botIdentity;
+  return ((pinnedReturn: FeatureWorkExecution<"ask">) => pinnedReturn)({
     execute: async (item, env) => {
-      const { prSurface } = env;
+      const { prSurface, publication } = env;
       const headSha = env.headSha;
       const payload = item.payload;
-      const askReplyPublished = async () =>
-        Boolean(
-          await createPublishContext(pool, {
-            workItemId: item.id,
-            resourceKey: item.resourceKey,
-            reviewLens: ASK_PUBLISH_LENS,
-          }).completed("ask_reply"),
-        );
-      if (await askReplyPublished()) {
+      if (publication.completed("ask_reply")) {
         return { kind: "completed" };
       }
 
       const recoveredReply = await recoverDeliveredAskReplyCommentId({
         getBotIdentity,
-        pool,
+        publication,
         prSurface,
         item,
       });
       if (recoveredReply?.kind === "recovered") {
         const status = await finalizeAskReplyPublish({
-          pool,
+          publication,
           item,
           commentId: recoveredReply.commentId,
           targetKind: recoveredReply.targetKind,
-          leaseEpoch: env.leaseEpoch,
         });
         if (status === "degraded") {
           return {
@@ -475,7 +428,7 @@ export function createAskWorkExecution({
         };
       }
 
-      return env.withAdmittedRepositoryView(
+      return env.withRepositoryView(
         {
           repositorySizeKb: payload.repositorySizeKb,
         },
@@ -483,7 +436,7 @@ export function createAskWorkExecution({
           const discussion = await loadPullRequestDiscussion(prSurface);
           const executionId = createAskExecutionId();
           const result = await runAskRun({
-            cfg,
+            cfg: env.cfg,
             prSurface,
             owner: item.owner,
             repo: item.repo,
@@ -499,33 +452,34 @@ export function createAskWorkExecution({
                 : { kind: "conversation", commentId: payload.commentId },
             cwd: repositoryView.agentCwd,
             workspace: repositoryView.workspace,
-            sessionContext: env.durability,
-            pool,
+            createSession: env.createSession,
+            db: env.db,
+            installationId: item.installationId,
             signal: env.signal,
           });
-          await recordAskProviderUsage(pool, {
+          recordAskProviderUsage(env.db, {
             workItemId: item.id,
             executionId,
-            usage: result.usage,
+            ...(result.usage?.totalTokens != null ? { totalTokens: result.usage.totalTokens } : {}),
           });
-          if (await askReplyPublished()) return { kind: "completed" };
+          if (publication.completed("ask_reply")) return { kind: "completed" };
           return publishNewAskReply({
             getBotIdentity,
-            pool,
+            publication,
             prSurface,
             item,
             answer: result.answer,
-            leaseEpoch: env.leaseEpoch,
           });
         },
       );
     },
-    onTerminalFailure: async (item, prSurface) => {
+    onTerminalFailure: async (item, prSurface, env) => {
       if (!prSurface) return;
+      const { publication } = env;
       if (
         (await decideAskFailureReply({
           getBotIdentity,
-          pool,
+          publication,
           prSurface,
           item,
         })) === "skip"
@@ -533,13 +487,12 @@ export function createAskWorkExecution({
         return;
       const payload = item.payload;
       const operationKey = askFailureReplyOperationKey(item.resourceKey, item.payload.commentId);
-      await publishOnce({
-        client: pool,
-        workItemId: item.id,
+      await publication.once({
+        decodeResult: decodeAskReplyResult,
+        resourceTarget: `ask_failure_reply:${payload.commentId}`,
         operationKey,
         mutationKind: "github.ask_failure_reply",
-        fence: fenceForEpoch(null),
-        detail: {
+        identity: {
           step: "ask_failure_reply",
           resourceKey: item.resourceKey,
           reviewLens: ASK_PUBLISH_LENS,
@@ -555,11 +508,10 @@ export function createAskWorkExecution({
             operationInstance: item.id,
           });
           return recovered == null
-            ? { kind: "absent" as const }
+            ? { found: false }
             : {
-                kind: "reconciled" as const,
-                value: { commentId: recovered.commentId },
-                detail: { replyTargetKind: recovered.targetKind },
+                found: true,
+                value: { commentId: recovered.commentId, replyTargetKind: recovered.targetKind },
               };
         },
         isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
@@ -576,7 +528,7 @@ export function createAskWorkExecution({
             operationKey,
             true,
           );
-          return { commentId: published.commentId };
+          return { commentId: published.commentId, replyTargetKind: published.targetKind };
         },
       });
     },

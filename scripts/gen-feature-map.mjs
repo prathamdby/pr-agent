@@ -2,107 +2,114 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isFeatureWorkKind, WORK_RUN_KINDS } from "../src/state/workRuns.ts";
+import { PR_SERIALIZED_KINDS } from "../src/state/prMutex.ts";
+import { WORK_QUEUES } from "../src/agentWork/types.ts";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-const WORKER = path.join(ROOT, "src", "agentWork", "worker.ts");
-const DEFINITIONS = path.join(ROOT, "src", "agentWork", "workDefinition.ts");
-const TYPES = path.join(ROOT, "src", "agentWork", "types.ts");
-const WRITE_FENCE = path.join(ROOT, "src", "agentWork", "writeFence.ts");
-
-const workerSrc = fs.readFileSync(WORKER, "utf8");
-const definitionsSrc = fs.readFileSync(DEFINITIONS, "utf8");
-const typesSrc = fs.readFileSync(TYPES, "utf8");
-const fenceSrc = fs.readFileSync(WRITE_FENCE, "utf8");
-
-const QUEUE_FILES = [path.join(ROOT, "src", "settings", "queueConstants.ts")];
-
-const queueValues = Object.fromEntries(
-  QUEUE_FILES.flatMap((file) => {
-    const src = fs.readFileSync(file, "utf8");
-    return [...src.matchAll(/export const (\w+_QUEUE) = "([^"]+)"/g)].map((m) => [m[1], m[2]]);
-  }),
+const FEATURE_EXECUTORS = path.join(
+  ROOT,
+  "src",
+  "agent",
+  "runtime",
+  "durable",
+  "featureExecutors.ts",
 );
-
-const workTypes = [...typesSrc.matchAll(/export type WorkType = ([^;]+);/g)][0]?.[1] ?? "";
-
-const registrations = [
-  ...workerSrc.matchAll(
-    /register(?:Plain|Metadata)Queue<(\w+)>\(\s*boss,\s*executions,\s*(\w+),[\s\S]*?\(job\) => (\w+)\(/g,
-  ),
-].map((m) => ({ data: m[1], queueConst: m[2], executor: m[3] }));
-
-const retentionRegistered = /registerPlainQueue\(\s*boss,\s*executions,\s*RETENTION_QUEUE,/.test(
-  workerSrc,
+const REVIEW_TASK = path.join(
+  ROOT,
+  "src",
+  "agent",
+  "runtime",
+  "durable",
+  "reviewOrchestratorTask.ts",
 );
-const retention = retentionRegistered
-  ? [{ data: "retention sweep", queueConst: "RETENTION_QUEUE", executor: "runRetention" }]
-  : [];
+const BOOT = path.join(ROOT, "src", "agent", "runtime", "durable", "boot.ts");
 
-const executorFiles = {
-  executeAckJob: "src/agentWork/executors/ackExecutor.ts",
-  executeCiProjectionJob: "src/agentWork/executors/ciProjectionExecutor.ts",
-  runRetention: "src/agentWork/retention.ts",
+const featureExecutorsSrc = fs.readFileSync(FEATURE_EXECUTORS, "utf8");
+const bootSrc = fs.readFileSync(BOOT, "utf8");
+const entrySrc = fs.readFileSync(path.join(ROOT, "src", "index.ts"), "utf8");
+const reviewFactory = /\breview:\s*(\w+)\(deps\)/.exec(entrySrc)?.[1];
+if (
+  !reviewFactory ||
+  !fs.readFileSync(REVIEW_TASK, "utf8").includes(`export function ${reviewFactory}(`)
+) {
+  throw new Error("Cannot identify the registered review task factory");
+}
+
+const executorImports = new Map();
+for (const match of featureExecutorsSrc.matchAll(/import\s*\{([^}]+)\}\s*from\s*"([^"]+)"/g)) {
+  const resolved = path.relative(ROOT, path.resolve(path.dirname(FEATURE_EXECUTORS), match[2]));
+  for (const name of match[1].split(",").map((s) => s.trim())) {
+    if (name.length > 0) executorImports.set(name, resolved);
+  }
+}
+
+const executorByKind = {
+  review: {
+    lane: "reviewOrchestratorTask",
+    executor: `${reviewFactory} (${path.relative(ROOT, REVIEW_TASK)})`,
+  },
+  ask: {
+    lane: "featureAttemptTask",
+    executor: `createAskFeatureExecution (${executorImports.get("createAskFeatureExecution") ?? "unknown"})`,
+  },
+  description: {
+    lane: "featureAttemptTask",
+    executor: `createDescriptionFeatureExecution (${executorImports.get("createDescriptionFeatureExecution") ?? "unknown"})`,
+  },
+  triage: {
+    lane: "featureAttemptTask",
+    executor: `createTriageFeatureExecution (${executorImports.get("createTriageFeatureExecution") ?? "unknown"})`,
+  },
+  verification: {
+    lane: "featureAttemptTask",
+    executor: `createVerificationFeatureExecution (${executorImports.get("createVerificationFeatureExecution") ?? "unknown"})`,
+  },
+  ack: {
+    lane: "dispatcher",
+    executor: `runAckJob (${executorImports.get("runAckJob") ?? "unknown"})`,
+  },
+  ci_projection: {
+    lane: "featureAttemptTask",
+    executor: `runCiProjectionJob (${executorImports.get("runCiProjectionJob") ?? "unknown"})`,
+  },
 };
 
-for (const match of definitionsSrc.matchAll(
-  /import \{ (create\w+WorkExecution) \} from "([^"]+)"/g,
-)) {
-  executorFiles[match[1]] = path.relative(ROOT, path.resolve(path.dirname(DEFINITIONS), match[2]));
-}
-
-const workQueueBlock = /export const WORK_QUEUES = \{([\s\S]*?)\}/.exec(typesSrc)?.[1] ?? "";
-const typeToQueueConst = Object.fromEntries(
-  [...workQueueBlock.matchAll(/(\w+):\s*(\w+_QUEUE)/g)].map((match) => [match[1], match[2]]),
-);
-const unleasedBlock = /export const UNLEASED_WORK_TYPES = \[([\s\S]*?)\]/.exec(fenceSrc)?.[1] ?? "";
-const unleasedTypes = [...unleasedBlock.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
-
-const durableRegistrations = [
-  ...definitionsSrc.matchAll(/(\w+): define\(\s*\{([\s\S]*?)\},\s*(create\w+WorkExecution)\(/g),
-].map((match) => ({
-  data: match[1],
-  queueConst: typeToQueueConst[match[1]],
-  executor: match[3],
-}));
-const declaredTypes = [...workTypes.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
 if (
-  !workerSrc.includes("createWorkDefinitions") ||
-  durableRegistrations.length !== declaredTypes.length ||
-  durableRegistrations.some((row) => !row.queueConst || !declaredTypes.includes(row.data)) ||
-  declaredTypes.some((type) => typeToQueueConst[type] == null) ||
-  unleasedTypes.some((type) => !declaredTypes.includes(type))
+  Object.keys(WORK_QUEUES).some((type) => !WORK_RUN_KINDS.includes(type)) ||
+  WORK_RUN_KINDS.some((kind) => !Object.hasOwn(executorByKind, kind)) ||
+  WORK_RUN_KINDS.some(
+    (kind) => isFeatureWorkKind(kind) !== (executorByKind[kind].lane === "featureAttemptTask"),
+  )
 ) {
-  throw new Error("Durable work definitions do not cover the registered WorkType union");
+  throw new Error("Durable dispatcher kinds do not cover the declared WorkType union");
 }
 
-const leased = Object.entries(typeToQueueConst)
-  .filter(([type]) => !unleasedTypes.includes(type))
-  .map(([, queueConst]) => queueConst);
+const rows = WORK_RUN_KINDS.map((kind) => ({
+  workKind: kind,
+  lane: executorByKind[kind].lane,
+  executor: executorByKind[kind].executor,
+  serialization: PR_SERIALIZED_KINDS.has(kind) ? "per-PR mutex" : "concurrent",
+}));
 
-const rows = [...registrations, ...durableRegistrations, ...retention].map((r) => {
-  const queue = queueValues[r.queueConst] ?? r.queueConst;
-  const workType = Object.keys(queueValues).find((k) => k === r.queueConst)
-    ? workTypes.includes(r.queueConst.replace("_QUEUE", "").toLowerCase())
-      ? r.queueConst.replace("_QUEUE", "").toLowerCase()
-      : "auxiliary"
-    : "auxiliary";
-  return {
-    workType,
-    queue,
-    executor: `${r.executor} (${executorFiles[r.executor] ?? "unknown"})`,
-    leased: leased.includes(r.queueConst) ? "leased" : "unleased",
-  };
-});
+if (bootSrc.includes("runRetention")) {
+  rows.push({
+    workKind: "retention",
+    lane: "daily timer",
+    executor: "runRetention (src/state/retention.ts)",
+    serialization: "background",
+  });
+}
 
 const lines = [
   "# Feature map",
   "",
   "Generated by `npm run gen:feature-map`. Do not hand-edit: `test/featureMap.test.ts` fails on drift.",
   "",
-  "| Work type | Queue | Executor | Lease |",
-  "| --------- | ----- | -------- | ----- |",
-  ...rows.map((r) => `| ${r.workType} | ${r.queue} | ${r.executor} | ${r.leased} |`),
+  "| Work kind | Lane | Executor | Serialization |",
+  "| --------- | ---- | -------- | ------------- |",
+  ...rows.map((r) => `| ${r.workKind} | ${r.lane} | ${r.executor} | ${r.serialization} |`),
   "",
 ];
 

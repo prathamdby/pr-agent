@@ -82,6 +82,8 @@ export function publicationAttemptRejected(error: unknown) {
   if (isAppError(error)) {
     if (
       error.code === "agent_work.pr_actor_lease_lost" ||
+      error.code === "operation_intent.mutation_gate_failed" ||
+      error.code === "operation_intent.mutation_conflict" ||
       error.code === "operation_intent.mutation_outcome_unknown"
     ) {
       return ((pinnedReturn: boolean) => pinnedReturn)(false);

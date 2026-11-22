@@ -2,14 +2,20 @@
 
 ## Hit every runtime surface
 
+For review recovery, interrupt a real provider request, start a fresh process
+on the same disposable volume, and compare the child ID, submission ID,
+checkout revision, tools, remaining budget and visible evidence before the
+provider runs. A terminal parent task alone does not prove these survived.
+
 Before calling a behavior change complete, check the surfaces that can carry it:
 
-- **Roles.** Web intake and worker execution have different failure modes. A change that works in one role may still be missing from the other.
+- **Process phases.** Webhook intake, the dispatcher, boot Phase A (Pi paused and read-only), boot Phase B, shutdown, and the zero-503 `pi_durable.sqlite` reset have different failure modes. A change that works while serving may still be missing from boot reconciliation or the reset quiesce. Resumed reviews count against the same slots as new review attempts.
 - **Triggers.** Automated webhooks, slash commands, `@bot` asks, CI refresh, retries, and manual recovery can enter different paths.
-- **Durable work types.** `review`, `ask`, `description`, `triage`, and `verification` persist `agent_work_items` rows and run on dedicated queues.
-- **Auxiliary lanes.** Acknowledgement and CI refresh are fire-and-forget jobs. Retention uses a separate worker queue without becoming durable `WorkType` values.
-- **Boundaries.** Changes crossing Postgres, pg-boss, GitHub, the Pi runtime, or the local PR workspace need an explicit contract and focused coverage.
+- **Durable work types.** `review`, `ask`, `description`, `triage`, and `verification` persist `work_runs` rows with one `work_run_attempts` row per charged attempt. `review` runs as `reviewOrchestratorTask`; the others run as `featureAttemptTask`. Check both the crash-resume path of the review task and the abort-and-retry path of feature attempts.
+- **Auxiliary lanes.** Acknowledgement and CI refresh are fire-and-forget jobs. `ack` runs directly in the dispatcher and `ci_projection` runs from the debounced `next_projection_at` timer; both still record `work_runs`. Retention runs on its own daily timer, not as a work run.
+- **Boundaries.** Changes crossing `app_state.sqlite`, `pi_durable.sqlite`, GitHub (the publish state machine and the mutation-only Octokit), the Pi Durable runtime, or the local PR workspace need an explicit contract and focused coverage. Coordination state belongs in `app_state.sqlite`; `pi_durable.sqlite` holds only conversations and tasks, because the reset can archive it at any quiescent moment.
 - **Workspace reads.** Byte-budget resume hints advance past fully delivered lines, before or after a newline, and retry a partially delivered line. Single-line reads that exceed the byte budget skip the unreachable tail and offer the next line only when it exists. Partial lines never count as citation evidence.
+- **Recon context pack.** After the specialist brief lands, a deterministic pack of changed-hunk and `contextPointers` excerpts is hydrated through the pinned reader and path policy, framed as untrusted evidence, and prepended inside the byte-identical shared head of every specialist system prompt. Pack content stays under `RECON_PACK_MAX_BYTES` and emits complete lines only; credited lines count as viewed evidence in every specialist ledger, and nothing outside them is credited by the pack. The same shared head is the Anthropic cache breakpoint, and specialists send one deterministic `prompt_cache_key` on OpenAI-compatible providers.
 - **Reverse states.** If a command starts, cancels, supersedes, or retries work, verify the terminal and recovery paths too.
 - **Review verdict text.** Check approval, blocking findings, incomplete coverage or inventory, and GitHub self-review fallback. Check summary links for full and lightweight reviews, recovered summaries, and verification with or without an existing summary. The review event, check, and commit status are unchanged by the wording.
 - **Verification verdict.** Both automatic and slash verification reconcile a changed standing app review after thread publication or the already-resolved shortcut. Fresh inventory, stale/cancelled work, incomplete reads without a blocker, a known blocker in an incomplete read, compare truncation, a narrowed inventory, and objection limits with every owned thread resolved, every other degradation, remaining or reopened blockers, open same-id copies, ordered concurrent full-review publication, lock timeouts, event/head-bound accepted-review retry recovery, self-review fallback, latest standing bot verdict ordering, and human reviews are separate cases. Check runs and commit statuses are not refreshed.

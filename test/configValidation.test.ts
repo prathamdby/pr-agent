@@ -16,16 +16,18 @@ describe("loadConfig validation", () => {
     const cfg = await load({});
     expect(cfg.runtime.port).toBe(3000);
     expect(cfg.provider.promptTimeoutMs).toBe(300_000);
-    expect(cfg.review.specialistTimeoutMs).toBe(900_000);
+    expect(cfg.review.specialistTimeoutMs).toBe(140_000);
     expect(cfg.review.checkFailSeverity).toBe("P2");
     expect(cfg.provider.retryMax).toBe(2);
     expect(cfg.provider.maxRetryDelayMs).toBe(60_000);
     expect(cfg.queue.retryLimit).toBe(3);
-    expect(cfg.queue.heartbeatSeconds).toBe(60);
-    expect(cfg.queue.shutdownDrainTimeoutSeconds).toBe(25);
     expect(cfg.retention.enabled).toBe(true);
     expect(cfg.logging.redact).toBe(true);
-    expect(cfg.runtime.role).toBe("web");
+    expect(cfg.runtime.sqliteDir).toBe("./data");
+    expect(cfg.runtime.sqliteDbPath).toBeNull();
+    expect(cfg.runtime.shutdownGraceMs).toBe(25_000);
+    expect(cfg.runtime.piDurableResetMaxBytes).toBe(2_147_483_648);
+    expect(cfg.runtime.piDurableResetMaxAgeSeconds).toBe(2_592_000);
     expect(cfg.logging.level).toBe("info");
     expect([...cfg.associations.slashAllowed]).toEqual(["OWNER", "MEMBER", "COLLABORATOR"]);
     expect([...cfg.associations.maintainerDecision]).toEqual(["OWNER", "MEMBER", "COLLABORATOR"]);
@@ -46,12 +48,15 @@ describe("loadConfig validation", () => {
       CODE_INDEX_WAIT_MS: "1000",
       CODE_INDEX_RETENTION_SECONDS: "3600",
       REVIEW_RECOVERY_ENABLED: "true",
+      ROLE: "worker",
+      QUEUE_HEARTBEAT_SECONDS: "5",
+      PR_ACTOR_LEASE_TTL_SECONDS: "1",
     });
-    expect(withValues.runtime.role).toBe("web");
+    expect(withValues.runtime.sqliteDir).toBe("./data");
     const withFalse = await load({ REVIEW_RECOVERY_ENABLED: "false" });
-    expect(withFalse.runtime.role).toBe("web");
+    expect(withFalse.runtime.sqliteDir).toBe("./data");
     const withEmpty = await load({ TRACES_MODE: "", REVIEW_RECOVERY_ENABLED: "" });
-    expect(withEmpty.runtime.role).toBe("web");
+    expect(withEmpty.runtime.sqliteDir).toBe("./data");
   });
 
   it("rejects a non-numeric positive knob", async () => {
@@ -121,9 +126,23 @@ describe("loadConfig validation", () => {
     ).rejects.toThrow(/ASK_PROVIDER_RESERVATION_TOKENS must not exceed ASK_PROVIDER_BUDGET_TOKENS/);
   });
 
-  it("enforces the heartbeat floor", async () => {
-    await expect(load({ QUEUE_HEARTBEAT_SECONDS: "5" })).rejects.toThrow(
-      /QUEUE_HEARTBEAT_SECONDS must be at least 10/,
+  it("reads the SQLite location and single-process lifecycle knobs", async () => {
+    const cfg = await load({
+      SQLITE_DIR: "/var/lib/pr-agent",
+      SQLITE_DB_PATH: "/var/lib/pr-agent/state.sqlite",
+      SHUTDOWN_GRACE_MS: "5000",
+      PI_DURABLE_RESET_MAX_BYTES: "1048576",
+      PI_DURABLE_RESET_MAX_AGE_SECONDS: "60",
+    });
+    expect(cfg.runtime).toMatchObject({
+      sqliteDir: "/var/lib/pr-agent",
+      sqliteDbPath: "/var/lib/pr-agent/state.sqlite",
+      shutdownGraceMs: 5000,
+      piDurableResetMaxBytes: 1_048_576,
+      piDurableResetMaxAgeSeconds: 60,
+    });
+    await expect(load({ SHUTDOWN_GRACE_MS: "1.5" })).rejects.toThrow(
+      /SHUTDOWN_GRACE_MS must be a positive integer/,
     );
   });
 
@@ -171,7 +190,9 @@ describe("loadConfig validation", () => {
   });
 
   it("rejects an invalid enum", async () => {
-    await expect(load({ ROLE: "bad" })).rejects.toThrow(/ROLE must be one of web, worker/);
+    await expect(load({ LOG_LEVEL: "bad" })).rejects.toThrow(
+      /LOG_LEVEL must be one of debug, info, warn, error/,
+    );
   });
 
   it("normalizes slash command author associations", async () => {
@@ -223,12 +244,12 @@ describe("loadConfig validation", () => {
       ...CONFIG_BASE_ENV,
       GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
     };
-    delete process.env[ENV.DATABASE_URL];
+    delete process.env[ENV.GITHUB_APP_ID];
     const { loadConfig } = await import("../src/settings/index.ts");
     await expect(loadConfig()).rejects.toSatisfy((error: unknown) => {
       expect(error).toBeInstanceOf(AppError);
       expect((error as AppError).code).toBe("config.missing_env");
-      expect((error as AppError).context).toEqual({ name: ENV.DATABASE_URL });
+      expect((error as AppError).context).toEqual({ name: ENV.GITHUB_APP_ID });
       return true;
     });
   });

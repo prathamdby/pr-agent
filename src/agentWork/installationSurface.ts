@@ -82,7 +82,6 @@ export function openInstallationSurface(
     now: Date.now,
   },
 ) {
-  const tokens = new Map<string, Promise<InstallationToken>>();
   const bots = new Map<string, Promise<BotIdentity>>();
   const preflights = new Map<string, PendingPreflight>();
   let lastGeneration = 0;
@@ -97,18 +96,16 @@ export function openInstallationSurface(
   const scopedToken: (
     params: InstallationPreflightParams,
     permissions?: InstallationPermissions,
-    seed?: InstallationToken,
   ) => Promise<InstallationToken> = async (
     params: InstallationPreflightParams,
     permissions?: InstallationPermissions,
-    seed?: InstallationToken,
   ) => {
     const key = repositoryKey(params);
     const cached = scopedTokens.get(key);
     const permissionsKey = permissions
       ? permissionKey(permissions)
       : (cached?.permissionsKey ?? "");
-    const previous = cached ? await cached.pending : seed;
+    const previous = cached ? await cached.pending : undefined;
     params.signal?.throwIfAborted();
     const consistent =
       !permissions ||
@@ -127,9 +124,8 @@ export function openInstallationSurface(
       );
     if (cached && scopedTokens.get(key) !== cached)
       return ((pinnedReturn: InstallationToken | Promise<InstallationToken>) => pinnedReturn)(
-        scopedToken(params, permissions, seed),
+        scopedToken(params, permissions),
       );
-    const repositories = previous?.repositories ? [...previous.repositories] : [params.repo];
     const discardAborted = () => {
       if (scopedTokens.get(key)?.pending !== pending) return;
       if (cached?.value) scopedTokens.set(key, cached);
@@ -138,7 +134,7 @@ export function openInstallationSurface(
     const pending = dependencies
       .mintToken(params.cfg, params.installationId, {
         signal: params.signal,
-        repositories,
+        repositories: [params.repo],
       })
       .then((value) => {
         params.signal?.throwIfAborted();
@@ -150,8 +146,7 @@ export function openInstallationSurface(
         if (
           value.repositorySelection === "all" ||
           (value.repositories &&
-            (!value.repositories.includes(params.repo) ||
-              value.repositories.some((repository) => !repositories.includes(repository))))
+            (value.repositories.length !== 1 || value.repositories[0] !== params.repo))
         ) {
           throw preflightUnavailable();
         }
@@ -283,33 +278,6 @@ export function openInstallationSurface(
     return ((pinnedReturn: Promise<BotIdentity>) => pinnedReturn)(pending);
   }
 
-  const token: (cfg: AppConfig, installationId: number) => Promise<InstallationToken> = async (
-    cfg: AppConfig,
-    installationId: number,
-  ) => {
-    const key = `${identityKey(cfg)}:${installationId}`;
-    const cached = tokens.get(key);
-    if (cached) {
-      const value = await cached;
-      if (!isInstallationTokenNearExpiry(value.expiresAtTs, dependencies.now()))
-        return ((pinnedReturn: InstallationToken | Promise<InstallationToken>) => pinnedReturn)(
-          value,
-        );
-      if (tokens.get(key) !== cached)
-        return ((pinnedReturn: InstallationToken | Promise<InstallationToken>) => pinnedReturn)(
-          token(cfg, installationId),
-        );
-    }
-    const pending = dependencies.mintToken(cfg, installationId).catch((error: unknown) => {
-      if (tokens.get(key) === pending) tokens.delete(key);
-      throw error;
-    });
-    tokens.set(key, pending);
-    return ((pinnedReturn: InstallationToken | Promise<InstallationToken>) => pinnedReturn)(
-      pending,
-    );
-  };
-
   async function create(
     params: Omit<Parameters<typeof createPrSurface>[0], "installation"> & {
       readonly installation?: InstallationToken;
@@ -327,30 +295,17 @@ export function openInstallationSurface(
       params.installation ??
       (unknownAccess
         ? recoverableToken()
-        : params.capabilities
-          ? await scopedToken(params, params.capabilities.observation.permissions)
-          : await token(params.cfg, params.installationId));
-    let seed = installation;
+        : await scopedToken(params, params.capabilities?.observation.permissions));
     return dependencies.surface({
       ...params,
       installation,
       tokenResolver:
         params.tokenResolver ??
-        (unknownAccess
-          ? async () => recoverableToken()
-          : params.capabilities
-            ? () => scopedToken(params, undefined, installation)
-            : async () => {
-                if (seed && !isInstallationTokenNearExpiry(seed.expiresAtTs, dependencies.now())) {
-                  return seed;
-                }
-                seed = await token(params.cfg, params.installationId);
-                return seed;
-              }),
+        (unknownAccess ? async () => recoverableToken() : () => scopedToken(params)),
     });
   }
 
-  return { botIdentity, token, create, preflight };
+  return { botIdentity, scopedToken, create, preflight };
 }
 
 function joinPreflight(

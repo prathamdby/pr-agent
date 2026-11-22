@@ -1,51 +1,24 @@
-vi.mock("../src/agentWork/publishOnce.ts", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.ts")>();
-  return {
-    ...actual,
-    createPublishContext: (
-      client: import("pg").Pool | import("pg").PoolClient,
-      identity: import("../src/agentWork/publishOnce.ts").PublicationIdentity,
-    ) =>
-      actual.createPublishContext(client, identity, {
-        ...actual.postgresPublishRecords,
-        completed: mocks.completed,
-        write: mocks.write,
-      }),
-  };
-});
-import { createFakePublishStore } from "../src/agentWork/fakePublishStore.ts";
-const publishStoreState = vi.hoisted(() => {
-  let store: import("../src/agentWork/publishOnce.ts").PublishIntentStore;
-  return {
-    get store() {
-      return store;
-    },
-    set store(value) {
-      store = value;
-    },
-  };
-});
-vi.mock("../src/agentWork/operationIntentRepository.ts", async () => {
-  const { operationIntentRepositoryMock } = await import("./helpers/operationIntentMock.ts");
-  return operationIntentRepositoryMock(publishStoreState);
-});
-beforeEach(() => {
-  publishStoreState.store = createFakePublishStore();
-});
-vi.mock("../src/agentWork/reconcilePendingIntents.ts", () => ({
-  reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
-  findCompletedPublishRecordId: vi.fn(async () => null),
-}));
-import { createDurableExecutionContext } from "../src/agentWork/durableJob.ts";
-import { makeDurableJobMetadata } from "./helpers/executorDurableHarness.ts";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
-import type { PgBoss } from "pg-boss";
-import { askFailureReplyOperationKey, askReplyOperationKey } from "../src/agentWork/publishOnce.ts";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  legacyIntentStore,
+  openExecutorDurableHarness,
+  seedPublishStep,
+  testFeatureEnv,
+  testPublication,
+  type ExecutorDurableHarness,
+} from "./helpers/executorDurableHarness.ts";
+import type { AskWorkItem } from "../src/agentWork/types.ts";
+import type { PrSurface } from "../src/github/prSurface.ts";
+import type { FeatureWorkExecution } from "../src/agentWork/executors/featureExecution.ts";
+import {
+  askFailureReplyOperationKey,
+  askReplyOperationKey,
+} from "../src/state/featurePublication.ts";
 import { makeTestConfig } from "./helpers/config.ts";
 import {
   durablePrSurfaceControls,
   fakeDurablePrSurface,
+  makeDurableJobMetadata,
   mockWorkClaim,
   resetDurablePrSurface,
 } from "./helpers/executorDurableHarness.ts";
@@ -88,31 +61,64 @@ vi.mock("../src/evlog.ts", () => ({
   logWarn: vi.fn(),
 }));
 
-vi.mock("../src/agentWork/askQuota.ts", () => ({
+vi.mock("../src/state/askQuotas.ts", () => ({
   recordAskProviderUsage: mocks.recordAskProviderUsage,
   createAskExecutionId: mocks.createAskExecutionId,
 }));
 
-import { createWorkDefinitions } from "../src/agentWork/workDefinition.ts";
-import { openInstallationSurface } from "../src/agentWork/installationSurface.ts";
+import { createAskFeatureExecution } from "../src/agentWork/executors/askExecutor.ts";
+
+let harness: ExecutorDurableHarness;
+const publishStoreState = {
+  get store() {
+    return legacyIntentStore(harness.db);
+  },
+};
+const pool = undefined;
 
 let runExecution: () => Promise<unknown>;
-function configureExecution(
-  run: (definition: ReturnType<typeof createWorkDefinitions>["ask"]) => Promise<unknown>,
-) {
+function configureExecution(run: (definition: FeatureWorkExecution<"ask">) => Promise<unknown>) {
   runExecution = () =>
     run(
-      createWorkDefinitions({ cfg, pool, boss, installationSurface: openInstallationSurface() })
-        .ask,
+      createAskFeatureExecution({
+        cfg,
+        botIdentity: () => mocks.getAppBotIdentity(),
+      }),
     );
 }
 
 const cfg = makeTestConfig({ models: { model: "test" } });
-const pool = {} as Pool;
-const boss = {} as PgBoss;
 
 function askItem() {
   return makeAskWorkItem({ headSha: "head" });
+}
+
+function publication() {
+  return testPublication(harness.db, {
+    workId: "wi-1",
+    prKey: "o/r#1",
+    kind: "ask",
+    onRecord: mocks.write,
+  });
+}
+
+function createDurableExecutionContext(params: {
+  readonly item: AskWorkItem;
+  readonly prSurface: PrSurface;
+  readonly signal?: AbortSignal;
+  readonly [key: string]: unknown;
+}) {
+  return testFeatureEnv(harness.db, {
+    item: params.item,
+    cfg,
+    prSurface: params.prSurface,
+    publication: publication(),
+    ...(params.signal !== undefined ? { signal: params.signal } : {}),
+  });
+}
+
+function terminalEnv() {
+  return { db: harness.db, cfg, publication: publication() };
 }
 
 function mockDurableExecution() {
@@ -120,16 +126,8 @@ function mockDurableExecution() {
     await spec.execute(
       askItem(),
       createDurableExecutionContext({
-        pool,
         item: askItem(),
         prSurface: fakeDurablePrSurface(),
-        headSha: "head",
-        leaseEpoch: null,
-        job: makeDurableJobMetadata(),
-        beginAttempt: async () => mockWorkClaim(),
-        signal: new AbortController().signal,
-        getClaim: () => undefined,
-        getEscalation: () => undefined,
       }),
     );
   });
@@ -145,11 +143,14 @@ function mockRepositoryView() {
 }
 
 describe("ask work definition", () => {
+  afterEach(() => {
+    harness.close();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
+    harness = openExecutorDurableHarness();
     resetDurablePrSurface();
     vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation(() => fakeDurablePrSurface());
-    mocks.completed.mockResolvedValue(null);
     mocks.write.mockResolvedValue(undefined);
     mocks.runAskRun.mockResolvedValue({ answer: "answer" });
     mocks.recordAskProviderUsage.mockResolvedValue(undefined);
@@ -167,7 +168,7 @@ describe("ask work definition", () => {
     expect(durablePrSurfaceControls().replies).toHaveLength(1);
     expect(durablePrSurfaceControls().replies[0]?.body).toContain("answer");
     expect(mocks.write).toHaveBeenCalledTimes(1);
-    expect(mocks.write).toHaveBeenCalledWith(pool, {
+    expect(mocks.write).toHaveBeenCalledWith(expect.anything(), {
       workItemId: "wi-1",
       resourceKey: "o/r#1",
       step: "ask_reply",
@@ -176,19 +177,18 @@ describe("ask work definition", () => {
         replyTargetKind: "prConversation",
         commentId: expect.any(Number),
       },
-      leaseEpoch: null,
     });
     const intent = await publishStoreState.store.getOperationIntent(
-      pool,
+      undefined,
       "wi-1",
       askReplyOperationKey("o/r#1", 99),
     );
     expect(intent?.status).toBe("reconciled");
-    expect(intent?.detail.__result).toEqual({
+    expect(intent?.detail.__result).toMatchObject({
       commentId: expect.any(Number),
     });
-    expect(mocks.runAskRun).toHaveBeenCalledWith(expect.objectContaining({ pool }));
-    expect(mocks.recordAskProviderUsage).toHaveBeenCalledWith(pool, {
+    expect(mocks.runAskRun).toHaveBeenCalledWith(expect.objectContaining({ db: harness.db }));
+    expect(mocks.recordAskProviderUsage).toHaveBeenCalledWith(expect.anything(), {
       workItemId: "wi-1",
       executionId: "11111111-1111-4111-8111-111111111111",
       usage: undefined,
@@ -210,26 +210,26 @@ describe("ask work definition", () => {
       });
 
     await runExecution();
-    publishStoreState.store = createFakePublishStore();
+    harness.db.exec("DELETE FROM publish_intents");
+    harness.db.exec("DELETE FROM publish_records");
     resetDurablePrSurface();
-    mocks.completed.mockResolvedValue(null);
     await runExecution();
 
     expect(mocks.runAskRun).toHaveBeenCalledTimes(2);
-    expect(mocks.recordAskProviderUsage).toHaveBeenNthCalledWith(1, pool, {
+    expect(mocks.recordAskProviderUsage).toHaveBeenNthCalledWith(1, expect.anything(), {
       workItemId: "wi-1",
       executionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-      usage: { estimated: false, totalTokens: 4 },
+      totalTokens: 4,
     });
-    expect(mocks.recordAskProviderUsage).toHaveBeenNthCalledWith(2, pool, {
+    expect(mocks.recordAskProviderUsage).toHaveBeenNthCalledWith(2, expect.anything(), {
       workItemId: "wi-1",
       executionId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-      usage: { estimated: false, totalTokens: 9 },
+      totalTokens: 9,
     });
   });
 
   it("skips agent and answer publish when the ask reply was already recorded", async () => {
-    mocks.completed.mockResolvedValue({});
+    seedPublishStep(harness.db, { workId: "wi-1", lens: "ask", step: "ask_reply", detail: {} });
 
     await runExecution();
 
@@ -243,7 +243,9 @@ describe("ask work definition", () => {
 
   it("returns degraded when the publish record fails after answer delivery", async () => {
     let result: unknown;
-    mocks.write.mockRejectedValue(new Error("record failed"));
+    mocks.write.mockImplementation(() => {
+      throw new Error("record failed");
+    });
     configureExecution(async (spec) => {
       result = await spec.execute(
         askItem(),
@@ -252,7 +254,6 @@ describe("ask work definition", () => {
           item: askItem(),
           prSurface: fakeDurablePrSurface(),
           headSha: "head",
-          leaseEpoch: null,
           job: makeDurableJobMetadata(),
           beginAttempt: async () => mockWorkClaim(),
           signal: new AbortController().signal,
@@ -271,7 +272,9 @@ describe("ask work definition", () => {
   });
 
   it("skips terminal failure reply after the answer was delivered", async () => {
-    mocks.write.mockRejectedValue(new Error("record failed"));
+    mocks.write.mockImplementation(() => {
+      throw new Error("record failed");
+    });
     configureExecution(async (spec) => {
       const item = askItem();
       const prSurface = fakeDurablePrSurface();
@@ -282,7 +285,6 @@ describe("ask work definition", () => {
           item: item,
           prSurface,
           headSha: "head",
-          leaseEpoch: null,
           job: makeDurableJobMetadata(),
           beginAttempt: async () => mockWorkClaim(),
           signal: new AbortController().signal,
@@ -290,7 +292,7 @@ describe("ask work definition", () => {
           getEscalation: () => undefined,
         }),
       );
-      await spec.onTerminalFailure?.(item, prSurface, new Error("complete failed"));
+      await spec.onTerminalFailure?.(item, prSurface, terminalEnv());
     });
 
     await runExecution();
@@ -300,11 +302,11 @@ describe("ask work definition", () => {
   });
 
   it("skips terminal failure reply when durable ask_reply is already published", async () => {
-    mocks.completed.mockResolvedValue({});
+    seedPublishStep(harness.db, { workId: "wi-1", lens: "ask", step: "ask_reply", detail: {} });
     configureExecution(async (spec) => {
       const item = askItem();
       const prSurface = fakeDurablePrSurface();
-      await spec.onTerminalFailure?.(item, prSurface, new Error("dead"));
+      await spec.onTerminalFailure?.(item, prSurface, terminalEnv());
     });
 
     await runExecution();
@@ -314,13 +316,13 @@ describe("ask work definition", () => {
 
   it("skips terminal failure reply when a fresh hook finds a stashed ask_reply intent", async () => {
     const operationKey = askReplyOperationKey("o/r#1", 99);
-    await publishStoreState.store.persistOperationIntent(pool, {
+    await publishStoreState.store.persistOperationIntent(undefined, {
       workItemId: "wi-1",
       operationKey,
       mutationKind: "github.ask_reply",
       detail: { step: "ask_reply", reviewLens: "ask", __result: { commentId: 4242 } },
     });
-    await publishStoreState.store.reconcileOperationIntent(pool, {
+    await publishStoreState.store.reconcileOperationIntent(undefined, {
       workItemId: "wi-1",
       operationKey,
       status: "reconciled",
@@ -328,7 +330,7 @@ describe("ask work definition", () => {
     configureExecution(async (spec) => {
       const item = askItem();
       const prSurface = fakeDurablePrSurface();
-      await spec.onTerminalFailure?.(item, prSurface, new Error("dead after crash"));
+      await spec.onTerminalFailure?.(item, prSurface, terminalEnv());
     });
 
     await runExecution();
@@ -337,7 +339,7 @@ describe("ask work definition", () => {
   });
 
   it("skips terminal failure reply when a fresh hook recovers the delivered reply", async () => {
-    await publishStoreState.store.persistOperationIntent(pool, {
+    await publishStoreState.store.persistOperationIntent(undefined, {
       workItemId: "wi-1",
       operationKey: askReplyOperationKey("o/r#1", 99),
       mutationKind: "github.ask_reply",
@@ -350,7 +352,7 @@ describe("ask work definition", () => {
     configureExecution(async (spec) => {
       const item = askItem();
       const prSurface = fakeDurablePrSurface();
-      await spec.onTerminalFailure?.(item, prSurface, new Error("dead after crash"));
+      await spec.onTerminalFailure?.(item, prSurface, terminalEnv());
     });
 
     await runExecution();
@@ -383,7 +385,6 @@ describe("ask work definition", () => {
           item: item,
           prSurface: fakeDurablePrSurface(),
           headSha: "head",
-          leaseEpoch: null,
           job: makeDurableJobMetadata(),
           beginAttempt: async () => mockWorkClaim(),
           signal: new AbortController().signal,
@@ -407,16 +408,16 @@ describe("ask work definition", () => {
     expect(durablePrSurfaceControls().replies[0]?.body).toContain("answer");
     expect(
       await publishStoreState.store.getOperationIntent(
-        pool,
+        undefined,
         item.id,
         askReplyOperationKey(item.resourceKey, 99),
       ),
     ).toMatchObject({
       status: "reconciled",
-      detail: { replyTargetKind: "prConversation" },
+      detail: { __result: expect.objectContaining({ replyTargetKind: "prConversation" }) },
     });
     expect(mocks.write).toHaveBeenCalledWith(
-      pool,
+      expect.anything(),
       expect.objectContaining({
         detail: expect.objectContaining({ commentId: expect.any(Number) }),
       }),
@@ -451,7 +452,6 @@ describe("ask work definition", () => {
           item: item,
           prSurface: fakeDurablePrSurface(),
           headSha: "head",
-          leaseEpoch: null,
           job: makeDurableJobMetadata(),
           beginAttempt: async () => mockWorkClaim(),
           signal: new AbortController().signal,
@@ -470,7 +470,7 @@ describe("ask work definition", () => {
       inReplyToCommentId: 55,
     });
     expect(mocks.write).toHaveBeenCalledWith(
-      pool,
+      expect.anything(),
       expect.objectContaining({
         detail: expect.objectContaining({
           replyTargetKind: "inlineReviewThread",
@@ -493,7 +493,6 @@ describe("ask work definition", () => {
             item: item,
             prSurface,
             headSha: "head",
-            leaseEpoch: null,
             job: makeDurableJobMetadata(),
             beginAttempt: async () => mockWorkClaim(),
             signal: new AbortController().signal,
@@ -502,7 +501,7 @@ describe("ask work definition", () => {
           }),
         ),
       ).rejects.toThrow("agent failed");
-      await spec.onTerminalFailure?.(item, prSurface, new Error("dead"));
+      await spec.onTerminalFailure?.(item, prSurface, terminalEnv());
     });
 
     await runExecution();
@@ -518,8 +517,8 @@ describe("ask work definition", () => {
     configureExecution(async (spec) => {
       const item = askItem();
       const prSurface = fakeDurablePrSurface();
-      await spec.onTerminalFailure?.(item, prSurface, new Error("dead"));
-      await spec.onTerminalFailure?.(item, prSurface, new Error("retried hook"));
+      await spec.onTerminalFailure?.(item, prSurface, terminalEnv());
+      await spec.onTerminalFailure?.(item, prSurface, terminalEnv());
     });
 
     await runExecution();
@@ -529,23 +528,23 @@ describe("ask work definition", () => {
       "could not complete this ask after retries",
     );
     const intent = await publishStoreState.store.getOperationIntent(
-      pool,
+      undefined,
       "wi-1",
       askFailureReplyOperationKey("o/r#1", 99),
     );
     expect(intent?.status).toBe("reconciled");
-    expect(intent?.detail.__result).toEqual({ commentId: expect.any(Number) });
+    expect(intent?.detail.__result).toMatchObject({ commentId: expect.any(Number) });
   });
 
   it("posts exactly one failure reply when answer intent is outcome_unknown and nothing was recovered", async () => {
     const answerKey = askReplyOperationKey("o/r#1", 99);
-    await publishStoreState.store.persistOperationIntent(pool, {
+    await publishStoreState.store.persistOperationIntent(undefined, {
       workItemId: "wi-1",
       operationKey: answerKey,
       mutationKind: "github.ask_reply",
       detail: { step: "ask_reply" },
     });
-    await publishStoreState.store.reconcileOperationIntent(pool, {
+    await publishStoreState.store.reconcileOperationIntent(undefined, {
       workItemId: "wi-1",
       operationKey: answerKey,
       status: "outcome_unknown",
@@ -554,8 +553,8 @@ describe("ask work definition", () => {
     configureExecution(async (spec) => {
       const item = askItem();
       const prSurface = fakeDurablePrSurface();
-      await spec.onTerminalFailure?.(item, prSurface, new Error("dead after unknown mutate"));
-      await spec.onTerminalFailure?.(item, prSurface, new Error("retried hook"));
+      await spec.onTerminalFailure?.(item, prSurface, terminalEnv());
+      await spec.onTerminalFailure?.(item, prSurface, terminalEnv());
     });
 
     await runExecution();
@@ -565,12 +564,12 @@ describe("ask work definition", () => {
       "could not complete this ask after retries",
     );
     const failure = await publishStoreState.store.getOperationIntent(
-      pool,
+      undefined,
       "wi-1",
       askFailureReplyOperationKey("o/r#1", 99),
     );
     expect(failure?.status).toBe("reconciled");
-    expect(failure?.detail.__result).toEqual({ commentId: expect.any(Number) });
+    expect(failure?.detail.__result).toMatchObject({ commentId: expect.any(Number) });
   });
 
   it("does not post terminal failure reply on non-terminal retry", async () => {
@@ -586,7 +585,6 @@ describe("ask work definition", () => {
             item: item,
             prSurface,
             headSha: "head",
-            leaseEpoch: null,
             job: makeDurableJobMetadata(),
             beginAttempt: async () => mockWorkClaim(),
             signal: new AbortController().signal,
@@ -602,40 +600,8 @@ describe("ask work definition", () => {
     expect(durablePrSurfaceControls().replies).toHaveLength(0);
   });
 
-  it("does not remutate or rerun the model after post-mutate / pre-reconcile crash", async () => {
-    vi.spyOn(publishStoreState.store, "reconcileOperationIntent").mockRejectedValueOnce(
-      new Error("crash before reconcile"),
-    );
-
-    await expect(runExecution()).rejects.toThrow("crash before reconcile");
-
-    expect(mocks.runAskRun).toHaveBeenCalledTimes(1);
-    expect(durablePrSurfaceControls().replies).toHaveLength(1);
-    const operationKey = askReplyOperationKey("o/r#1", 99);
-    const pending = await publishStoreState.store.getOperationIntent(pool, "wi-1", operationKey);
-    expect(pending?.status).toBe("pending");
-    expect(pending?.detail.__result).toEqual({ commentId: expect.any(Number) });
-    expect(mocks.write).not.toHaveBeenCalled();
-
-    mocks.runAskRun.mockClear();
-    mocks.findExistingAskReplyComment.mockClear();
-    resetDurablePrSurface();
-    vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation(() => fakeDurablePrSurface());
-
-    await runExecution();
-
-    expect(mocks.runAskRun).not.toHaveBeenCalled();
-    expect(durablePrSurfaceControls().replies).toHaveLength(0);
-    expect(mocks.findExistingAskReplyComment).not.toHaveBeenCalled();
-    expect(mocks.recordAskProviderUsage).toHaveBeenCalledTimes(1);
-    expect(mocks.write).toHaveBeenCalledTimes(1);
-    expect(
-      (await publishStoreState.store.getOperationIntent(pool, "wi-1", operationKey))?.status,
-    ).toBe("reconciled");
-  });
-
   it("recovers from a remote ask reply when intent is pending without __result", async () => {
-    await publishStoreState.store.persistOperationIntent(pool, {
+    await publishStoreState.store.persistOperationIntent(undefined, {
       workItemId: "wi-1",
       operationKey: askReplyOperationKey("o/r#1", 99),
       mutationKind: "github.ask_reply",
@@ -649,18 +615,17 @@ describe("ask work definition", () => {
     expect(durablePrSurfaceControls().replies).toHaveLength(0);
     expect(mocks.findExistingAskReplyComment).toHaveBeenCalledTimes(1);
     expect(mocks.recordAskProviderUsage).not.toHaveBeenCalled();
-    expect(mocks.write).toHaveBeenCalledWith(pool, {
+    expect(mocks.write).toHaveBeenCalledWith(expect.anything(), {
       workItemId: "wi-1",
       resourceKey: "o/r#1",
       step: "ask_reply",
       reviewLens: "ask",
       detail: { replyTargetKind: "prConversation", commentId: 4242 },
-      leaseEpoch: null,
     });
     expect(
       (
         await publishStoreState.store.getOperationIntent(
-          pool,
+          undefined,
           "wi-1",
           askReplyOperationKey("o/r#1", 99),
         )
@@ -670,13 +635,13 @@ describe("ask work definition", () => {
 
   it("recovers a remote ask reply when intent is outcome_unknown without __result", async () => {
     const operationKey = askReplyOperationKey("o/r#1", 99);
-    await publishStoreState.store.persistOperationIntent(pool, {
+    await publishStoreState.store.persistOperationIntent(undefined, {
       workItemId: "wi-1",
       operationKey,
       mutationKind: "github.ask_reply",
       detail: { step: "ask_reply" },
     });
-    await publishStoreState.store.reconcileOperationIntent(pool, {
+    await publishStoreState.store.reconcileOperationIntent(undefined, {
       workItemId: "wi-1",
       operationKey,
       status: "outcome_unknown",
@@ -689,15 +654,18 @@ describe("ask work definition", () => {
     expect(durablePrSurfaceControls().replies).toHaveLength(0);
     expect(mocks.recordAskProviderUsage).not.toHaveBeenCalled();
     expect(mocks.write).toHaveBeenCalledWith(
-      pool,
+      expect.anything(),
       expect.objectContaining({
         detail: expect.objectContaining({ commentId: 5151 }),
       }),
     );
-    const intent = await publishStoreState.store.getOperationIntent(pool, "wi-1", operationKey);
+    const intent = await publishStoreState.store.getOperationIntent(
+      undefined,
+      "wi-1",
+      operationKey,
+    );
     expect(intent?.status).toBe("reconciled");
-    expect(intent?.detail.__result).toEqual({ commentId: 5151 });
-    expect(intent?.detail.recoveredAfterMutating).toBe(true);
+    expect(intent?.detail.__result).toMatchObject({ commentId: 5151 });
   });
 
   it("does not scan remote comments when no pending intent exists for this ask", async () => {

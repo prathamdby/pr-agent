@@ -21,13 +21,11 @@ import {
   validateDescriptionVisuals,
 } from "./descriptionVisualSanitize.ts";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.ts";
-import { fenceForEpoch } from "../../agentWork/writeFence.ts";
 import {
   descriptionPrBodyOperationKey,
   operationIntentMarker,
-  type OperationIntentContext,
-  publishOnce,
-} from "../../agentWork/publishOnce.ts";
+  type FeaturePublication,
+} from "../../state/featurePublication.ts";
 
 const descriptionPublishResultSchema = v.object({
   prNumber: v.number(),
@@ -71,7 +69,7 @@ export function buildSubmitDescriptionTool(params: {
   knownPaths?: ReadonlySet<string>;
   shouldAbortPublish?: () => Promise<boolean>;
   recordPublishStep?: (detail?: Record<string, unknown>) => Promise<void>;
-  operationIntent?: OperationIntentContext;
+  publication?: FeaturePublication;
 }) {
   const piTool: PiTool = {
     name: "submitDescription",
@@ -151,16 +149,13 @@ export function buildSubmitDescriptionTool(params: {
 
     params.state.lastValidationError = null;
 
-    const operationIntent = params.operationIntent;
+    const publication = params.publication;
     const operationKey =
-      operationIntent == null ? null : descriptionPrBodyOperationKey(operationIntent.resourceKey);
+      publication == null ? null : descriptionPrBodyOperationKey(publication.prKey);
     const operationMarker =
-      operationIntent == null
+      publication == null || operationKey == null
         ? null
-        : operationIntentMarker(
-            descriptionPrBodyOperationKey(operationIntent.resourceKey),
-            operationIntent.workItemId,
-          );
+        : operationIntentMarker(operationKey, publication.workId);
     const publish = async () => {
       const { pullRequest } = await params.prSurface.getHead();
       const plan = planDescriptionPublish({
@@ -185,34 +180,28 @@ export function buildSubmitDescriptionTool(params: {
     };
 
     const result =
-      params.operationIntent == null
+      publication == null || operationKey == null
         ? await publish()
-        : await publishOnce<DescriptionPublishResult>({
+        : await publication.once<DescriptionPublishResult>({
             decodeResult: (value) => {
               v.assert(descriptionPublishResultSchema, value);
               return value;
             },
-            fence: fenceForEpoch(params.operationIntent.leaseEpoch),
-            client: params.operationIntent.client,
-            workItemId: params.operationIntent.workItemId,
-            operationKey:
-              operationKey ?? descriptionPrBodyOperationKey(params.operationIntent.resourceKey),
+            resourceTarget: "pr_body",
+            operationKey,
             mutationKind: "github.pr_body",
-            leaseEpoch: params.operationIntent.leaseEpoch,
-            detail: {
+            blocksOverwrite: true,
+            identity: {
               step: "pr_body",
-              resourceKey: params.operationIntent.resourceKey,
+              resourceKey: publication.prKey,
               reviewLens: DESCRIPTION_PUBLISH_LENS,
               ...(operationMarker == null ? {} : { operationMarker }),
             },
             recover: async () => {
               const { pullRequest } = await params.prSurface.getHead();
               return pullRequest.body?.includes(operationMarker ?? "\u0000")
-                ? {
-                    kind: "reconciled" as const,
-                    value: { prNumber: params.prNumber, bodyUpdated: true },
-                  }
-                : { kind: "absent" as const };
+                ? { found: true, value: { prNumber: params.prNumber, bodyUpdated: true } }
+                : { found: false };
             },
             isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
             mutate: publish,

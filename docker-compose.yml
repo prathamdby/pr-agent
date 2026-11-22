@@ -1,51 +1,26 @@
-# Postgres is reachable on the compose network as hostname `postgres` only.
-# It is not published to the host. Host processes need `docker run -p 5432:5432`
-# or a compose override that adds `ports: ["5432:5432"]`.
+# One pr-agent process owns the /data volume: app_state.sqlite, pi_durable.sqlite,
+# and the pr-agent.lock.sqlite single-writer lock. Two containers must never
+# share the volume, so updates stop the old container before the new one starts.
+# stop_grace_period stays above SHUTDOWN_GRACE_MS (default 25s) plus 5s.
 services:
-  postgres:
-    image: postgres:18.7-alpine
-    shm_size: 128mb
-    command:
-      - postgres
-      - -c
-      - shared_buffers=${POSTGRES_SHARED_BUFFERS:-256MB}
-      - -c
-      - effective_cache_size=${POSTGRES_EFFECTIVE_CACHE_SIZE:-768MB}
-      - -c
-      - maintenance_work_mem=${POSTGRES_MAINTENANCE_WORK_MEM:-128MB}
-      - -c
-      - wal_compression=${POSTGRES_WAL_COMPRESSION:-on}
-      - -c
-      - random_page_cost=${POSTGRES_RANDOM_PAGE_COST:-1.1}
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-pr_agent}
-      POSTGRES_USER: ${POSTGRES_USER:-pr_agent}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pr_agent}
-    volumes:
-      - postgres-data:/var/lib/postgresql
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pr_agent} -d ${POSTGRES_DB:-pr_agent}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    restart: unless-stopped
-
-  pr-agent-web:
+  pr-agent:
     build: .
     image: pr-agent:local
     env_file:
       - ${PR_AGENT_ENV_FILE:-.env}
     environment:
-      ROLE: "web"
       PORT: "7224"
-      DATABASE_URL: "postgres://${POSTGRES_USER:-pr_agent}:${POSTGRES_PASSWORD:-pr_agent}@postgres:5432/${POSTGRES_DB:-pr_agent}"
+      SQLITE_DIR: "/data"
     ports:
       - "7224:7224"
-    depends_on:
-      postgres:
-        condition: service_healthy
+    volumes:
+      - pr-agent-data:/data
     restart: unless-stopped
     stop_grace_period: 40s
+    deploy:
+      replicas: 1
+      update_config:
+        order: stop-first
     healthcheck:
       test:
         [
@@ -57,35 +32,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 15s
-
-  pr-agent-worker:
-    # Same worker registers ack, CI-projection, review, ask, description, triage,
-    # verification, and retention. Compose healthcheck uses /ready.
-    build: .
-    image: pr-agent:local
-    env_file:
-      - ${PR_AGENT_ENV_FILE:-.env}
-    environment:
-      ROLE: "worker"
-      DATABASE_URL: "postgres://${POSTGRES_USER:-pr_agent}:${POSTGRES_PASSWORD:-pr_agent}@postgres:5432/${POSTGRES_DB:-pr_agent}"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: unless-stopped
-    stop_grace_period: 40s
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "node",
-          "-e",
-          "fetch('http://127.0.0.1:'+(process.env.PORT||7224)+'/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
-        ]
-      interval: 30s
-      timeout: 5s
-      retries: 3
       start_period: 30s
 
 volumes:
-  postgres-data:
+  pr-agent-data:

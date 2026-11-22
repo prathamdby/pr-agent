@@ -1,4 +1,5 @@
-import type { Pool } from "pg";
+import type { DatabaseSync } from "node:sqlite";
+import type { createFeaturePiSession } from "../agent/runtime/createFeatureSession.ts";
 import type { Config } from "../settings/index.ts";
 import type { PrSurface } from "../github/prSurface.ts";
 import {
@@ -10,23 +11,24 @@ import {
   fetchCiAuthorContext,
 } from "../review/ci/ciAuthor.ts";
 import { hashCiFacts, parseCiAuthoredCache, type CiAuthoredCache } from "../review/ci/ciFacts.ts";
-import { storePrHeadCiAuthored, type PrHeadCiStateRow } from "./prHeadCiState.ts";
+import { storeHeadCiAuthored, type HeadCiProjectionRow } from "../state/prHeadCiState.ts";
 
 export async function authorHeadCiIfFactsChanged(params: {
   readonly cfg: Config;
-  readonly pool: Pool;
+  readonly db: DatabaseSync;
   readonly prSurface: PrSurface;
-  readonly row: PrHeadCiStateRow;
+  readonly row: HeadCiProjectionRow;
   readonly author?: CiSummaryAuthor;
+  readonly createSession?: typeof createFeaturePiSession;
 }) {
   if (params.row.rollup !== "failing")
-    return ((pinnedReturn: PrHeadCiStateRow | Promise<PrHeadCiStateRow>) => pinnedReturn)(
+    return ((pinnedReturn: HeadCiProjectionRow | Promise<HeadCiProjectionRow>) => pinnedReturn)(
       params.row,
     );
   const factsHash = hashCiFacts(params.row.checks);
   const cached = parseCiAuthoredCache(params.row.authored);
   if (cached?.factsHash === factsHash)
-    return ((pinnedReturn: PrHeadCiStateRow | Promise<PrHeadCiStateRow>) => pinnedReturn)(
+    return ((pinnedReturn: HeadCiProjectionRow | Promise<HeadCiProjectionRow>) => pinnedReturn)(
       params.row,
     );
 
@@ -36,7 +38,7 @@ export async function authorHeadCiIfFactsChanged(params: {
     checks: params.row.checks,
   });
   const input = ciAuthorInputFromFacts(params.row.checks, context.condensedLogs);
-  const author = params.author ?? createAgentCiSummaryAuthor(params.cfg);
+  const author = params.author ?? createAgentCiSummaryAuthor(params.cfg, params.createSession);
   const llm = await author(input);
   const summary =
     llm != null ? mergeCiSummaryWithFacts(input, llm) : factsOnlyFailingSummary(input);
@@ -49,14 +51,8 @@ export async function authorHeadCiIfFactsChanged(params: {
       ? { permissionNote: summary.permissionNote ?? context.permissionNote }
       : {}),
   };
-  await storePrHeadCiAuthored(
-    params.pool,
-    params.row.owner,
-    params.row.repo,
-    params.row.headSha,
-    authored,
-  );
-  return ((pinnedReturn: PrHeadCiStateRow | Promise<PrHeadCiStateRow>) => pinnedReturn)({
+  storeHeadCiAuthored(params.db, { ...params.row, authored });
+  return ((pinnedReturn: HeadCiProjectionRow | Promise<HeadCiProjectionRow>) => pinnedReturn)({
     ...params.row,
     authored,
   });

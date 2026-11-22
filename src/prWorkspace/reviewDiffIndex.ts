@@ -23,33 +23,9 @@ export function createCachedPrDiffIndex() {
 
 const DIFF_HUNK_RE = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/;
 
-export function parseCommentableRightLineRanges(patch: string) {
-  const ranges: CommentableRightLineRanges = [];
+export function* diffRightLines(patch: string) {
   let rightLine = 0;
-  let range: [number, number] | undefined;
-
-  const addCommentableLine = (line: number) => {
-    if (!range) {
-      range = [line, line];
-      return;
-    }
-    if (line === range[1] + 1) {
-      range[1] = line;
-      return;
-    }
-    ranges.push(range);
-    range = [line, line];
-  };
-
-  const finishRanges = () => {
-    if (range) {
-      ranges.push(range);
-    }
-    return ranges;
-  };
-
-  if (patch === "") return ((pinnedReturn: CommentableRightLineRanges) => pinnedReturn)(ranges);
-
+  if (patch === "") return;
   const lines = patch.endsWith("\n") ? patch.slice(0, -1).split("\n") : patch.split("\n");
   let seenHunk = false;
   let rightLinesRemaining = 0;
@@ -57,46 +33,37 @@ export function parseCommentableRightLineRanges(patch: string) {
   for (const rawLine of lines) {
     if (rawLine.startsWith("@@")) {
       const hunkMatch = rawLine.match(DIFF_HUNK_RE);
-      if (!hunkMatch)
-        return ((pinnedReturn: CommentableRightLineRanges) => pinnedReturn)(finishRanges());
+      if (!hunkMatch) return;
       rightLine = Number(hunkMatch[1]);
       rightLinesRemaining = Number(hunkMatch[2] ?? "1");
       seenHunk = true;
-      continue;
-    }
-    if (!seenHunk) {
-      continue;
-    }
-    if (rawLine.startsWith("+") && !rawLine.startsWith("+++")) {
-      addCommentableLine(rightLine);
-      rightLine++;
-      rightLinesRemaining--;
-      continue;
-    }
-    if (rawLine.startsWith(" ")) {
-      addCommentableLine(rightLine);
-      rightLine++;
-      rightLinesRemaining--;
-      continue;
-    }
-    if (rawLine.length === 0) {
-      if (rightLinesRemaining > 0) {
-        addCommentableLine(rightLine);
-        rightLine++;
+    } else if (seenHunk) {
+      if (
+        rightLinesRemaining > 0 &&
+        (rawLine.startsWith("+") || rawLine.startsWith(" ") || rawLine.length === 0)
+      ) {
+        yield rightLine++;
         rightLinesRemaining--;
+        continue;
       }
-      continue;
+      if (rawLine !== "" && !rawLine.startsWith("-") && !rawLine.startsWith("\\")) return;
     }
-    if (rawLine.startsWith("-") && !rawLine.startsWith("---")) {
-      continue;
-    }
-    if (rawLine.startsWith("\\")) {
-      continue;
-    }
-    return ((pinnedReturn: CommentableRightLineRanges) => pinnedReturn)(finishRanges());
+    yield -1;
   }
+}
 
-  return ((pinnedReturn: CommentableRightLineRanges) => pinnedReturn)(finishRanges());
+export function parseCommentableRightLineRanges(patch: string) {
+  const ranges: CommentableRightLineRanges = [];
+  for (const line of diffRightLines(patch)) {
+    if (line < 1) continue;
+    const range = ranges.at(-1);
+    if (range && range[1] + 1 === line) {
+      range[1] = line;
+      continue;
+    }
+    ranges.push([line, line]);
+  }
+  return ranges;
 }
 
 export type ListPullRequestFilesToolResult = {

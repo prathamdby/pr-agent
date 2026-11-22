@@ -1,7 +1,7 @@
 import type { ReplyTarget } from "../../agentWork/types.ts";
 import type { PrSurface } from "../../github/prSurface.ts";
 import { findCommentIdByMarker } from "../../github/prSurfaceHelpers.ts";
-import { operationIntentMarker } from "../../agentWork/publishOnce.ts";
+import { operationIntentMarker } from "../../state/featurePublication.ts";
 import { isRecord } from "../../util/typeGuards.ts";
 import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.ts";
 
@@ -20,10 +20,7 @@ export function askReplyBodyWithOperationMarker(
   );
 }
 
-export function askReplyCommentIdFromIntentDetail(detail: Record<string, unknown> | undefined) {
-  if (!detail || !("__result" in detail))
-    return ((pinnedReturn: number | null) => pinnedReturn)(null);
-  const result = detail.__result;
+export function askReplyCommentIdFromIntentResult(result: unknown) {
   if (!isRecord(result)) return ((pinnedReturn: number | null) => pinnedReturn)(null);
   return ((pinnedReturn: number | null) => pinnedReturn)(
     typeof result.commentId === "number" ? result.commentId : null,

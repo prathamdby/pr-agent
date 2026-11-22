@@ -3,6 +3,7 @@ import { toToolParameters } from "../../agent/tools/toolParams.ts";
 import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.ts";
 import { AppError } from "../../errors/appError.ts";
 import { specialistReportSchema } from "./specialistReport.ts";
+import type { WorkspaceToolBundle } from "../../agent/runtime/durable/piTools.ts";
 
 export const SUBMIT_FINDINGS_REPORT_NAME = "submit_findings_report";
 
@@ -14,6 +15,8 @@ export const SUBMIT_FINDINGS_REPORT_PARAMETERS = toToolParameters(specialistRepo
 export type SpecialistWorkspaceTools = {
   readonly piTools: readonly PiTool[];
   readonly executors: Record<string, AgentRunnerToolExecutor>;
+  readonly durableTools?: WorkspaceToolBundle["durableTools"];
+  readonly toolMeta?: WorkspaceToolBundle["toolMeta"];
 };
 
 export function buildSubmitFindingsReportPiTool() {
@@ -42,11 +45,17 @@ export function buildSpecialistSessionTools(
   return ((pinnedReturn: {
     readonly piTools: readonly PiTool[];
     readonly executors: Record<string, AgentRunnerToolExecutor>;
+    readonly durableTools?: WorkspaceToolBundle["durableTools"];
+    readonly toolMeta?: WorkspaceToolBundle["toolMeta"];
   }) => pinnedReturn)({
     piTools: [...workspaceTools.piTools, submit.piTool],
     executors: {
       ...workspaceTools.executors,
       [SUBMIT_FINDINGS_REPORT_NAME]: submit.executor,
     },
+    ...(workspaceTools.durableTools !== undefined
+      ? { durableTools: workspaceTools.durableTools }
+      : {}),
+    ...(workspaceTools.toolMeta !== undefined ? { toolMeta: workspaceTools.toolMeta } : {}),
   });
 }

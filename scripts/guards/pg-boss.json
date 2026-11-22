@@ -3,6 +3,6 @@
   "kind": "module",
   "specifierPrefix": "pg-boss",
   "skipTypeOnly": true,
-  "allow": ["src/db/", "src/agentWork/boss.ts"],
+  "allow": [],
   "mustCatch": ["import { PgBoss } from \"pg-boss\";"]
 }

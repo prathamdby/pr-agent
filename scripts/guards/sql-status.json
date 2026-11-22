@@ -1,8 +1,8 @@
 {
   "id": "sql-status",
   "kind": "sql-status",
-  "allow": ["src/agentWork/workItemTransitions.ts"],
+  "allow": ["src/state/workRuns.ts"],
   "mustCatch": [
-    "const sql = `UPDATE agent_work_items SET updated_at = now(), status = 'failed' WHERE id = $1`;"
+    "const sql = `UPDATE work_runs SET updated_at = ?, status = 'failed' WHERE id = ?`;"
   ]
 }

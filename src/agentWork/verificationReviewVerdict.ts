@@ -1,5 +1,3 @@
-import type { Pool } from "pg";
-import { isAppError } from "../errors/appError.ts";
 import { errorMessage } from "../errors/errorMessage.ts";
 import { logInfo, logWarn } from "../evlog.ts";
 import type { PrSurface } from "../github/prSurface.ts";
@@ -13,11 +11,10 @@ import {
   type FindingCheck,
 } from "../review/findingIdentity/findingLifecycle.ts";
 import { publishReviewVerdictEvent } from "../review/publish/publishCloseOutcomeReview.ts";
-import { threadMutationLock } from "../review/findingIdentity/threadMutationLock.ts";
 import { isCheckFailingSeverity } from "../review/reviewSchema.ts";
 import type { Config } from "../settings/index.ts";
 import type { GithubReviewEvent } from "./reviewVerdict.ts";
-import { getActiveReviewWorkItem } from "./workItemStateRepository.ts";
+import { activeReviewWorkId, type FeaturePublication } from "../state/featurePublication.ts";
 import type { VerificationDegradationReason } from "./verificationPublishGate.ts";
 
 export function verificationReviewEvent(
@@ -64,25 +61,21 @@ function openSameIdCopyBlocks(
 
 export async function refreshReviewVerdictAfterVerification(params: {
   readonly cfg: Config;
-  readonly pool: Pool;
+  readonly publication: FeaturePublication;
   readonly prSurface: PrSurface;
   readonly workItemId: string;
   readonly resourceKey: string;
   readonly headSha: string;
-  readonly leaseEpoch: number | null;
   readonly canPublish: () => Promise<boolean>;
   readonly degradation: readonly VerificationDegradationReason[];
 }) {
-  const { prSurface, pool, resourceKey, workItemId } = params;
+  const { prSurface, publication, resourceKey, workItemId } = params;
   const skip = (reason: string) =>
     logInfo("verification_review_verdict_skipped", { workItemId, resourceKey, reason });
   try {
-    await threadMutationLock(
-      pool,
-      resourceKey,
-    )(async () => {
+    await (async () => {
       if (!(await params.canPublish())) return;
-      if (await getActiveReviewWorkItem(pool, resourceKey)) {
+      if (activeReviewWorkId(publication.db, resourceKey) !== undefined) {
         skip("active_review");
         return;
       }
@@ -129,27 +122,41 @@ export async function refreshReviewVerdictAfterVerification(params: {
       }
       if (event == null) return;
       if (!(await params.canPublish())) return;
-      if (await getActiveReviewWorkItem(pool, resourceKey)) {
+      if (activeReviewWorkId(publication.db, resourceKey) !== undefined) {
         skip("active_review");
         return;
       }
-      await publishReviewVerdictEvent({
-        prSurface,
-        event,
-        blockingCount: check.blockingCount,
-        summaryUrl: inventory.summaryUrl,
-        headSha: params.headSha,
-        workItemId,
-        pool,
-        leaseEpoch: params.leaseEpoch,
+      const expectedState = event === "APPROVE" ? "APPROVED" : "CHANGES_REQUESTED";
+      await publication.once({
+        decodeResult: () => undefined,
+        allowsUndefinedResult: true,
+        resourceTarget: "standing_review",
+        blocksOverwrite: true,
         operationKey: `verification:verdict_review:${workItemId}:${params.headSha}:${event}`,
+        mutationKind: "github.review_verdict",
+        identity: { commitId: params.headSha, event },
+        recover: async () => {
+          const published = await prSurface.listPullRequestReviews();
+          return published.some(
+            (review) =>
+              review.authorLogin === botLogin &&
+              review.commitId === params.headSha &&
+              review.state === expectedState,
+          )
+            ? { found: true, value: undefined }
+            : { found: false };
+        },
+        mutate: () =>
+          publishReviewVerdictEvent({
+            prSurface,
+            event,
+            blockingCount: check.blockingCount,
+            summaryUrl: inventory.summaryUrl,
+            headSha: params.headSha,
+          }),
       });
-    });
+    })();
   } catch (error) {
-    if (isAppError(error) && error.code === "agent_work.thread_mutation_lock_timeout") {
-      skip(error.code);
-      return;
-    }
     logWarn("verification_review_verdict_failed", {
       workItemId,
       resourceKey,

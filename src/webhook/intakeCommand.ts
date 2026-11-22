@@ -6,9 +6,8 @@ import {
   OWN_COMMIT_STATUS_CONTEXT,
 } from "../settings/index.ts";
 import type { BotIdentity } from "../github/appAuth.ts";
-import type { IntakeCommand } from "../agentWork/intake/delivery.ts";
-import type { SlashCommandInput } from "../agentWork/intake/slashIntake.ts";
-import type { WebhookHeaders } from "../agentWork/types.ts";
+import type { IntakeCommand } from "../state/intake.ts";
+import type { SlashCommandInput, WebhookHeaders } from "../agentWork/types.ts";
 import { parseSlashCommand } from "../commands/parseSlashCommand.ts";
 import { commentMentionsBot } from "../commands/parseBotMention.ts";
 import { isSlashAssociationAllowed, reviewAuthorTrust } from "../commands/slashAssociation.ts";

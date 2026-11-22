@@ -1,14 +1,13 @@
-import type { Pool, PoolClient } from "pg";
 import type { Config } from "../../settings/index.ts";
 import {
   llmSpanFromSession,
   publishSpanFromContext,
   projectWorkSpanToAgentEventRow,
+  type AgentEventInsertRow,
   type WorkSpan,
 } from "../../analytics/workSpan.ts";
 import { recordExecutionSpan } from "../../traces/recorder.ts";
-import type { AgentEventInsertRow } from "../../agentWork/agentEventsRepository.ts";
-import { safeAppendAgentEvents } from "../../agentWork/agentEventsRepository.ts";
+import { logInfo } from "../../evlog.ts";
 import type { TurnEnd } from "../providers/usageMetadata.ts";
 import type { AgentAuditRecord } from "./agentAudit.ts";
 import { agentAuditRecordFromLifecycleEvent } from "./agentAudit.ts";
@@ -17,7 +16,6 @@ import type { AgentSessionRole } from "./types.ts";
 import type { FindingSource } from "../../review/orchestrator/orchestratorTypes.ts";
 
 export type AgentEventsContext = {
-  readonly pool: Pool | PoolClient;
   readonly workItemId: string;
   readonly installationId: number;
   readonly owner: string;
@@ -63,6 +61,7 @@ export function lifecycleAuditToInsertRow(
   if (record.cacheReadTokens != null) detail.cacheReadTokens = record.cacheReadTokens;
   if (record.cacheWriteTokens != null) detail.cacheWriteTokens = record.cacheWriteTokens;
   if (record.cacheWrite1hTokens != null) detail.cacheWrite1hTokens = record.cacheWrite1hTokens;
+  if (record.reasoningTokens != null) detail.reasoningTokens = record.reasoningTokens;
   if (record.totalTokens != null) detail.totalTokens = record.totalTokens;
 
   if (record.admittedHostCalls != null) detail.admittedHostCalls = record.admittedHostCalls;
@@ -247,6 +246,7 @@ export function createDurableLifecycleEventSink(
         ...(event.cacheWrite1hTokens != null
           ? { cacheWrite1hTokens: event.cacheWrite1hTokens }
           : {}),
+        ...(event.reasoningTokens != null ? { reasoningTokens: event.reasoningTokens } : {}),
         ...(event.totalTokens != null ? { totalTokens: event.totalTokens } : {}),
         ...(event.kind === "failure" ? { errorReason: event.failureCode } : {}),
       }),
@@ -293,12 +293,23 @@ export function emitWorkSpan(
 }
 
 export function safeEmitAgentEvent(
-  context: AgentEventsContext,
+  _context: AgentEventsContext,
   cfg: Pick<Config, "agentEvents">,
   row: AgentEventInsertRow,
 ) {
+  if (!cfg.agentEvents.enabled) return;
   try {
-    safeAppendAgentEvents(context.pool, cfg, [row]);
+    logInfo("agent_event", {
+      eventKind: row.eventKind,
+      ...(row.workItemId != null ? { workItemId: row.workItemId } : {}),
+      ...(row.sessionRole != null ? { sessionRole: row.sessionRole } : {}),
+      ...(row.phase != null ? { phase: row.phase } : {}),
+      ...(row.provider != null ? { provider: row.provider } : {}),
+      ...(row.model != null ? { model: row.model } : {}),
+      ...(row.ok != null ? { ok: row.ok } : {}),
+      ...(row.failureCode != null ? { failureCode: row.failureCode } : {}),
+      ...(row.detail != null ? { detail: row.detail } : {}),
+    });
   } catch {}
 }
 
@@ -357,7 +368,6 @@ export function safeEmitEvidenceRejectEvent(
 export function resolveAgentEventsContext(
   _cfg: Pick<Config, "agentEvents">,
   sessionContext?: {
-    readonly pool: Pool | PoolClient;
     readonly workItemId: string;
     readonly installationId: number;
     readonly owner?: string;
@@ -372,7 +382,6 @@ export function resolveAgentEventsContext(
   if (!owner || !repo || prNumber == null)
     return ((pinnedReturn: AgentEventsContext | null) => pinnedReturn)(null);
   return ((pinnedReturn: AgentEventsContext | null) => pinnedReturn)({
-    pool: sessionContext.pool,
     workItemId: sessionContext.workItemId,
     installationId: sessionContext.installationId,
     owner,

@@ -11,7 +11,7 @@ import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.ts";
 import type { TriagePayload } from "../../review/triageSchema.ts";
 import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.ts";
 import { assistantFromText, runFeatureAgent } from "../runtime/featureAgent.ts";
-import type { FeatureSessionContext } from "../runtime/createFeatureSession.ts";
+import type { createFeaturePiSession } from "../runtime/createFeatureSession.ts";
 import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.ts";
 import { buildTriageRunSetup, shouldContinueTriageRun } from "./triageRunSetup.ts";
 import { TRIAGE_SUBMIT_ONLY_NUDGE, renderTriageRepairPrompt } from "../../prompts/triage/prompt.ts";
@@ -38,7 +38,7 @@ export async function runFullPrTriage(params: {
   readonly cwd?: string;
   readonly scope?: TriageScope;
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
-  readonly sessionContext?: FeatureSessionContext;
+  readonly createSession?: typeof createFeaturePiSession;
   readonly escalation?: EscalationPlan;
   readonly signal?: AbortSignal;
 }) {
@@ -74,10 +74,10 @@ export async function runFullPrTriage(params: {
         tools: setup.piTools,
         executors: setup.executors,
         refreshBeforeTool: params.refreshBeforeTool,
-        sessionContext: params.sessionContext,
         attemptModel: params.escalation?.model,
         hostSignal: params.signal,
       },
+      ...(params.createSession !== undefined ? { createSession: params.createSession } : {}),
     },
   );
 

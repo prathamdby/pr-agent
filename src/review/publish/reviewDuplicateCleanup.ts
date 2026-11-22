@@ -1,6 +1,5 @@
-import { publishOnce, reviewDuplicateOperationKey } from "../../agentWork/publishOnce.ts";
+import { publishOnce, reviewDuplicateOperationKey } from "../../state/publish.ts";
 import { prResourceKey } from "../../agentWork/types.ts";
-import { fenceForEpoch } from "../../agentWork/writeFence.ts";
 import { errorMessage } from "../../errors/errorMessage.ts";
 import { logWarn } from "../../evlog.ts";
 import {
@@ -40,34 +39,41 @@ function planIds(plan: DuplicateCleanupPlan) {
 }
 
 function cleanupDeps(session: ReviewPublishSession) {
-  const { prSurface, ctx, operationIntent } = session;
+  const { prSurface, ctx } = session;
+  const target = session.publish;
   const surface = {
     prNumber: ctx.prNumber,
     getBotLogin: () => prSurface.getBotLogin(),
     getReviewThread: (threadNodeId: string) => prSurface.getReviewThread(threadNodeId),
-    replyAt: (target: Parameters<DuplicateCleanupDeps["surface"]["replyAt"]>[0], body: string) =>
-      prSurface.replyAt(target, body),
+    replyAt: (
+      replyTarget: Parameters<DuplicateCleanupDeps["surface"]["replyAt"]>[0],
+      body: string,
+    ) => prSurface.replyAt(replyTarget, body),
     resolveInlineReviewThread: (threadNodeId: string) =>
       prSurface.resolveInlineReviewThread(threadNodeId),
   };
   return ((pinnedReturn: DuplicateCleanupDeps) => pinnedReturn)({
     surface,
     withThreadLock: threadMutationLock(
-      session.pool ?? session.verdict?.pool,
-      operationIntent?.resourceKey ?? prResourceKey(ctx.owner, ctx.repo, ctx.prNumber),
+      target?.resourceKey ?? prResourceKey(ctx.owner, ctx.repo, ctx.prNumber),
     ),
     publishStep: async (step, mutate) => {
-      if (operationIntent == null) return mutate();
-      await publishOnce<void>({
-        fence: fenceForEpoch(operationIntent.leaseEpoch),
-        client: operationIntent.client,
-        workItemId: operationIntent.workItemId,
-        leaseEpoch: operationIntent.leaseEpoch,
+      if (target == null) return mutate();
+      await publishOnce({
+        db: target.db,
+        workId: target.workItemId,
+        prKey: target.resourceKey,
+        resourceTarget: `thread:${step.threadId}`,
+        ...(target.laneEpoch !== undefined ? { laneEpoch: target.laneEpoch } : {}),
+        ...(target.shutdownRequested !== undefined
+          ? { shutdownRequested: target.shutdownRequested }
+          : {}),
+        ...(target.signal !== undefined ? { signal: target.signal } : {}),
         operationKey: reviewDuplicateOperationKey(step),
         mutationKind: `github.review_${step.kind}`,
         allowsUndefinedResult: true,
-        detail: {
-          resourceKey: operationIntent.resourceKey,
+        identity: {
+          resourceKey: target.resourceKey,
           reviewLens: session.mode,
           duplicateId: step.duplicateId,
           canonicalId: step.canonicalId,
@@ -75,8 +81,8 @@ function cleanupDeps(session: ReviewPublishSession) {
         },
         recover: async () =>
           (await duplicateStepApplied(surface, step))
-            ? { kind: "reconciled" as const, value: undefined }
-            : { kind: "absent" as const },
+            ? { found: true as const, value: undefined }
+            : { found: false as const },
         mutate,
       });
     },
