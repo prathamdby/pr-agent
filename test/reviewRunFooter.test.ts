@@ -28,14 +28,14 @@ describe("formatReviewDuration", () => {
 });
 
 describe("resolveReviewWallClockMs", () => {
-  it("uses worker start (metrics) and ignores earlier stub post time", () => {
+  it("measures from stub post time even when worker metrics exist", () => {
     expect(
       resolveReviewWallClockMs({
         stubPostedAtMs: 1_000,
         metricsStartedAtMs: 2_000,
         endedAtMs: 5_000,
       }),
-    ).toBe(3_000);
+    ).toBe(4_000);
   });
 
   it("uses metrics start when stub time is missing", () => {
@@ -48,10 +48,20 @@ describe("resolveReviewWallClockMs", () => {
     ).toBe(3_000);
   });
 
-  it("returns 0 when worker start is unknown", () => {
+  it("measures from stub post when worker start is unknown", () => {
     expect(
       resolveReviewWallClockMs({
         stubPostedAtMs: 1_000,
+        metricsStartedAtMs: null,
+        endedAtMs: 5_000,
+      }),
+    ).toBe(4_000);
+  });
+
+  it("returns 0 when neither stub nor worker start is known", () => {
+    expect(
+      resolveReviewWallClockMs({
+        stubPostedAtMs: null,
         metricsStartedAtMs: null,
         endedAtMs: 5_000,
       }),
@@ -61,8 +71,8 @@ describe("resolveReviewWallClockMs", () => {
   it("clamps inverted clocks to 0", () => {
     expect(
       resolveReviewWallClockMs({
-        stubPostedAtMs: 500,
-        metricsStartedAtMs: 9_000,
+        stubPostedAtMs: 9_000,
+        metricsStartedAtMs: null,
         endedAtMs: 5_000,
       }),
     ).toBe(0);

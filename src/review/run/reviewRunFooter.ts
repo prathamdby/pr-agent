@@ -32,7 +32,10 @@ export function resolveReviewWallClockMs(params: {
   readonly endedAtMs: number;
 }) {
   const endedAtMs = Number.isFinite(params.endedAtMs) ? params.endedAtMs : 0;
-  const startedAtMs = finiteTimestampMs(params.metricsStartedAtMs) ?? endedAtMs;
+  const startedAtMs =
+    finiteTimestampMs(params.stubPostedAtMs) ??
+    finiteTimestampMs(params.metricsStartedAtMs) ??
+    endedAtMs;
   return ((pinnedReturn: number) => pinnedReturn)(Math.max(0, endedAtMs - startedAtMs));
 }
 

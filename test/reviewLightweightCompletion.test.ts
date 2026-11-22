@@ -159,7 +159,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
     );
   });
 
-  it("publishes a 0s footer when metrics snapshot is null", async () => {
+  it("publishes a 0s footer when no stub record and metrics snapshot is null", async () => {
     const { surface, controls } = fakeSurface();
     const result = await tryLightweightAutoReviewCompletion(sqliteReviewCoordination(), {
       item: autoReviewItem({ headSha: "abc123def456" }),
@@ -184,15 +184,63 @@ describe("tryLightweightAutoReviewCompletion", () => {
     );
   });
 
-  it("uses worker-start metrics for the footer duration and ignores stub post time", async () => {
+  it("measures the footer duration from the stub post, preferring it over metrics start", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-22T12:10:00.000Z"));
     vi.mocked(snapshotReviewRunMetrics).mockReturnValue({
       startedAtMs: Date.parse("2026-07-22T12:08:00.000Z"),
     } as ReturnType<typeof snapshotReviewRunMetrics>);
     const { surface, controls } = fakeSurface();
+    const target = sqliteReviewCoordination();
+    writePublishStep(target.db, {
+      workId: target.workItemId,
+      prKey: target.resourceKey,
+      reviewLens: "review",
+      step: "progress_comment",
+      githubId: 99,
+      detail: { stubPostedAtMs: Date.parse("2026-07-22T12:05:00.000Z") },
+    });
 
-    await tryLightweightAutoReviewCompletion(sqliteReviewCoordination(), {
+    await tryLightweightAutoReviewCompletion(target, {
+      item: autoReviewItem({ headSha: "abc123def456" }),
+      reviewLens: "review",
+      prSurface: surface,
+      model: "grok-4.5",
+      isCurrent: () => currentWork,
+      checkFailSeverity: "P2",
+      preflight: {
+        files: [{ filename: "README.md" }],
+        truncated: false,
+        fileCount: 1,
+        totalChanges: 1,
+      },
+    });
+
+    const upsert = controls.events.find((event) => event.kind === "upsertProgressComment");
+    expect(upsert?.kind === "upsertProgressComment" && upsert.body).toContain(
+      "<sub>abc123d ⋅ general ⋅ 5m ⋅ grok-4.5</sub>",
+    );
+    vi.useRealTimers();
+  });
+
+  it("ignores a stub stamp owned by a different work item", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-22T12:10:00.000Z"));
+    vi.mocked(snapshotReviewRunMetrics).mockReturnValue({
+      startedAtMs: Date.parse("2026-07-22T12:08:00.000Z"),
+    } as ReturnType<typeof snapshotReviewRunMetrics>);
+    const { surface, controls } = fakeSurface();
+    const target = sqliteReviewCoordination();
+    writePublishStep(target.db, {
+      workId: "wi-foreign",
+      prKey: target.resourceKey,
+      reviewLens: "review",
+      step: "progress_comment",
+      githubId: 99,
+      detail: { stubPostedAtMs: Date.parse("2026-07-22T12:05:00.000Z") },
+    });
+
+    await tryLightweightAutoReviewCompletion(target, {
       item: autoReviewItem({ headSha: "abc123def456" }),
       reviewLens: "review",
       prSurface: surface,

@@ -236,8 +236,7 @@ async function upsertSummaryCommentAtRevision(params: SummaryCommentUpsertParams
     });
   if (storedRevision > params.progressRevision)
     return skippedRevisionResult(currentComment, params.hintCommentId);
-  const stubPostedAtMs =
-    params.progressRevision === 0 ? Date.now() : numberDetail(progress?.detail, "stubPostedAtMs");
+  const stubPostedAtMs = numberDetail(progress?.detail, "stubPostedAtMs") ?? Date.now();
   const progressDetail = {
     progressRevision: params.progressRevision,
     ...(stubPostedAtMs != null ? { stubPostedAtMs } : {}),

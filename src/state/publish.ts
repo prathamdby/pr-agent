@@ -1046,6 +1046,21 @@ export function sharedPublishRecord(
   );
 }
 
+export function progressStubPostedAtMs(
+  db: DatabaseSync,
+  prKey: string,
+  reviewLens: string,
+  workItemId: string,
+) {
+  const record = sharedPublishRecord(db, prKey, reviewLens, "progress_comment");
+  if (record === undefined || record.workId !== workItemId)
+    return ((pinnedReturn: number | null) => pinnedReturn)(null);
+  const stamped = record.detail?.["stubPostedAtMs"];
+  return ((pinnedReturn: number | null) => pinnedReturn)(
+    typeof stamped === "number" && Number.isFinite(stamped) ? stamped : null,
+  );
+}
+
 export function workPublishRecord(db: DatabaseSync, workId: string, step: PublishStep) {
   return ((pinnedReturn: PublishRecord | undefined) => pinnedReturn)(
     readPublishRecord(db, workPublishRecordKey(workId, step)),
