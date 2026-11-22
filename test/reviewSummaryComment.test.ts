@@ -254,6 +254,31 @@ describe("createReviewSummaryComment (SQLite coordination)", () => {
     }
   });
 
+  it("stamps stubPostedAtMs on the first write even when revision 0 never ran", async () => {
+    vi.useFakeTimers();
+    try {
+      const coordination = openCoordination();
+      vi.setSystemTime(new Date("2026-07-22T12:01:00.000Z"));
+      const writer = createReviewSummaryComment({
+        prSurface: harness.surface,
+        reviewLens: "review",
+        coordination,
+      });
+      await writer.tick({ body: "recon running", progressRevision: 1 });
+      const stamped = sharedPublishRecord(coordination.db, "o/r#1", "review", "progress_comment")
+        ?.detail.stubPostedAtMs;
+      expect(stamped).toBe(Date.parse("2026-07-22T12:01:00.000Z"));
+
+      vi.setSystemTime(new Date("2026-07-22T12:06:00.000Z"));
+      await writer.tick({ body: "recon done", progressRevision: 2 });
+      const preserved = sharedPublishRecord(coordination.db, "o/r#1", "review", "progress_comment")
+        ?.detail.stubPostedAtMs;
+      expect(preserved).toBe(stamped);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not copy a prior CI cell when the next body omits CI", async () => {
     const coordination = openCoordination();
     const priorBody = [
