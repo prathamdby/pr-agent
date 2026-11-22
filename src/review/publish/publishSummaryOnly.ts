@@ -42,6 +42,7 @@ import {
 import { resolveReviewWallClockMs } from "../run/reviewRunFooter.ts";
 import { snapshotReviewRunMetrics } from "../run/reviewRunMetrics.ts";
 import { REVIEW_SUMMARY_SENTINEL, type ReviewPayload } from "../reviewSchema.ts";
+import { payloadWithAssessedGateProse } from "./assessReviewGateProse.ts";
 import { createReviewSummaryComment } from "./reviewSummaryComment.ts";
 import type { PublishStopReason, ReviewPublishSession } from "./reviewPublishSession.ts";
 import { errorMessage } from "../../errors/errorMessage.ts";
@@ -190,23 +191,26 @@ export async function publishReviewSummaryOnly(
     metricsStartedAtMs: metricsSnapshot?.startedAtMs,
     endedAtMs: Date.now(),
   });
-  const summaryBody = renderReviewSummaryComment(input.payload, {
-    ...session.ctx,
-    summarySentinel,
-    placements: enrichedPlacements,
-    findingView,
-    mode,
-    staleReview: input.staleReview ?? false,
-    cachedDiffIndex: session.cachedDiffIndex,
-    ciSummary,
-    ciVersion: renderedCi.version,
-    coverage: actionLineCoverage(coverage),
-    runFooter: {
-      durationMs,
-      model: session.cfg.models.model,
+  const summaryBody = renderReviewSummaryComment(
+    payloadWithAssessedGateProse(input.payload, session.cachedDiffIndex),
+    {
+      ...session.ctx,
+      summarySentinel,
+      placements: enrichedPlacements,
+      findingView,
+      mode,
+      staleReview: input.staleReview ?? false,
+      cachedDiffIndex: session.cachedDiffIndex,
+      ciSummary,
+      ciVersion: renderedCi.version,
+      coverage: actionLineCoverage(coverage),
+      runFooter: {
+        durationMs,
+        model: session.cfg.models.model,
+      },
+      policyAlert: session.policyAlert,
     },
-    policyAlert: session.policyAlert,
-  });
+  );
 
   const stopReason = await session.stopReason();
   if (stopReason != null)

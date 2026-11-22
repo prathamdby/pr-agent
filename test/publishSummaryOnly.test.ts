@@ -3,6 +3,8 @@ vi.mock("../src/review/findingIdentity/threadMutationLock.ts", () => ({
   threadMutationLock: () => (apply: () => Promise<unknown>) => apply(),
 }));
 import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.ts";
+import type { CachedPrDiffIndex } from "../src/prWorkspace/reviewDiffIndex.ts";
+import { REVIEW_GATE_PROSE_UNASSESSED } from "../src/settings/index.ts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.ts";
 import { publishSummaryForTest } from "./helpers/reviewPublishTestHelpers.ts";
@@ -56,6 +58,48 @@ vi.mock("../src/github/reviewPublish.ts", async (importOriginal) => {
 import * as verdictSurfaces from "../src/review/publish/reviewVerdictSurfaces.ts";
 import { attachSummaryCommentCoordination } from "../src/review/publish/reviewSummaryComment.ts";
 import { publishCloseOutcomeReview } from "../src/review/publish/publishCloseOutcomeReview.ts";
+
+function diffIndex(files: readonly string[], truncated = false) {
+  return {
+    truncated,
+    listPullRequestFilesIngested: true,
+    files: new Map(
+      files.map((filename) => [
+        filename,
+        {
+          patchOmitted: true,
+          commentableRightLineRanges: [],
+          additions: 1,
+          deletions: 0,
+        },
+      ]),
+    ),
+  } satisfies CachedPrDiffIndex;
+}
+
+async function publishedSummaryBody(params: {
+  readonly payload: ReturnType<typeof makeReviewPayload>;
+  readonly ledger?: ReturnType<typeof createFindingLedger>;
+  readonly cachedDiffIndex?: CachedPrDiffIndex;
+}) {
+  const { surface, upsertProgressComment } = configuredSummarySurface();
+  await publishSummaryForTest({
+    cfg: makeTestConfig(),
+    ctx: {
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "sha",
+      hasDescriptionReviewMap: false,
+    },
+    prSurface: surface,
+    payload: params.payload,
+    ledger: params.ledger ?? createFindingLedger(),
+    ...(params.cachedDiffIndex !== undefined ? { cachedDiffIndex: params.cachedDiffIndex } : {}),
+  });
+  const body = upsertProgressComment.mock.calls[0]?.[0];
+  return body ?? "";
+}
 
 function finding(line: number) {
   return ((pinnedReturn: ReviewFinding) => pinnedReturn)({
@@ -443,6 +487,93 @@ describe("publishReviewSummaryOnly", () => {
     expect(dismissPullRequestReview).toHaveBeenCalledWith(
       expect.objectContaining({ reviewId: 31 }),
     );
+  });
+
+  it("assesses mergeability and blast radius from the change set when synthesis left the placeholder", async () => {
+    const bug = finding(10);
+    const ledger = createFindingLedger({
+      accepted: [
+        {
+          kind: "summary_only",
+          source: "correctness",
+          placement: { finding: bug, inlineLine: null, inlinePosted: false },
+          findingId: legacyFindingId("fp-gate"),
+          reason: "anchor",
+        },
+      ],
+    });
+    const unassessed = makeReviewPayload({ findings: [bug] });
+    expect(unassessed.mergeability).toBe(REVIEW_GATE_PROSE_UNASSESSED);
+    expect(unassessed.blastRadius).toBe(REVIEW_GATE_PROSE_UNASSESSED);
+
+    const sensitive = await publishedSummaryBody({
+      payload: unassessed,
+      ledger,
+      cachedDiffIndex: diffIndex(["src/auth/session.ts", "migrations/002_users.sql"]),
+    });
+    expect(sensitive).toContain("Bug at line 10");
+    expect(sensitive).not.toContain(REVIEW_GATE_PROSE_UNASSESSED);
+    expect(sensitive).toContain("Hard to undo:");
+    expect(sensitive).toContain("Wide spread:");
+    expect(sensitive).toContain("auth");
+
+    const ordinary = await publishedSummaryBody({
+      payload: makeReviewPayload({ findings: [bug] }),
+      ledger,
+      cachedDiffIndex: diffIndex(["src/review/run.ts"]),
+    });
+    expect(ordinary).toContain("Bug at line 10");
+    expect(ordinary).not.toContain(REVIEW_GATE_PROSE_UNASSESSED);
+    expect(ordinary).toContain("Easy to revert:");
+    expect(ordinary).toContain("unmatched name is not proof");
+    expect(ordinary).not.toContain("Narrow spread:");
+
+    const payments = await publishedSummaryBody({
+      payload: makeReviewPayload(),
+      cachedDiffIndex: diffIndex(["src/payments/charge.ts"]),
+    });
+    expect(payments).toContain("Wide spread:");
+    expect(payments).toContain("payments");
+    expect(payments).not.toContain("unmatched name is not proof");
+
+    const secrets = await publishedSummaryBody({
+      payload: makeReviewPayload(),
+      cachedDiffIndex: diffIndex(["keys/service.key"]),
+    });
+    expect(secrets).toContain("secret material");
+    expect(secrets).not.toContain("Narrow spread:");
+
+    const truncated = await publishedSummaryBody({
+      payload: makeReviewPayload(),
+      cachedDiffIndex: diffIndex(["src/review/run.ts"], true),
+    });
+    expect(truncated).not.toContain(REVIEW_GATE_PROSE_UNASSESSED);
+    expect(truncated).not.toContain("Easy to revert:");
+    expect(truncated).toContain("Reversibility is unknown:");
+    expect(truncated).toContain("truncated");
+
+    const missingList = await publishedSummaryBody({
+      payload: makeReviewPayload(),
+    });
+    expect(missingList).not.toContain(REVIEW_GATE_PROSE_UNASSESSED);
+    expect(missingList).not.toContain("Easy to revert:");
+    expect(missingList).toContain("Reversibility is unknown:");
+    expect(missingList).toContain("changed-file list was unavailable");
+  });
+
+  it("keeps a synthesis assessment when a later summary payload still carries the placeholder fields filled", async () => {
+    const assessed = makeReviewPayload({
+      mergeability: "Easy to revert: display-only footer change.",
+      blastRadius: "Narrow spread: footer text only.",
+    });
+    const body = await publishedSummaryBody({
+      payload: assessed,
+      cachedDiffIndex: diffIndex(["src/auth/session.ts"]),
+    });
+    expect(body).toContain("Easy to revert: display-only footer change.");
+    expect(body).toContain("Narrow spread: footer text only.");
+    expect(body).not.toContain("Wide spread:");
+    expect(body).not.toContain(REVIEW_GATE_PROSE_UNASSESSED);
   });
 
   it("reuses the terminal review when the same work item publishes twice", async () => {
