@@ -1,6 +1,7 @@
 import {
   configure,
   SubmissionSettled,
+  type SubmissionRecord,
   type TaskId,
   defineTask,
   type ConversationId,
@@ -42,6 +43,7 @@ import {
   type ReviewPhaseStep,
   type ReviewTurnReader,
 } from "../../../review/orchestrator/orchestratorRun.ts";
+import { SPECIALIST_IDS } from "../../../review/orchestrator/orchestratorTypes.ts";
 import { resolveThinkingLevel, thinkingPolicyFromCeiling } from "../thinkingPolicy.ts";
 import type { AgentSessionPhase } from "../types.ts";
 import * as v from "valibot";
@@ -65,7 +67,13 @@ import {
   type ReviewChildLive,
 } from "./reviewConversations.ts";
 import { creditVisibleReads } from "./evidenceMemo.ts";
-import { beginSend, maxTurnsForSend } from "./sessionState.ts";
+import {
+  beginSend,
+  maxTurnsForSend,
+  WarmupReleased,
+  warmupReleaseKey,
+  warmupReleaseSignalKey,
+} from "./sessionState.ts";
 import { journalReviewTurn, reviewOutputStore } from "./reviewTurnJournal.ts";
 import type { WorkerDeps } from "./workerDeps.ts";
 
@@ -76,7 +84,7 @@ type ReviewTaskResult = {
   readonly detail: string;
 };
 
-type LiveAttempt = {
+export type LiveAttempt = {
   readonly live: ReviewAttemptLive;
   readonly controller: AbortController;
   readonly children: Map<ReviewConversationRole, ReviewChildLive & { id: ConversationId }>;
@@ -144,6 +152,29 @@ async function openChild(
   }
 }
 
+function armWarmupRelease(
+  taskId: TaskId,
+  checkpoint: ReviewAttemptCheckpoint,
+  attempt: LiveAttempt,
+) {
+  const lead = SPECIALIST_IDS[0];
+  const track = checkpoint.specialists[lead];
+  if (
+    checkpoint.warmup.released ||
+    track.warmupReleasePending !== true ||
+    track.turnNo === 0 ||
+    (track.stage !== "investigating" && track.stage !== "wrap_up" && track.stage !== "repair")
+  )
+    return;
+  const child = attempt.children.get(lead);
+  if (child === undefined) return;
+  child.state.warmupRelease = {
+    taskId,
+    key: warmupReleaseKey(track.turnNo - 1),
+    sent: false,
+  };
+}
+
 async function disposeLive(deps: WorkerDeps, attempt: LiveAttempt) {
   attempt.controller.abort();
   for (const child of attempt.children.values()) releaseReviewChild(deps.runtime, child.id, child);
@@ -199,6 +230,7 @@ async function openAttempt(
           return id;
         });
       }
+      armWarmupRelease(taskId, checkpoint, attempt);
     }
     return attempt;
   } catch (error) {
@@ -207,7 +239,23 @@ async function openAttempt(
   }
 }
 
-function turnReader(runtime: ReviewRuntime, context: Context) {
+export function turnReader(
+  runtime: ReviewRuntime,
+  context: Context,
+  attemptId: string,
+  conversationIdForRole: (role: ReviewConversationRole) => ConversationId | undefined,
+) {
+  const requestSettled = async (role: ReviewConversationRole, turnNo: number) => {
+    const conversationId = conversationIdForRole(role);
+    if (conversationId === undefined) return undefined;
+    const requestId = `${attemptId}:${role}:${turnNo}`;
+    let record: SubmissionRecord | undefined;
+    await runtime.commit(async (tx) => {
+      record = await tx.submissionByRequest(conversationId, requestId);
+      return undefined;
+    }, context);
+    return record;
+  };
   const reader: ReviewTurnReader = {
     now: () => runtime.now(),
     settled: async (role, turnNo) => {
@@ -216,10 +264,21 @@ function turnReader(runtime: ReviewRuntime, context: Context) {
         settledTurnKey(role, turnNo),
         context,
       );
+      if (signal !== undefined && "expired" in signal) {
+        const record = await requestSettled(role, turnNo);
+        if (record === undefined) return { status: "observing" };
+        if (record.status === "done") return { status: "done" };
+        if (record.status === "unanswered") return { status: "unanswered", reason: record.reason };
+        return { status: "observing" };
+      }
       if (!signal || !("value" in signal)) return { status: "pending" };
       return signal.value.status === "unanswered"
         ? { status: "unanswered", reason: signal.value.reason }
         : { status: "done" };
+    },
+    warmupReleased: async (turnNo) => {
+      const signal = await runtime.readSignal(WarmupReleased, warmupReleaseKey(turnNo), context);
+      return signal !== undefined && "value" in signal;
     },
   };
   return reader;
@@ -241,7 +300,7 @@ function writeTerminalOutcome(deps: WorkerDeps, input: AttemptStamp, result: Rev
   });
 }
 
-async function executeStep(
+export async function executeStep(
   deps: WorkerDeps,
   runtime: ReviewRuntime,
   context: Context,
@@ -293,6 +352,7 @@ async function executeStep(
       if (!conversation) throw new Error(`missing ${role} conversation`);
       const { opts, turnNo, prompt } = step.turn;
       child.state.currentSend = beginSend(opts);
+      armWarmupRelease(runtime.taskId, step.checkpoint, attempt);
       await runtime.commit(async (tx) => {
         await configure(tx, child.id, {
           maxTurns: maxTurnsForSend(opts),
@@ -309,20 +369,21 @@ async function executeStep(
       }, context);
       return;
     }
-    case "park":
+    case "park": {
+      const signals = [
+        ...step.waitFor.map((wait) => settledTurnSignalKey(wait.role, wait.turnNo)),
+        ...(step.waitWarmup ?? []).map((turnNo) => warmupReleaseSignalKey(turnNo)),
+      ];
       await commitState({
         status: "sleeping",
         checkpoint: step.checkpoint,
-        ...(step.waitFor.length > 0
-          ? {
-              signals: step.waitFor.map((wait) => settledTurnSignalKey(wait.role, wait.turnNo)),
-            }
-          : {}),
-        ...(step.until !== undefined || step.waitFor.length === 0
+        ...(signals.length > 0 ? { signals } : {}),
+        ...(step.until !== undefined || signals.length === 0
           ? { until: step.until ?? runtime.now() }
           : {}),
       });
       return;
+    }
     case "abort_children": {
       for (const role of step.roles) {
         const id = attempt.children.get(role)?.id;
@@ -414,7 +475,11 @@ export function createReviewRunner(deps: WorkerDeps) {
           finalizationMs: REVIEW_FINALIZATION_WINDOW_MS,
           reconBudgetMs: REVIEW_INTAKE_CHECKOUT_BUDGET_MS + REVIEW_RECON_BUDGET_MS,
         });
-      const step = await runReviewPhase(attempt.live, checkpoint, turnReader(runtime, context));
+      const step = await runReviewPhase(
+        attempt.live,
+        checkpoint,
+        turnReader(runtime, context, input.attemptId, (role) => attempt.children.get(role)?.id),
+      );
       await executeStep(deps, runtime, context, input, attempt, step);
       if (step.kind === "finish") await close(input.attemptId);
     } catch (error) {

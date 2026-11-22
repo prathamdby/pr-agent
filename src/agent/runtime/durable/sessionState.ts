@@ -1,4 +1,5 @@
-import type { ConversationId } from "@earendil-works/pi-durable";
+import { defineSignal } from "@earendil-works/pi-durable";
+import type { ConversationId, SignalKey, TaskId } from "@earendil-works/pi-durable";
 import type { AgentRunnerUsageMetadata } from "../../providers/usageMetadata.ts";
 import type { AgentRunnerToolExecutor } from "../../providers/interface.ts";
 import type { AgentLifecycleEvent, AgentSessionRole, PiSessionSendOptions } from "../types.ts";
@@ -60,6 +61,28 @@ export type SessionSendState = {
   assistantIndex: number;
 };
 
+export const WarmupReleased = defineSignal({
+  name: "pr.warmup-released",
+  version: 1,
+  schema: { type: "object", additionalProperties: true },
+});
+
+export type WarmupReleaseTarget = {
+  readonly taskId: TaskId;
+  readonly key: string;
+  sent: boolean;
+};
+
+export function warmupReleaseKey(turnNo: number) {
+  return ((pinnedReturn: string) => pinnedReturn)(`lead:${turnNo}`);
+}
+
+export function warmupReleaseSignalKey(turnNo: number) {
+  return ((pinnedReturn: SignalKey<unknown>) => pinnedReturn)(
+    WarmupReleased.key(warmupReleaseKey(turnNo)),
+  );
+}
+
 export function beginSend(opts: PiSessionSendOptions) {
   return {
     opts,
@@ -105,6 +128,7 @@ export type DurableSessionState = {
   readonly executors: Record<string, AgentRunnerToolExecutor>;
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
   readonly hostSignal?: AbortSignal;
+  warmupRelease?: WarmupReleaseTarget;
   currentSend?: SessionSendState;
   sendSeq: number;
   aborted: boolean;

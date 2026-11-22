@@ -109,6 +109,7 @@ import type { ReviewAttemptEnv } from "../runReviewForWorkItem.ts";
 import * as v from "valibot";
 
 export const UNREAD_COVERAGE_PATH_LIMIT = 500;
+const OBSERVING_REPARK_MS = 1_000;
 
 export type ReviewConversationRole = "orchestrator" | SpecialistId;
 export const REVIEW_CONVERSATION_ROLES: readonly ReviewConversationRole[] = [
@@ -130,6 +131,8 @@ export type SpecialistTrack = {
   readonly stage: "idle" | "investigating" | "wrap_up" | "repair" | "settled";
   readonly repairs: number;
   readonly retries: number;
+  readonly warmupReleasePending?: boolean;
+  readonly settledKeyExpired?: boolean;
   readonly startedAt?: number;
   readonly outcome?: StoredSpecialistOutcome;
 };
@@ -230,6 +233,7 @@ export type ReviewPhaseStep =
         readonly role: ReviewConversationRole;
         readonly turnNo: number;
       }[];
+      readonly waitWarmup?: readonly number[];
       readonly until?: number;
     }
   | {
@@ -245,12 +249,14 @@ export type ReviewPhaseStep =
 
 export type SettledTurnView =
   | { readonly status: "pending" }
+  | { readonly status: "observing" }
   | { readonly status: "done" }
   | { readonly status: "unanswered"; readonly reason: string };
 
 export type ReviewTurnReader = {
   readonly now: () => number;
   readonly settled: (role: ReviewConversationRole, turnNo: number) => Promise<SettledTurnView>;
+  readonly warmupReleased: (turnNo: number) => Promise<boolean>;
 };
 
 export type ReviewToolOutputs = Partial<Record<SpecialistId, SpecialistReport>> & {
@@ -1045,13 +1051,17 @@ export async function reconPhase(
   const inFlight = orchestrator.inFlight;
   if (inFlight !== undefined) {
     const settled = await io.settled("orchestrator", inFlight.turnNo);
-    if (settled.status === "pending") {
+    if (settled.status === "pending" || settled.status === "observing") {
       if (now < checkpoint.timing.reconAt && checkpoint.lifecycle.kind === "running")
         return ((pinnedReturn: ReviewPhaseStep) => pinnedReturn)({
           kind: "park",
           checkpoint,
-          waitFor: [{ role: "orchestrator", turnNo: inFlight.turnNo }],
-          until: checkpoint.timing.reconAt,
+          waitFor:
+            settled.status === "pending" ? [{ role: "orchestrator", turnNo: inFlight.turnNo }] : [],
+          until:
+            settled.status === "pending"
+              ? checkpoint.timing.reconAt
+              : Math.min(now + OBSERVING_REPARK_MS, checkpoint.timing.reconAt),
         });
       return ((pinnedReturn: ReviewPhaseStep) => pinnedReturn)({
         kind: "abort_children",
@@ -1157,7 +1167,7 @@ export async function dispatchSpecialistsPhase(
     return submitSpecialist(
       live,
       {
-        ...checkpoint,
+        ...withTrack(checkpoint, lead, { warmupReleasePending: true }),
         phase: "wait_specialists",
         warmup: { released: false, releaseAt: now + SPECIALIST_WARMUP_LEAD_MAX_MS },
       },
@@ -1222,23 +1232,35 @@ export async function waitSpecialistsPhase(
       });
     return ((pinnedReturn: ReviewPhaseStep) => pinnedReturn)({ kind: "advance", checkpoint: next });
   }
-  if (!checkpoint.warmup.released) {
-    const lead = SPECIALIST_IDS[0];
-    const leadTrack = checkpoint.specialists[lead];
-    const leadSettled =
-      leadTrack.stage === "settled" ||
-      (leadTrack.turnNo > 0 && (await io.settled(lead, leadTrack.turnNo - 1)).status !== "pending");
-    if (leadSettled || now >= (checkpoint.warmup.releaseAt ?? now)) {
-      const idle = SPECIALIST_IDS.find((id) => checkpoint.specialists[id].stage === "idle");
-      if (idle !== undefined) return submitSpecialist(live, checkpoint, idle, "investigate", now);
-      checkpoint = { ...checkpoint, warmup: { ...checkpoint.warmup, released: true } };
-    }
+  const lead = SPECIALIST_IDS[0];
+  const leadTrack = checkpoint.specialists[lead];
+  const leadResponded =
+    leadTrack.warmupReleasePending === true &&
+    leadTrack.turnNo > 0 &&
+    (await io.warmupReleased(leadTrack.turnNo - 1));
+  const leadView =
+    leadTrack.stage === "settled" || leadTrack.turnNo === 0
+      ? undefined
+      : await io.settled(lead, leadTrack.turnNo - 1);
+  const leadSettled =
+    leadTrack.stage === "settled" ||
+    leadView?.status === "done" ||
+    leadView?.status === "unanswered";
+  if (leadResponded || leadSettled || now >= (checkpoint.warmup.releaseAt ?? now)) {
+    const idle = SPECIALIST_IDS.find((id) => checkpoint.specialists[id].stage === "idle");
+    if (idle !== undefined) return submitSpecialist(live, checkpoint, idle, "investigate", now);
+    checkpoint = { ...checkpoint, warmup: { ...checkpoint.warmup, released: true } };
   }
   let ticked = false;
   for (const specialist of SPECIALIST_IDS) {
     const track = checkpoint.specialists[specialist];
     if (track.stage === "idle" || track.stage === "settled") continue;
     const settled = await io.settled(specialist, track.turnNo - 1);
+    if (settled.status === "observing") {
+      if (!track.settledKeyExpired)
+        checkpoint = withTrack(checkpoint, specialist, { settledKeyExpired: true });
+      continue;
+    }
     if (settled.status === "pending") continue;
     const report = live.submitStates.get(specialist)?.report ?? null;
     const durationMs = now - (track.startedAt ?? now);
@@ -1299,17 +1321,28 @@ export async function waitSpecialistsPhase(
       kind: "advance",
       checkpoint: { ...checkpoint, phase: "synthesize_and_validate" },
     });
-  const waitFor = pending
-    .filter((id) => checkpoint.specialists[id].stage !== "idle")
-    .map((id) => ({ role: id, turnNo: checkpoint.specialists[id].turnNo - 1 }));
-  const timers = [timing.deadlineAt];
-  if (!checkpoint.warmup.released && checkpoint.warmup.releaseAt !== undefined)
-    timers.push(checkpoint.warmup.releaseAt);
+  const watching = pending.filter((id) => {
+    const track = checkpoint.specialists[id];
+    return track.stage !== "idle" && !track.settledKeyExpired;
+  });
+  const waitFor = watching.map((id) => ({
+    role: id,
+    turnNo: checkpoint.specialists[id].turnNo - 1,
+  }));
+  if (!checkpoint.warmup.released)
+    return ((pinnedReturn: ReviewPhaseStep) => pinnedReturn)({
+      kind: "park",
+      checkpoint,
+      waitFor: [],
+      waitWarmup: [leadTrack.turnNo - 1],
+      until: checkpoint.warmup.releaseAt ?? timing.deadlineAt,
+    });
+  const observing = pending.some((id) => checkpoint.specialists[id].settledKeyExpired === true);
   return ((pinnedReturn: ReviewPhaseStep) => pinnedReturn)({
     kind: "park",
     checkpoint,
     waitFor,
-    until: Math.min(...timers),
+    until: observing ? Math.min(now + OBSERVING_REPARK_MS, timing.deadlineAt) : timing.deadlineAt,
   });
 }
 
@@ -1340,13 +1373,17 @@ export async function synthesizeAndValidatePhase(
   const inFlight = checkpoint.orchestrator.inFlight;
   if (inFlight !== undefined) {
     const settled = await io.settled("orchestrator", inFlight.turnNo);
-    if (settled.status === "pending") {
+    if (settled.status === "pending" || settled.status === "observing") {
       if (now < checkpoint.timing.modelStopAt && checkpoint.lifecycle.kind === "running")
         return ((pinnedReturn: ReviewPhaseStep) => pinnedReturn)({
           kind: "park",
           checkpoint,
-          waitFor: [{ role: "orchestrator", turnNo: inFlight.turnNo }],
-          until: checkpoint.timing.modelStopAt,
+          waitFor:
+            settled.status === "pending" ? [{ role: "orchestrator", turnNo: inFlight.turnNo }] : [],
+          until:
+            settled.status === "pending"
+              ? checkpoint.timing.modelStopAt
+              : Math.min(now + OBSERVING_REPARK_MS, checkpoint.timing.modelStopAt),
         });
       return ((pinnedReturn: ReviewPhaseStep) => pinnedReturn)({
         kind: "abort_children",
