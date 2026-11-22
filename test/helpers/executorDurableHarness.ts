@@ -371,43 +371,47 @@ export async function createDurableTestRuntime(params: {
   const registry = createRegistry();
   const sharedHeadByConversation = new Map<ConversationId, string>();
   const telemetry = new InMemoryTelemetryContext();
+  let handle: Awaited<ReturnType<typeof openHandle>>;
   const runtimeExtension: Extension = createRuntimeExtension({
     sharedHeadByConversation,
+    harness: () => handle.harness,
   });
   registry.install(runtimeExtension);
-  const handle = params.sqliteDir
-    ? await openDurableHarness({
-        sqliteDir: params.sqliteDir,
-        registry,
-        models: () => params.models,
-        env: (target) => new NodeExecutionEnv({ cwd: target.cwd ?? process.cwd() }),
-        telemetry,
-      })
-    : await (async () => {
-        const storage = new MemoryStorage();
-        const harness = await Harness.open(
-          storage,
-          {
-            registry,
-            models: () => params.models,
-            env: (target) => new NodeExecutionEnv({ cwd: target.cwd ?? process.cwd() }),
-            telemetry,
-            settings: { extensions: [runtimeExtension] },
-          },
-          BACKGROUND_CONTEXT,
-        );
-        return ((pinnedReturn: {
-          harness: Harness;
-          resume: () => void;
-          closed: Promise<import("@earendil-works/pi-durable").SessionEnd>;
-          storage: MemoryStorage;
-        }) => pinnedReturn)({
-          harness,
-          resume: () => harness.resume(),
-          closed: harness.closed,
-          storage,
-        });
-      })();
+  const openHandle = async () =>
+    params.sqliteDir
+      ? await openDurableHarness({
+          sqliteDir: params.sqliteDir,
+          registry,
+          models: () => params.models,
+          env: (target) => new NodeExecutionEnv({ cwd: target.cwd ?? process.cwd() }),
+          telemetry,
+        })
+      : await (async () => {
+          const storage = new MemoryStorage();
+          const harness = await Harness.open(
+            storage,
+            {
+              registry,
+              models: () => params.models,
+              env: (target) => new NodeExecutionEnv({ cwd: target.cwd ?? process.cwd() }),
+              telemetry,
+              settings: { extensions: [runtimeExtension] },
+            },
+            BACKGROUND_CONTEXT,
+          );
+          return ((pinnedReturn: {
+            harness: Harness;
+            resume: () => void;
+            closed: Promise<import("@earendil-works/pi-durable").SessionEnd>;
+            storage: MemoryStorage;
+          }) => pinnedReturn)({
+            harness,
+            resume: () => harness.resume(),
+            closed: harness.closed,
+            storage,
+          });
+        })();
+  handle = await openHandle();
   handle.resume();
   return ((pinnedReturn: DurableRuntime) => pinnedReturn)({
     handle,

@@ -3,6 +3,7 @@ import {
   createRegistry,
   defineExtension,
   type AnyTask,
+  type Harness,
   wrapTool,
   type ConversationId,
   type Extension,
@@ -22,7 +23,11 @@ import { openDurableHarness, type DurableHarnessHandle } from "./harness.ts";
 import { createSessionModels, type SessionModels } from "./sessionModels.ts";
 import { createProviderRoutingHooks } from "./providerRouting.ts";
 import { createEvidenceHooks } from "./evidenceMemo.ts";
-import { createToolGateHooks, createTelemetryHooks } from "./telemetryBridge.ts";
+import {
+  createToolGateHooks,
+  createTelemetryHooks,
+  createWarmupReleaseHooks,
+} from "./telemetryBridge.ts";
 import { sessionStateFor } from "./sessionState.ts";
 
 export const CODEMODE_TIMEOUT_MS_CAP = 15_000;
@@ -193,6 +198,7 @@ export function createRuntimeExtension(params: {
   readonly codemodeTool?: ToolRegistration;
   readonly admission?: CodemodeWorkerAdmission;
   readonly sharedHeadByConversation: Map<ConversationId, string>;
+  readonly harness?: () => Harness;
 }) {
   return ((pinnedReturn: Extension) => pinnedReturn)(
     defineExtension({
@@ -202,6 +208,7 @@ export function createRuntimeExtension(params: {
         ...createEvidenceHooks(),
         ...createToolGateHooks(),
         ...createTelemetryHooks(),
+        ...(params.harness !== undefined ? createWarmupReleaseHooks(params.harness) : []),
       ],
       wraps:
         params.codemodeTool !== undefined && params.admission !== undefined
@@ -230,17 +237,19 @@ export async function openDurableRuntime(cfg: Config, options: DurableRuntimeOpt
   });
   const codemodeTool = createCodemodeTool({ sandbox, models: false });
   const codemodeExtension = createCodemodeExtension({ sandbox, models: false });
+  let handle: DurableHarnessHandle;
   const runtimeExtension = createRuntimeExtension({
     codemodeTool,
     admission,
     sharedHeadByConversation,
+    harness: () => handle.harness,
   });
   registry.install(codemodeExtension);
   registry.install(runtimeExtension);
   if (options.tasks !== undefined && options.tasks.length > 0) {
     registry.install(defineExtension({ name: "pr-durable-tasks", tasks: options.tasks }));
   }
-  const handle = await openDurableHarness({
+  handle = await openDurableHarness({
     sqliteDir: cfg.runtime.sqliteDir,
     registry,
     models: () => models.models,

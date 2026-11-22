@@ -1,8 +1,14 @@
-import { GenerationTask, hook, ToolTask, type HookRegistration } from "@earendil-works/pi-durable";
+import {
+  GenerationTask,
+  hook,
+  ToolTask,
+  type Harness,
+  type HookRegistration,
+} from "@earendil-works/pi-durable";
 import { exactUsageFromProviderUsage, mergeExactUsage } from "../../providers/usageMetadata.ts";
 import { recordPromptCacheBreak } from "../../../review/run/reviewRunMetrics.ts";
 import { createPromptCacheTracker } from "../promptCachePolicy.ts";
-import { sessionStateFor } from "./sessionState.ts";
+import { sessionStateFor, WarmupReleased } from "./sessionState.ts";
 
 const TOOL_BUDGET_BLOCK =
   "The tool round budget for this turn is spent. Call the reserved submission tool now.";
@@ -111,4 +117,21 @@ export function createTelemetryHooks() {
     },
   });
   return ((pinnedReturn: readonly HookRegistration[]) => pinnedReturn)([telemetry]);
+}
+
+export function createWarmupReleaseHooks(harness: () => Harness) {
+  const release = hook(GenerationTask, {
+    afterResponse: async (_message, api, context) => {
+      const state = sessionStateFor(api.conversationId);
+      const target = state?.warmupRelease;
+      if (state === undefined || target === undefined || target.sent) return;
+      target.sent = true;
+      try {
+        await harness().signal(target.taskId, WarmupReleased, target.key, {}, context);
+      } catch {
+        target.sent = false;
+      }
+    },
+  });
+  return ((pinnedReturn: readonly HookRegistration[]) => pinnedReturn)([release]);
 }
