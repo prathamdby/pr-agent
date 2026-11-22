@@ -28,8 +28,13 @@ import {
   markWorkRunCompleted,
   workRunById,
 } from "../../src/state/workRuns.ts";
-import { createFakePrSurface, withPrSurfaceMutationBoundary } from "../../src/github/prSurface.ts";
 import {
+  createFakePrSurface,
+  createPrSurface,
+  withPrSurfaceMutationBoundary,
+} from "../../src/github/prSurface.ts";
+import {
+  intentSurfaceFromWorkRuns,
   runBootPhaseA,
   runBootPhaseB,
   startDurableService,
@@ -618,6 +623,150 @@ describe("durable review recovery, PR mutex, and publish fence (sqlite integrati
       "start:acme/app#1:verification",
       "end:acme/app#1:verification",
     ]);
+  });
+
+  it("keeps both review slots occupied after restart until a resumed task settles", async () => {
+    const state = openSqliteAppState();
+    const db = state.db;
+    const cfg = makeTestConfig({
+      runtime: { sqliteDir: state.sqliteDir },
+      concurrency: { review: 2 },
+    });
+    const checkoutDir = tempDir("pr-agent-restart-slots-");
+    const now = Date.now();
+    const release = deferred<void>();
+    const dispatched = deferred<string>();
+    const control: CrashControl = {
+      phasesExecuted: [],
+      holdSpecialists: {
+        spawned: Promise.resolve([]),
+        resolveSpawned: () => {},
+        release: release.promise,
+      },
+    };
+    const task = makeDurableReviewTask(() => control);
+    try {
+      const before = await openDurableRuntime(cfg, { tasks: [task] });
+      try {
+        for (const n of [1, 2, 3]) {
+          const prKey = `acme/app#${String(n)}`;
+          ensurePrState(db, prKey, now);
+          insertWorkRun(db, {
+            workId: `review-${String(n)}`,
+            prKey,
+            kind: "review",
+            payloadJson: "{}",
+            now,
+          });
+        }
+        for (const n of [1, 2]) {
+          const claim = claimDispatchableWorkRun(db, now, { kinds: ["review"] });
+          if (claim === undefined) throw new Error("expected a review to persist before restart");
+          const started = await startAttemptTask({
+            harness: before.handle.harness,
+            context: BACKGROUND_CONTEXT,
+            db,
+            claim,
+            task,
+            input: {
+              workId: claim.run.work_id,
+              attemptNo: claim.attempt.attempt_no,
+              attemptId: claim.attempt.attempt_id,
+              prKey: claim.run.pr_key,
+              checkoutDir: join(checkoutDir, String(n)),
+            },
+          });
+          expect(started.markedRunning).toBe(true);
+        }
+      } finally {
+        await before.handle.harness.close(BACKGROUND_CONTEXT);
+        await before.handle.closed;
+      }
+
+      const after = await openDurableRuntime(cfg, { tasks: [task] });
+      const dispatcher = createDispatcher({
+        db,
+        cfg,
+        runtime: () => after,
+        handlers: {
+          review: async (claim) => {
+            dispatched.resolve(claim.run.work_id);
+          },
+          feature: () => async () => {},
+          ack: async () => {},
+        },
+      });
+      try {
+        const phaseA = await runBootPhaseA({
+          db,
+          cfg,
+          runtime: after,
+          reviewTaskName: task.definition.name,
+        });
+        expect(phaseA.resumedReviews).toHaveLength(2);
+        await runBootPhaseB({ runtime: after, phaseA, dispatcher });
+        expect(workRunById(db, "review-3")?.current_attempt_no).toBe(0);
+        expect(dispatcher.inflightCount("review")).toBe(2);
+        release.resolve();
+        await expect(dispatched.promise).resolves.toBe("review-3");
+      } finally {
+        release.resolve();
+        await dispatcher.drain();
+        await after.handle.harness.close(BACKGROUND_CONTEXT);
+        await after.handle.closed;
+      }
+    } finally {
+      state.close();
+    }
+  });
+
+  it("requests a separate repository credential for each intent recovery surface", async () => {
+    const state = openSqliteAppState();
+    const db = state.db;
+    const cfg = makeTestConfig();
+    const scopes: (string[] | undefined)[] = [];
+    const installationSurface = openInstallationSurface({
+      mintToken: async (_cfg, _id, options) => {
+        scopes.push(options?.repositories);
+        return { token: "test-token", expiresAtTs: Date.now() + 3_600_000, ttlMs: 3_600_000 };
+      },
+      resolveBot: async () => ({ userId: 1, login: "pr-agent[bot]" }),
+      surface: createPrSurface,
+      now: Date.now,
+    });
+    const surfaceFor = intentSurfaceFromWorkRuns({ db, cfg, installationSurface });
+    try {
+      for (const repo of ["one", "two"]) {
+        const workId = `recovery-${repo}`;
+        const prKey = `acme/${repo}#1`;
+        insertWorkRun(db, {
+          workId,
+          prKey,
+          kind: "ack",
+          payloadJson: JSON.stringify({ installationId: 9, owner: "acme", repo, prNumber: 1 }),
+          now: Date.now(),
+        });
+        db.prepare("UPDATE work_runs SET status = 'running' WHERE work_id = ?").run(workId);
+        await publishOnce({
+          db,
+          workId,
+          prKey,
+          resourceTarget: "comment:1",
+          operationKey: "recover",
+          mutationKind: "github.test",
+          mutate: async () => {
+            const intent = mutatingIntents(db)[0];
+            if (intent === undefined) throw new Error("no intent to recover");
+            const surface = surfaceFor(intent);
+            if (surface === undefined) throw new Error("no recovery surface");
+            await surface.gitCredentialAuth();
+          },
+        });
+      }
+      expect(scopes).toEqual([["one"], ["two"]]);
+    } finally {
+      state.close();
+    }
   });
 
   it("fences PrSurface mutations on epoch advance, cancellation, and fail-closed labels/commit status while leaving reads open", async () => {

@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
+import type { TaskId } from "@earendil-works/pi-durable";
 import type { Config } from "../../../settings/index.ts";
 import * as v from "valibot";
 import { immediate, readRow } from "../../../state/db.ts";
@@ -40,6 +41,7 @@ export type DispatcherHandlers = {
 };
 
 export type CiProjectionRunner = (now: number) => Promise<void>;
+export type ResumedReview = { readonly prKey: string; readonly taskId: TaskId };
 
 export type Dispatcher = {
   readonly start: () => void;
@@ -48,6 +50,7 @@ export type Dispatcher = {
   readonly drain: (timeoutMs?: number) => Promise<boolean>;
   readonly running: () => boolean;
   readonly inflightCount: (kind?: WorkRunKind | "ci_projection_timer") => number;
+  readonly trackResumedReview: (review: ResumedReview) => void;
   readonly setCiProjectionRunner: (fn: CiProjectionRunner) => void;
 };
 
@@ -337,6 +340,14 @@ export function createDispatcher(deps: {
       ((pinnedReturn: number) => pinnedReturn)(
         kind === undefined ? inflight.size : countKind(kind),
       ),
+    trackResumedReview: ({ prKey, taskId }) => {
+      const harness = deps.runtime().handle.harness;
+      track(`resumed-review:${String(taskId)}`, "review", () =>
+        withPrMutex(prKey, async () => {
+          await harness.waitForTask(taskId, context);
+        }),
+      );
+    },
     setCiProjectionRunner: (fn) => {
       ciProjectionRunner = fn;
       notify();

@@ -19,6 +19,7 @@ still reads durable head state.
 Repeated `/review`, `/describe`, `/triage`, and `/verify` commands are acknowledged
 without duplicate active slash work. Their insert resolves its winner atomically
 and holds that row through intake commit; triage reads that winner's payload by ID.
+New work uses the current PR lane epoch, including after an automatic run.
 A cancellation racing resolution no longer causes a missing-winner intake failure.
 A cancellation or completion that finishes first can allow a fresh run.
 `/verify`'s earlier active-work precheck can acknowledge work that finishes
@@ -31,7 +32,9 @@ before the reply posts. Real storage failures, including an exhausted SQLite
   reconciles `mutating` publish intents, sweeps `outcome_unknown_recoverable`
   ones, projects terminal task outcomes, adopts orphan tasks by
   `(workId, attemptNo)`, and collects cancelled or superseded tasks to abort.
-  Phase B resumes the harness, aborts those, and only then opens `/webhooks`.
+  Phase B resumes the harness and aborts those tasks. Resumed reviews count
+  toward `REVIEW_CONCURRENCY` before the dispatcher admits queued reviews.
+  The service then opens `/webhooks`.
   See [topology](topology.md#boot-shutdown-and-reset).
 - **Work retries:** each dispatcher claim of a due work run inserts one
   `work_run_attempts` row; the total stays `QUEUE_RETRY_LIMIT + 1`. An attempt

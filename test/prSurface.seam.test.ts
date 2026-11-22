@@ -17,7 +17,6 @@ const reviewPublishMocks = vi.hoisted(() => ({
 vi.mock("../src/github/appAuth.ts", () => ({
   installationOctokit: vi.fn(),
   getAppBotIdentity: vi.fn(async () => ({ userId: 99, login: "pr-agent[bot]" })),
-  mintInstallationAuth: vi.fn(),
 }));
 
 vi.mock("../src/github/installationToken.ts", async (importOriginal) => {
@@ -344,7 +343,8 @@ describe("PrSurface seam", () => {
     expect(updateComment).toHaveBeenCalledTimes(1);
   });
 
-  it("remints a near-expiry seed token once and reuses fresh auth", async () => {
+  it("remints a near-expiry seed token for the PR repository and reuses it", async () => {
+    const cfg = makeTestConfig();
     const now = Date.now();
     const nearExpiry = now + TOKEN_FRESHNESS_BUFFER_MS - 1;
     const freshExpiry = now + 3_600_000;
@@ -369,7 +369,7 @@ describe("PrSurface seam", () => {
 
     const surface = createPrSurface({
       mutationBoundary: unfencedSurface(),
-      cfg: makeTestConfig(),
+      cfg,
       installationId: 42,
       owner: "o",
       repo: "r",
@@ -384,6 +384,7 @@ describe("PrSurface seam", () => {
     await expect(surface.getHeadSha()).resolves.toBe("abc123");
     await expect(surface.getHeadSha()).resolves.toBe("abc123");
     expect(mintInstallationToken).toHaveBeenCalledTimes(1);
+    expect(mintInstallationToken).toHaveBeenCalledWith(cfg, 42, { repositories: ["r"] });
     expect(installationOctokit).toHaveBeenLastCalledWith("fresh-token", freshExpiry);
   });
 

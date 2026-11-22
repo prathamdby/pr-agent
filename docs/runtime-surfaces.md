@@ -4,7 +4,7 @@
 
 Before calling a behavior change complete, check the surfaces that can carry it:
 
-- **Process phases.** Webhook intake, the dispatcher, boot Phase A (Pi paused and read-only), boot Phase B, shutdown, and the zero-503 `pi_durable.sqlite` reset have different failure modes. A change that works while serving may still be missing from boot reconciliation or the reset quiesce.
+- **Process phases.** Webhook intake, the dispatcher, boot Phase A (Pi paused and read-only), boot Phase B, shutdown, and the zero-503 `pi_durable.sqlite` reset have different failure modes. A change that works while serving may still be missing from boot reconciliation or the reset quiesce. Resumed reviews count against the same slots as new review attempts.
 - **Triggers.** Automated webhooks, slash commands, `@bot` asks, CI refresh, retries, and manual recovery can enter different paths.
 - **Durable work types.** `review`, `ask`, `description`, `triage`, and `verification` persist `work_runs` rows with one `work_run_attempts` row per charged attempt. `review` runs as `reviewOrchestratorTask`; the others run as `featureAttemptTask`. Check both the crash-resume path of the review task and the abort-and-retry path of feature attempts.
 - **Auxiliary lanes.** Acknowledgement and CI refresh are fire-and-forget jobs. `ack` runs directly in the dispatcher and `ci_projection` runs from the debounced `next_projection_at` timer; both still record `work_runs`. Retention runs on its own daily timer, not as a work run.

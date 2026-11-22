@@ -49,8 +49,11 @@ quota admission, approval gating, the `pr_state` lifecycle update, and new
 `COMMIT` and `503` on any failure, so GitHub redelivers. `node:sqlite` is
 synchronous; nothing awaits inside the transaction.
 
+A missing or invalid signature returns `401` before any intake state is
+written.
+
 A missing delivery ID falls back to the body hash. A cross-delivery body replay
-deletes the new delivery reservation. Every rejected arrival inserts its own
+deletes the new delivery reservation. Every duplicate arrival inserts its own
 `webhook_rejections` row with its incoming delivery ID, body fingerprint, and
 guard reason, with no new work. Evidence expires by its own arrival age using
 `WEBHOOK_EVENTS_RETENTION_SECONDS`. These patterns do not prove malicious intent.
@@ -62,6 +65,8 @@ slash commands receive an explanatory reply. Only a newer reopen restores
 admission, without automatically starting a review. Automatic and slash review
 share one active review slot per PR. `/review force` cancels and replaces in
 intake order, and a `synchronize` push preserves an active slash review.
+Slash work and verification from a maintainer reply use the current lane epoch
+in the same intake transaction, creating `pr_state` when it is absent.
 
 Approval mode decides trust on open. Trusted authors enter automatic review;
 untrusted forks record one awaiting approval in `pr_state` and get one
@@ -154,7 +159,11 @@ Reads keep the retrying, throttled client. The triage push stays bounded by
 
 - Success commits `reconciled` plus a `publish_records` row under both the
   shared key and the work-run key, and stores the first selected review verdict
-  in `pr_state.selected_verdict_json`.
+  in `pr_state.selected_verdict_json`. Before `publishOnce` reconciles a result,
+  including one found by lookup, it rechecks the run status and lane epoch in
+  the same transaction. A stale result ends as `outcome_unknown_terminal`
+  without a publish record or another send. The fence cannot undo an HTTP
+  write GitHub already accepted. Shutdown still lets current writes settle.
 - A provider-proven rejection (`isKnownNoAcceptanceMutationError`, or a
   per-call override) becomes `mutation_failed`, which a fresh attempt may
   retry.
@@ -208,8 +217,10 @@ tx.scanTasks(...))` / `tx.submissionByRequest(...)` to project terminal
    cancelled or superseded tasks to abort.
 3. Load pending CI projections into the timer queue without firing them.
 
-Phase B calls `harness.resume()`, aborts the collected conversations, starts
-the dispatcher, CI timers, and retention, and only then opens `/webhooks`.
+Phase B calls `harness.resume()`, aborts the collected conversations, and
+registers resumed reviews with the dispatcher before it starts claiming work.
+Each resumed review holds a review slot and its PR execution mutex until the
+task settles. Boot starts CI timers and retention before opening `/webhooks`.
 Nothing calls `submit`, `abort`, `waitForTask`, `waitForIdle`, or `compact`
 before `resume()`, because each of those turns scheduling on. An unexpected
 `harness.closed` exits the process non-zero.

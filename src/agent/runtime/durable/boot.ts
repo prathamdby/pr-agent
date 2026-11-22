@@ -5,7 +5,6 @@ import * as v from "valibot";
 import type { Config } from "../../../settings/index.ts";
 import type { AppStateHandle } from "../../../state/db.ts";
 import { immediate } from "../../../state/db.ts";
-import { withPrMutex } from "../../../state/prMutex.ts";
 import { runRetention } from "../../../state/retention.ts";
 import { sweepIntentRecoveries, sweepRecoverableIntents } from "../../../state/recoverIntents.ts";
 import type { PublishIntentRow } from "../../../state/publish.ts";
@@ -31,6 +30,7 @@ import {
   type CiProjectionRunner,
   type Dispatcher,
   type DispatcherHandlers,
+  type ResumedReview,
 } from "./dispatcher.ts";
 import {
   FEATURE_ATTEMPT_TASK_NAME,
@@ -71,7 +71,7 @@ export type PhaseAResult = {
   readonly interrupted: number;
   readonly cancelled: number;
   readonly toAbort: readonly TaskId[];
-  readonly resumedReviews: readonly { readonly prKey: string; readonly taskId: TaskId }[];
+  readonly resumedReviews: readonly ResumedReview[];
   readonly pendingCiProjections: number;
 };
 
@@ -130,7 +130,7 @@ export function intentSurfaceFromWorkRuns(params: {
         owner: ref.owner,
         repo: ref.repo,
         prNumber: ref.prNumber,
-        tokenResolver: () => params.installationSurface.token(params.cfg, ref.installationId),
+        tokenResolver: () => params.installationSurface.scopedToken({ cfg: params.cfg, ...ref }),
       }),
     );
   };
@@ -205,7 +205,7 @@ export async function runBootPhaseA(params: {
   }
 
   const toAbort: TaskId[] = [];
-  const resumedReviews: { prKey: string; taskId: TaskId }[] = [];
+  const resumedReviews: ResumedReview[] = [];
   const handled = new Set<string>();
   let projected = 0;
   let adopted = 0;
@@ -318,12 +318,7 @@ export async function runBootPhaseB(params: {
     }
   }
   for (const review of params.phaseA.resumedReviews) {
-    void withPrMutex(review.prKey, () =>
-      harness.waitForTask(review.taskId, context).then(
-        () => undefined,
-        () => undefined,
-      ),
-    );
+    params.dispatcher.trackResumedReview(review);
   }
   params.dispatcher.start();
 }

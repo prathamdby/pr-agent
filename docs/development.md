@@ -37,9 +37,10 @@ unknown higher version fails startup.
 
 `src/state/publish.ts::publishOnce` owns the fail-closed publish state machine,
 the operation-key builders, and scoped completion evidence. Every PR-surface
-mutation goes through it; it checks the work run status, the lane epoch, and
-the shutdown gate before `reserved → mutating`, and records `publish_records`
-under both the shared and work-run keys. `src/state/recoverIntents.ts` runs the
+mutation goes through it. It checks the work run status, the lane epoch, and
+the shutdown gate before `reserved → mutating`. It rechecks status and epoch
+before reconciling the result and writing `publish_records` under both the
+shared and work-run keys. `src/state/recoverIntents.ts` runs the
 boot and periodic sweep of `mutating` and `outcome_unknown_recoverable` intents.
 The exact transitions are in [topology](topology.md#publishing).
 
@@ -79,8 +80,10 @@ services, and runtime wiring. `src/effect/server.ts` serves `POST /webhooks`,
 `src/github/installationCapabilities.ts` owns validated available/denied/unknown
 operation grants and endpoint permission alternatives.
 `src/agentWork/installationSurface.ts` owns fresh bounded repository preflight
-and managed token resolution. `src/agentWork/githubCapabilityRepository.ts`
-owns ordered scoped observations, CI source restoration/revisions, retention,
+and managed token resolution. Token minting requires a single repository,
+including on fallback and during intent recovery.
+`src/agentWork/githubCapabilityRepository.ts` owns ordered scoped
+observations, CI source restoration/revisions, retention,
 and preflight counters on `github_repository_capabilities`. No capability
 record contains credentials. `runReviewForWorkItem.ts` gates only new work
 after exact completion evidence. `reviewVerdict.ts` keeps immutable selected

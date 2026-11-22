@@ -866,38 +866,21 @@ function workLifecycleEvents(
 
 type RunInsert = {
   readonly workId: string;
+  readonly prKey: string;
   readonly kind: "review" | "description" | "verification" | "triage";
-  readonly laneEpoch?: number;
   readonly payloadJson: string;
+  readonly now: number;
 };
 
-function insertLaneRun(db: DatabaseSync, run: RunInsert, now: number) {
+function insertLaneRun(db: DatabaseSync, run: RunInsert) {
+  ensurePrState(db, run.prKey, run.now);
   insertWorkRun(db, {
-    workId: run.workId,
-    prKey: prKeyFromPayload(run.payloadJson),
-    kind: run.kind,
-    ...(run.laneEpoch !== undefined ? { laneEpoch: run.laneEpoch } : {}),
-    payloadJson: run.payloadJson,
-    now,
+    ...run,
+    laneEpoch: laneEpochFor(db, run.prKey, run.kind),
   });
 }
 
-function prKeyFromPayload(payloadJson: string) {
-  const record = parsePayloadObject(payloadJson);
-  if (record !== undefined) {
-    if (
-      typeof record.owner === "string" &&
-      typeof record.repo === "string" &&
-      typeof record.prNumber === "number"
-    )
-      return ((pinnedReturn: string) => pinnedReturn)(
-        prResourceKey(record.owner, record.repo, record.prNumber),
-      );
-  }
-  throw new Error("work run payload missing pr ref");
-}
-
-function laneEpochFor(db: DatabaseSync, prKey: string, kind: string) {
+function laneEpochFor(db: DatabaseSync, prKey: string, kind: RunInsert["kind"]) {
   const column =
     kind === "review"
       ? "auto_review_epoch"
@@ -908,9 +891,10 @@ function laneEpochFor(db: DatabaseSync, prKey: string, kind: string) {
           : "triage_epoch";
   const row = readRow(
     db.prepare(`SELECT ${column} AS epoch FROM pr_state WHERE pr_key = ?`).get(prKey),
-    v.object({ epoch: v.optional(v.number()) }),
+    v.object({ epoch: v.number() }),
   );
-  return ((pinnedReturn: number) => pinnedReturn)(row?.epoch ?? 0);
+  if (row === undefined) throw new Error("lane work requires PR state");
+  return ((pinnedReturn: number) => pinnedReturn)(row.epoch);
 }
 
 function bumpLane(
@@ -930,32 +914,15 @@ type ReplaceResult = {
   readonly conversationIds: readonly string[];
 };
 
-function replaceAutoWorkRun(
-  db: DatabaseSync,
-  params: {
-    readonly prKey: string;
-    readonly kind: "review" | "description" | "verification" | "triage";
-    readonly create: (laneEpoch: number) => RunInsert;
-    readonly preserveQueuedIds?: readonly string[];
-  },
-  now: number,
-) {
-  const superseded = supersedeAutoRuns(
-    db,
-    params.prKey,
-    params.kind,
-    params.preserveQueuedIds !== undefined ? { preserveQueuedIds: params.preserveQueuedIds } : {},
-    now,
-  );
-  bumpLane(db, params.prKey, params.kind, now);
-  const laneEpoch = laneEpochFor(db, params.prKey, params.kind);
-  const insert = params.create(laneEpoch);
-  insertLaneRun(db, insert, now);
+function replaceAutoWorkRun(db: DatabaseSync, run: RunInsert) {
+  const superseded = supersedeAutoRuns(db, run.prKey, run.kind, {}, run.now);
+  bumpLane(db, run.prKey, run.kind, run.now);
+  insertLaneRun(db, run);
   if (superseded.supersededIds.length > 0) {
-    linkSupersededRuns(db, insert.workId, superseded.supersededIds);
+    linkSupersededRuns(db, run.workId, superseded.supersededIds);
   }
   return ((pinnedReturn: ReplaceResult) => pinnedReturn)({
-    workItemId: insert.workId,
+    workItemId: run.workId,
     supersededIds: superseded.supersededIds,
     conversationIds: superseded.conversationIds,
   });
@@ -1003,27 +970,20 @@ function dispatchAutomatedKind(
   headers: WebhookHeaders,
   now: number,
 ) {
-  const replaced = replaceAutoWorkRun(
-    db,
-    {
-      prKey: resourceKey,
-      kind: descriptor.kind,
-      create: (laneEpoch) => ({
-        workId: randomUUID(),
-        kind: descriptor.kind,
-        laneEpoch,
-        payloadJson: runPayload(
-          { ...ref, headSha: descriptor.kind === "review" ? DEFERRED_HEAD_SHA : ref.headSha },
-          "auto",
-          eventId,
-          headers,
-          now,
-          descriptor.extraPayload,
-        ),
-      }),
-    },
+  const replaced = replaceAutoWorkRun(db, {
+    prKey: resourceKey,
+    workId: randomUUID(),
+    kind: descriptor.kind,
+    payloadJson: runPayload(
+      { ...ref, headSha: descriptor.kind === "review" ? DEFERRED_HEAD_SHA : ref.headSha },
+      "auto",
+      eventId,
+      headers,
+      now,
+      descriptor.extraPayload,
+    ),
     now,
-  );
+  });
   sink.conversationsToAbort.push(...replaced.conversationIds);
   if (descriptor.withAck) {
     insertAckWithProgress(
@@ -1484,13 +1444,11 @@ function applyPlannedAutomatedPullRequestIntake(
       sink.conversationsToAbort.push(...superseded.conversationIds);
       if (superseded.supersededIds.length > 0) {
         bumpLane(db, resourceKey, "review", now);
-        const laneEpoch = laneEpochFor(db, resourceKey, "review");
         const workId = randomUUID();
-        insertWorkRun(db, {
+        insertLaneRun(db, {
           workId,
           prKey: resourceKey,
           kind: "review",
-          laneEpoch,
           payloadJson: runPayload(
             { ...ref, headSha: DEFERRED_HEAD_SHA },
             "auto",
@@ -2111,7 +2069,7 @@ function applyVerificationReplyIntake(
   );
   if (active !== undefined) return;
   const workId = randomUUID();
-  insertWorkRun(db, {
+  insertLaneRun(db, {
     workId,
     prKey: resourceKey,
     kind: "verification",
@@ -2431,7 +2389,7 @@ function handleSlashDescribe(ctx: SlashContext) {
     return;
   }
   const workItemId = randomUUID();
-  insertWorkRun(ctx.db, {
+  insertLaneRun(ctx.db, {
     workId: workItemId,
     prKey: resourceKey,
     kind: "description",
@@ -2506,7 +2464,7 @@ function handleSlashTriage(ctx: SlashContext) {
     return;
   }
   const workItemId = randomUUID();
-  insertWorkRun(ctx.db, {
+  insertLaneRun(ctx.db, {
     workId: workItemId,
     prKey: resourceKey,
     kind: "triage",
@@ -2627,7 +2585,7 @@ function handleSlashReview(ctx: SlashContext) {
     return;
   }
   const workItemId = randomUUID();
-  insertWorkRun(ctx.db, {
+  insertLaneRun(ctx.db, {
     workId: workItemId,
     prKey: resourceKey,
     kind: "review",
@@ -2749,7 +2707,7 @@ function handleSlashVerify(ctx: SlashContext) {
     return;
   }
   const workItemId = randomUUID();
-  insertWorkRun(ctx.db, {
+  insertLaneRun(ctx.db, {
     workId: workItemId,
     prKey: resourceKey,
     kind: "verification",

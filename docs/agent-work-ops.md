@@ -28,11 +28,12 @@ after commit; rollback wakes nothing. `/ask` admission serializes the
 triggering-comment identity before quota and inserts the work run in the same
 transaction, so a losing insertion leaves no reservation behind.
 
-`src/agentWork/installationSurface.ts` is the only boundary that mints
-installation tokens or creates raw GitHub surfaces. Auth caches separate
-App/private-key identities and installation IDs, refresh near-expiry tokens,
-and evict rejected pending lookups. Failed auth does not clear mutation
-acceptance evidence, publish intents, or publish records.
+`PrSurface` uses credentials scoped to the pull request's repository, including
+fallback minting and boot or periodic intent recovery. The cache in
+`src/agentWork/installationSurface.ts` separates App identities, installations,
+and repositories. It refreshes near-expiry tokens and evicts rejected mints.
+Failed auth does not clear mutation acceptance evidence, publish intents, or
+publish records.
 
 `src/state/workRuns.ts` is the only writer of `work_runs.status`. A write that
 loses its race (cancelled meanwhile, stale lane epoch, row already terminal or
@@ -104,8 +105,9 @@ What the shapes mean:
   at a time per PR.
 - `retry_scheduled` with a future `next_retry_at` is backoff, not a stall.
 - A `running` row survives a restart. Boot Phase A adopts or aborts it: a
-  review task resumes from its checkpoint, and an interrupted feature attempt
-  is aborted and retried as `attempt_no + 1`.
+  review task resumes from its checkpoint and still counts toward
+  `REVIEW_CONCURRENCY`. An interrupted feature attempt is aborted and retried
+  as `attempt_no + 1`.
 - `mutating` intents exist only while a write is in flight; boot reconciles any
   left by a crash before agent work resumes. `outcome_unknown_recoverable`
   rows are swept periodically and at boot. `outcome_unknown_terminal` is final.

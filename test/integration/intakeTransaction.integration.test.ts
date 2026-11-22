@@ -27,7 +27,7 @@ import { buildEffectWebhookLayer } from "../../src/effect/server.ts";
 import { makeSqliteWebhookIntake, WebhookIntake } from "../../src/effect/webhookIntake.ts";
 import { initEvlog } from "../../src/evlog.ts";
 import { makeTestConfig } from "../helpers/config.ts";
-import { insertWorkRun } from "../../src/state/workRuns.ts";
+import { claimDispatchableWorkRun, insertWorkRun } from "../../src/state/workRuns.ts";
 import { ASK_THROTTLED_BODY } from "../../src/settings/index.ts";
 import { randomUUID } from "node:crypto";
 import { openSqliteAppState } from "./db.ts";
@@ -1216,6 +1216,10 @@ describe("intake transaction semantics ported from postgres suite", () => {
       },
     );
     expect(runs("o/r#231", "verification")).toHaveLength(1);
+    const claim = immediate(db, () =>
+      claimDispatchableWorkRun(db, Date.now(), { kinds: ["verification"] }),
+    );
+    expect(claim?.run.pr_key).toBe("o/r#231");
   });
 
   it("a throw inside immediate rolls back dedupe + work_runs + pr_state", () => {
@@ -1327,6 +1331,81 @@ function hookDelivery(
 }
 
 describe("single-process durability (sqlite + pi durable)", () => {
+  it("rejects an unsigned or invalid signature before writing any intake state", async () => {
+    const state = openSqliteAppState();
+    const cfg = makeTestConfig();
+    const server = http.createServer();
+    const listening = new Promise<number>((resolve, reject) => {
+      server.once("listening", () => {
+        const address = server.address();
+        if (typeof address === "object" && address !== null) resolve(address.port);
+        else reject(new Error("no webhook port"));
+      });
+    });
+    const layer = buildEffectWebhookLayer(
+      cfg,
+      () => server,
+      Layer.succeed(
+        WebhookIntake,
+        makeSqliteWebhookIntake({
+          db: state.db,
+          cfg,
+          accepting: () => true,
+          ready: () => true,
+          afterCommit: () => {},
+        }),
+      ),
+    );
+    const fiber = Effect.runFork(Layer.launch(layer));
+    try {
+      const url = `http://127.0.0.1:${String(await listening)}/webhooks`;
+      const body = JSON.stringify({
+        action: "opened",
+        installation: { id: 1 },
+        repository: { owner: { login: "o" }, name: "r" },
+        pull_request: { number: 1, head: { sha: "a".repeat(40) } },
+      });
+      const headers = {
+        "content-type": "application/json",
+        "x-github-event": "pull_request",
+        "x-github-delivery": "signature-intake",
+      };
+      for (const signature of [null, `sha256=${"0".repeat(64)}`]) {
+        const response = await fetch(url, {
+          method: "POST",
+          body,
+          headers: signature === null ? headers : { ...headers, "x-hub-signature-256": signature },
+        });
+        expect(response.status).toBe(401);
+        expect(await response.text()).toBe("invalid signature");
+        for (const table of [
+          "webhook_deliveries",
+          "webhook_body_replays",
+          "webhook_rejections",
+          "work_runs",
+        ]) {
+          expect(state.db.prepare(`SELECT 1 FROM ${table}`).all()).toHaveLength(0);
+        }
+      }
+      const digest = crypto.createHmac("sha256", cfg.webhook.secret).update(body).digest("hex");
+      const accepted = await fetch(url, {
+        method: "POST",
+        body,
+        headers: { ...headers, "x-hub-signature-256": `sha256=${digest}` },
+      });
+      expect(accepted.status).toBe(200);
+      expect(await accepted.text()).toBe("ok");
+      expect(state.db.prepare("SELECT 1 FROM webhook_deliveries").all()).toHaveLength(1);
+      expect(state.db.prepare("SELECT 1 FROM webhook_body_replays").all()).toHaveLength(1);
+      expect(state.db.prepare("SELECT 1 FROM work_runs WHERE kind = 'review'").all()).toHaveLength(
+        1,
+      );
+    } finally {
+      await Effect.runPromise(Fiber.interrupt(fiber));
+      state.close();
+    }
+  });
+
   it("fails a second writer fast while the single-writer lock is held", () => {
     const dir = freshSqliteDir();
     const first = openAppState({ sqliteDir: dir, applySchema: applyAppStateSchema });

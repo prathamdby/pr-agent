@@ -17,6 +17,7 @@ import {
   type PublishDb,
 } from "../../src/state/publish.ts";
 import { openSqliteAppState } from "./db.ts";
+import { bumpLaneEpoch, cancelWorkRun } from "../../src/state/workRuns.ts";
 
 const PR_KEY = "o/r#1";
 
@@ -157,6 +158,124 @@ describe("fail-closed publish state machine on app_state.sqlite", () => {
         mutate: async () => undefined,
       }),
     ).resolves.toBeUndefined();
+  });
+
+  it.each(["superseded epoch", "cancelled run"])(
+    "does not reconcile a successful in-flight write after a %s",
+    async (reason) => {
+      seedRun(state.db, "wi-stale");
+      let accept: ((value: string) => void) | undefined;
+      const accepted = new Promise<string>((resolve) => {
+        accept = resolve;
+      });
+      let calls = 0;
+      const params = {
+        ...base(state.db, "wi-stale", "op:stale"),
+        laneEpoch: 0,
+        publishRecordKeys: [{ recordKey: "stale", step: "test", payloadJson: "{}" }],
+        mutate: () => {
+          calls += 1;
+          return accepted;
+        },
+      };
+      const first = publishOnce(params);
+      expect(publishIntent(state.db, "wi-stale", "op:stale")?.state).toBe("mutating");
+      if (reason === "superseded epoch") {
+        bumpLaneEpoch(state.db, { prKey: PR_KEY, lane: "review", now: 1 });
+      } else {
+        cancelWorkRun(state.db, { workId: "wi-stale", reason: "test", now: 1 });
+      }
+      accept?.("posted");
+      const terminal = {
+        code: "operation_intent.mutation_outcome_unknown",
+        context: { unknownResolution: "terminal" },
+      };
+      await expect(first).rejects.toMatchObject(terminal);
+      expect(publishIntent(state.db, "wi-stale", "op:stale")?.state).toBe(
+        "outcome_unknown_terminal",
+      );
+      expect(state.db.prepare("SELECT 1 FROM publish_records").all()).toHaveLength(0);
+      await expect(publishOnce(params)).rejects.toMatchObject(terminal);
+      expect(calls).toBe(1);
+    },
+  );
+
+  it("reconciles a recoverable outcome from exact evidence without sending again", async () => {
+    seedRun(state.db, "wi-recover");
+    let calls = 0;
+    const params = {
+      ...base(state.db, "wi-recover", "op:recover"),
+      laneEpoch: 0,
+      mutate: async () => {
+        calls += 1;
+        throw ambiguousError();
+      },
+    };
+    await expect(publishOnce(params)).rejects.toMatchObject({
+      code: "operation_intent.mutation_outcome_unknown",
+    });
+    expect(publishIntent(state.db, "wi-recover", "op:recover")?.state).toBe(
+      "outcome_unknown_recoverable",
+    );
+    await expect(
+      publishOnce({ ...params, recover: async () => ({ found: true, value: { id: 42 } }) }),
+    ).resolves.toEqual({ id: 42 });
+    expect(publishIntent(state.db, "wi-recover", "op:recover")).toMatchObject({
+      state: "reconciled",
+      result_json: '{"id":42}',
+    });
+    await expect(publishOnce(params)).resolves.toEqual({ id: 42 });
+    expect(calls).toBe(1);
+  });
+
+  it("rejects recovered evidence when the lane changes during lookup", async () => {
+    seedRun(state.db, "wi-recover-stale");
+    let find: ((value: { found: true; value: string }) => void) | undefined;
+    const found = new Promise<{ found: true; value: string }>((resolve) => {
+      find = resolve;
+    });
+    const params = {
+      ...base(state.db, "wi-recover-stale", "op:recover-stale"),
+      laneEpoch: 0,
+      mutate: async () => {
+        throw ambiguousError();
+      },
+    };
+    await expect(publishOnce(params)).rejects.toThrow();
+    const recovery = publishOnce({ ...params, recover: () => found });
+    bumpLaneEpoch(state.db, { prKey: PR_KEY, lane: "review", now: 1 });
+    find?.({ found: true, value: "posted" });
+    await expect(recovery).rejects.toMatchObject({
+      code: "operation_intent.mutation_outcome_unknown",
+      context: { unknownResolution: "terminal" },
+    });
+    expect(publishIntent(state.db, "wi-recover-stale", "op:recover-stale")?.state).toBe(
+      "outcome_unknown_terminal",
+    );
+  });
+
+  it("settles accepted writes during shutdown without admitting new writes", async () => {
+    seedRun(state.db, "wi-shutdown");
+    let accept: ((value: string) => void) | undefined;
+    const accepted = new Promise<string>((resolve) => {
+      accept = resolve;
+    });
+    let shuttingDown = false;
+    const params = {
+      ...base(state.db, "wi-shutdown", "op:inflight"),
+      laneEpoch: 0,
+      shutdownRequested: () => shuttingDown,
+      mutate: () => accepted,
+    };
+    const inflight = publishOnce(params);
+    shuttingDown = true;
+    accept?.("posted");
+    await expect(inflight).resolves.toBe("posted");
+    expect(publishIntent(state.db, "wi-shutdown", "op:inflight")?.state).toBe("reconciled");
+    await expect(publishOnce({ ...params, operationKey: "op:new" })).rejects.toMatchObject({
+      code: "operation_intent.mutation_gate_failed",
+    });
+    expect(publishIntent(state.db, "wi-shutdown", "op:new")).toBeUndefined();
   });
 
   it("keeps an overwrite-sensitive outcome_unknown_recoverable intent blocking later writes", async () => {

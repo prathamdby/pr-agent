@@ -288,21 +288,21 @@ async function runLaneFeature<T extends LaneWorkType>(
       return;
     }
   }
+  const scope = { installationId: item.installationId, owner: item.owner, repo: item.repo };
   const policy = await resolveInstallationPolicy({
     db: deps.db,
     cfg: deps.cfg,
     installationSurface: deps.installationSurface,
-    scope: { installationId: item.installationId, owner: item.owner, repo: item.repo },
+    scope,
     signal,
     now,
   });
   const installation =
-    policy.installation ?? (await deps.installationSurface.token(deps.cfg, item.installationId));
+    policy.installation ??
+    (await deps.installationSurface.scopedToken({ cfg: deps.cfg, ...scope }));
   const prSurface: PrSurface = await deps.installationSurface.create({
     cfg: deps.cfg,
-    installationId: item.installationId,
-    owner: item.owner,
-    repo: item.repo,
+    ...scope,
     prNumber: item.prNumber,
     installation,
     capabilities: policy.capabilities,

@@ -9,8 +9,12 @@ import {
   TRIAGE_FULL_RUN_IN_PROGRESS,
 } from "../../src/settings/index.ts";
 import { ensurePrState, runDelivery, type IntakeFeatures } from "../../src/state/intake.ts";
-import { claimDispatchableWorkRun, insertWorkRun } from "../../src/state/workRuns.ts";
-import { readRows } from "../../src/state/db.ts";
+import {
+  bumpLaneEpoch,
+  claimDispatchableWorkRun,
+  insertWorkRun,
+} from "../../src/state/workRuns.ts";
+import { immediate, readRows } from "../../src/state/db.ts";
 import { openSqliteAppState } from "./db.ts";
 
 const FEATURES: IntakeFeatures = {
@@ -194,6 +198,28 @@ function makeFailTrigger(when: string) {
 }
 
 describe("slash active uniqueness (sqlite)", () => {
+  it.each(
+    (["review", "description", "triage", "verification"] as const).flatMap((kind) =>
+      [0, 1].map((epoch) => ({ kind, epoch })),
+    ),
+  )("dispatches a $kind command at lane epoch $epoch", ({ kind, epoch }) => {
+    const repo = "slash-lane";
+    const prNumber = 1;
+    const prKey = key(repo, prNumber);
+    const now = Date.now();
+    if (epoch > 0) {
+      immediate(db, () => {
+        ensurePrState(db, prKey, now);
+        bumpLaneEpoch(db, { prKey, lane: kind, now });
+      });
+    }
+
+    slash({ repo, prNumber, command: COMMAND_OF[kind], delivery: "slash-lane" });
+    expect(runs(prKey, kind)).toHaveLength(1);
+    const claim = immediate(db, () => claimDispatchableWorkRun(db, Date.now(), { kinds: [kind] }));
+    expect(claim?.run).toMatchObject({ pr_key: prKey, kind, lane_epoch: epoch });
+  });
+
   it.each(
     (["review", "description", "triage", "verification"] as const).flatMap((type) =>
       (["queued", "running"] as const).map((status) => ({ type, status })),

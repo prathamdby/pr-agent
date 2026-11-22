@@ -58,7 +58,7 @@ export async function resolveInstallationPolicy(params: {
       String(stored.generation),
     );
     observation = { ...unknown, availability: { ...unknown.availability, ...stored.capabilities } };
-    installation = await params.installationSurface.token(cfg, scope.installationId);
+    installation = await params.installationSurface.scopedToken({ cfg, ...scope });
   } else {
     const fresh = await params.installationSurface.preflight({
       cfg,

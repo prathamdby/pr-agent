@@ -526,7 +526,7 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams) {
           | Promise<{ token: string; expiresAtTs: number }>,
       ) => pinnedReturn)({ token: installation.token, expiresAtTs: installation.expiresAtTs });
     }
-    const fresh = await mintInstallationToken(cfg, installationId);
+    const fresh = await mintInstallationToken(cfg, installationId, { repositories: [repo] });
     installation = fresh;
     return ((
       pinnedReturn:

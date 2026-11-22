@@ -313,17 +313,16 @@ function laneEpochHeld(db: DatabaseSync, prKey: string, lane: string, epoch: num
   return row?.epoch === epoch;
 }
 
-function assertRunGate(
-  db: DatabaseSync,
-  params: {
-    readonly workId: string;
-    readonly prKey: string;
-    readonly operationKey?: string;
-    readonly gate?: PublishGate;
-    readonly laneEpoch?: number | null;
-    readonly shutdownRequested?: () => boolean;
-  },
-) {
+type RunGate = {
+  readonly workId: string;
+  readonly prKey: string;
+  readonly operationKey?: string;
+  readonly gate?: PublishGate;
+  readonly laneEpoch?: number | null;
+  readonly shutdownRequested?: () => boolean;
+};
+
+function runGateFailure(db: DatabaseSync, params: RunGate) {
   const run = readRow(
     db
       .prepare(`SELECT status, lane, lane_epoch FROM work_runs WHERE work_id = ?`)
@@ -335,7 +334,7 @@ function assertRunGate(
     run !== undefined &&
     (gate === "running" ? run.status === "running" : CLEANUP_STATUSES.has(run.status));
   if (!statusOk) {
-    throw publishError("mutation_gate_failed", "Publish intent requires a running work run", {
+    return publishError("mutation_gate_failed", "Publish intent requires a running work run", {
       workId: params.workId,
       ...(params.operationKey !== undefined ? { operationKey: params.operationKey } : {}),
       status: run?.status ?? null,
@@ -348,11 +347,17 @@ function assertRunGate(
     (run.lane_epoch !== params.laneEpoch ||
       !laneEpochHeld(db, params.prKey, run.lane, params.laneEpoch))
   ) {
-    throw publishError("mutation_gate_failed", "Publish intent lane epoch is no longer current", {
+    return publishError("mutation_gate_failed", "Publish intent lane epoch is no longer current", {
       workId: params.workId,
       ...(params.operationKey !== undefined ? { operationKey: params.operationKey } : {}),
     });
   }
+  return ((pinnedReturn: AppError | undefined) => pinnedReturn)(undefined);
+}
+
+function assertRunGate(db: DatabaseSync, params: RunGate) {
+  const failure = runGateFailure(db, params);
+  if (failure !== undefined) throw failure;
   if (params.shutdownRequested?.() === true) {
     throw publishError("mutation_gate_failed", "Publish intent blocked during shutdown", {
       workId: params.workId,
@@ -501,12 +506,27 @@ function commitIntentState(
   now: number,
   value?: unknown,
 ) {
-  immediate(db, () => {
+  const failure = immediate(db, () => {
+    const lostGate = state === "reconciled" ? runGateFailure(db, params) : undefined;
+    const next = lostGate === undefined ? state : "outcome_unknown_terminal";
     db.prepare(
       `UPDATE publish_intents SET state = ?, result_json = ?, updated_at = ? WHERE intent_key = ?`,
-    ).run(state, resultJson, now, intentKeyFor(params.workId, params.operationKey));
-    if (state === "reconciled") applyReconciledSideEffects(db, params, value, now);
+    ).run(
+      next,
+      lostGate === undefined ? resultJson : null,
+      now,
+      intentKeyFor(params.workId, params.operationKey),
+    );
+    if (next === "reconciled") applyReconciledSideEffects(db, params, value, now);
+    return lostGate;
   });
+  if (failure !== undefined)
+    throw unknownOutcome(
+      params,
+      true,
+      failure,
+      "Publish gate lost after mutation; remutate forbidden",
+    );
 }
 
 async function lookupWithRetries(params: PublishOnceParams<unknown>, intent: PublishIntentRow) {
@@ -553,7 +573,7 @@ function decodeValue(params: PublishOnceParams<unknown>, value: unknown) {
   }
 }
 
-function finishRecovered(params: PublishOnceParams<unknown>, value: unknown, now: number) {
+function finishPublish(params: PublishOnceParams<unknown>, value: unknown, now: number) {
   const decoded = decodeValue(params, value);
   commitIntentState(
     params.db,
@@ -566,11 +586,16 @@ function finishRecovered(params: PublishOnceParams<unknown>, value: unknown, now
   return ((pinnedReturn: unknown) => pinnedReturn)(decoded);
 }
 
-function unknownOutcome(params: PublishOnceParams<unknown>, terminal: boolean, cause?: unknown) {
+function unknownOutcome(
+  params: PublishOnceParams<unknown>,
+  terminal: boolean,
+  cause?: unknown,
+  message = UNKNOWN_MUTATION_MESSAGE,
+) {
   return ((pinnedReturn: AppError) => pinnedReturn)(
     publishError(
       "mutation_outcome_unknown",
-      UNKNOWN_MUTATION_MESSAGE,
+      message,
       {
         workId: params.workId,
         operationKey: params.operationKey,
@@ -617,7 +642,7 @@ export async function publishOnce(requested: PublishOnceParams<unknown>) {
     const recovered = await lookupWithRetries(params, action.intent);
     if (recovered.found)
       return ((pinnedReturn: unknown) => pinnedReturn)(
-        finishRecovered(params, recovered.value, nowOf()),
+        finishPublish(params, recovered.value, nowOf()),
       );
     throw unknownOutcome(params, false);
   }
@@ -649,7 +674,7 @@ export async function publishOnce(requested: PublishOnceParams<unknown>) {
         }
         if (recovered.found)
           return ((pinnedReturn: unknown) => pinnedReturn)(
-            finishRecovered(params, recovered.value, nowOf()),
+            finishPublish(params, recovered.value, nowOf()),
           );
       }
     }
@@ -663,16 +688,7 @@ export async function publishOnce(requested: PublishOnceParams<unknown>) {
     throw unknownOutcome(params, params.failClosed === true, error);
   }
 
-  const decoded = decodeValue(params, result);
-  commitIntentState(
-    params.db,
-    params,
-    "reconciled",
-    JSON.stringify(result === undefined ? null : result),
-    nowOf(),
-    decoded,
-  );
-  return ((pinnedReturn: unknown) => pinnedReturn)(decoded);
+  return ((pinnedReturn: unknown) => pinnedReturn)(finishPublish(params, result, nowOf()));
 }
 
 export function resolveRecoverableIntent(

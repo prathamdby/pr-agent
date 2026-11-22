@@ -735,7 +735,7 @@ export async function runCiProjectionJob(
 
   const scope = { installationId: data.installationId, owner: data.owner, repo: data.repo };
   let observation = loadGithubCapabilityObservation(db, scope);
-  let installation: Awaited<ReturnType<InstallationSurface["token"]>> | undefined;
+  let installation: Awaited<ReturnType<InstallationSurface["scopedToken"]>> | undefined;
   if (
     (observation == null || capabilityObservationUnconfirmed(observation.capabilities)) &&
     options?.createSurface == null
