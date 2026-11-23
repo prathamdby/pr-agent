@@ -34,11 +34,9 @@ import { ensurePrState, runDelivery } from "../../src/state/intake.ts";
 import {
   applyPrHeadCiFact,
   enqueueDueCiProjections,
-  listProjectionRepairPendingHeads,
   loadHeadCiProjectionRow,
   loadPrHeadCiState,
   loadRenderableHeadCi,
-  markProjectionRepairPending,
   refreshHeadCiFromSnapshot,
   requestHeadCiProjection,
   seedHeadCiFromSnapshot,
@@ -281,11 +279,11 @@ describe("CI projection on SQLite app_state (integration)", () => {
     }
   });
 
-  it("clears a repair flag the projector cannot act on while comment access is denied", async () => {
+  it("skips GitHub surfaces while comment access is denied", async () => {
     const state = openSqliteAppState();
     try {
       const now = Date.now();
-      const headSha = "capability-repair-denied";
+      const headSha = "capability-denied";
       seedHeadCiFromSnapshot(
         state.db,
         {
@@ -298,10 +296,6 @@ describe("CI projection on SQLite app_state (integration)", () => {
           githubAppId: cfg.github.appId,
         },
         now,
-      );
-      markProjectionRepairPending(state.db, { repoKey: REPO_KEY, headSha }, now);
-      expect(listProjectionRepairPendingHeads(state.db, 100).map((h) => h.headSha)).toContain(
-        headSha,
       );
 
       const scope = { installationId: INSTALLATION_ID, owner: OWNER, repo: REPO };
@@ -327,12 +321,6 @@ describe("CI projection on SQLite app_state (integration)", () => {
         { createSurface },
       );
       expect(createSurface).not.toHaveBeenCalled();
-      expect(loadPrHeadCiState(state.db, { repoKey: REPO_KEY, headSha })?.repairPending).toBe(
-        false,
-      );
-      expect(listProjectionRepairPendingHeads(state.db, 100).map((h) => h.headSha)).not.toContain(
-        headSha,
-      );
     } finally {
       state.close();
     }

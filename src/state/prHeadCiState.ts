@@ -47,7 +47,6 @@ export type HeadCiRow = {
   readonly installationId: number;
   readonly state: HeadCiStateDoc;
   readonly seededAt: number | null;
-  readonly repairPending: boolean;
   readonly nextProjectionAt: number | null;
   readonly updatedAt: number;
 };
@@ -58,7 +57,6 @@ const storedRowSchema = v.object({
   installation_id: v.number(),
   state_json: v.string(),
   seeded_at: v.nullable(v.number()),
-  repair_pending: v.number(),
   next_projection_at: v.nullable(v.number()),
   updated_at: v.number(),
 });
@@ -82,7 +80,6 @@ function toHeadCiRow(row: StoredRow) {
       JSON.parse(row.state_json),
     ),
     seededAt: row.seeded_at,
-    repairPending: row.repair_pending !== 0,
     nextProjectionAt: row.next_projection_at,
     updatedAt: row.updated_at,
   });
@@ -294,53 +291,6 @@ export function listDueProjections(db: DatabaseSync, now: number, limit: number)
   );
 }
 
-export function markProjectionRepairPending(
-  db: DatabaseSync,
-  params: { readonly repoKey: string; readonly headSha: string },
-  now = Date.now(),
-) {
-  db.prepare(
-    `UPDATE pr_head_ci_state SET repair_pending = 1, updated_at = ?
-      WHERE repo_key = ? AND head_sha = ?`,
-  ).run(now, params.repoKey, params.headSha);
-}
-
-export function clearProjectionRepairPending(
-  db: DatabaseSync,
-  params: { readonly repoKey: string; readonly headSha: string },
-  now = Date.now(),
-) {
-  db.prepare(
-    `UPDATE pr_head_ci_state SET repair_pending = 0, updated_at = ?
-      WHERE repo_key = ? AND head_sha = ?`,
-  ).run(now, params.repoKey, params.headSha);
-}
-
-export function listProjectionRepairPendingHeads(db: DatabaseSync, limit: number) {
-  const rows = readRows(
-    db
-      .prepare(
-        `SELECT repo_key, head_sha, installation_id FROM pr_head_ci_state
-        WHERE repair_pending = 1 ORDER BY updated_at LIMIT ?`,
-      )
-      .all(limit),
-    headProjectionRowSchema,
-  );
-  return ((
-    pinnedReturn: readonly {
-      readonly repoKey: string;
-      readonly headSha: string;
-      readonly installationId: number;
-    }[],
-  ) => pinnedReturn)(
-    rows.map((row) => ({
-      repoKey: row.repo_key,
-      headSha: row.head_sha,
-      installationId: row.installation_id,
-    })),
-  );
-}
-
 export function newestHeadShaForRepo(db: DatabaseSync, repoKey: string) {
   const row = readRow(
     db
@@ -406,7 +356,6 @@ export type HeadCiProjectionRow = {
   readonly prNumbers: unknown;
   readonly truncated: boolean;
   readonly seededAt: number | null;
-  readonly projectionRepairPending: boolean;
   readonly sourceAvailability?: CiSourceAvailability;
 };
 
@@ -439,7 +388,6 @@ function toProjectionRow(row: HeadCiRow, head: Pick<HeadCiRef, "owner" | "repo">
     prNumbers: row.state.prNumbers,
     truncated: row.state.truncated,
     seededAt: row.seededAt,
-    projectionRepairPending: row.repairPending,
   });
 }
 
@@ -586,20 +534,6 @@ export function storeHeadCiAuthored(
   now = Date.now(),
 ) {
   storePrHeadCiAuthored(db, { ...head, repoKey: headRepoKey(head) }, now);
-}
-
-export function clearHeadCiProjectionRepair(
-  db: DatabaseSync,
-  head: Pick<HeadCiRef, "owner" | "repo" | "headSha">,
-  now = Date.now(),
-) {
-  const changes = db
-    .prepare(
-      `UPDATE pr_head_ci_state SET repair_pending = 0, updated_at = ?
-        WHERE repo_key = ? AND head_sha = ? AND repair_pending = 1`,
-    )
-    .run(now, headRepoKey(head), head.headSha).changes;
-  return ((pinnedReturn: boolean) => pinnedReturn)(Number(changes) > 0);
 }
 
 export function advanceHeadCiVersionForVerificationSignal(
