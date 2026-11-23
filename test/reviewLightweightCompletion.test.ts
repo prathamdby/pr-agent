@@ -3,12 +3,15 @@ vi.mock("../src/review/findingIdentity/threadMutationLock.ts", () => ({
   threadMutationLock: () => (apply: () => Promise<unknown>) => apply(),
 }));
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as v from "valibot";
 import { tryLightweightAutoReviewCompletion } from "../src/agentWork/reviewLightweightCompletion.ts";
-import type { AgentWorkItem } from "../src/agentWork/types.ts";
+import type { AgentWorkItem, WebhookHeaders } from "../src/agentWork/types.ts";
 import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.ts";
 import { createFakePrSurface } from "../src/github/prSurface.ts";
 import { LIGHTWEIGHT_REVIEW_COMPLETION_LEAD } from "../src/settings/index.ts";
-import { writePublishStep, workPublishRecord } from "../src/state/publish.ts";
+import { readRow } from "../src/state/db.ts";
+import { runDelivery } from "../src/state/intake.ts";
+import { sharedPublishRecord, writePublishStep, workPublishRecord } from "../src/state/publish.ts";
 
 vi.mock("../src/review/run/reviewRunMetrics.ts", () => ({
   snapshotReviewRunMetrics: vi.fn(() => null),
@@ -51,9 +54,9 @@ vi.mock("../src/review/publish/reviewSummaryComment.ts", () => ({
 
 import { snapshotReviewRunMetrics } from "../src/review/run/reviewRunMetrics.ts";
 
-function autoReviewItem(overrides: { headSha?: string } = {}) {
+function autoReviewItem(overrides: { headSha?: string; id?: string } = {}) {
   return ((pinnedReturn: AgentWorkItem) => pinnedReturn)({
-    id: "wi-1",
+    id: overrides.id ?? "wi-1",
     webhookEventId: "ev-1",
     type: "review",
     source: "auto",
@@ -260,6 +263,120 @@ describe("tryLightweightAutoReviewCompletion", () => {
       "<sub>abc123d ⋅ general ⋅ 2m ⋅ grok-4.5</sub>",
     );
     vi.useRealTimers();
+  });
+
+  it("starts a follow-up footer at the new run instead of the previous stub", async () => {
+    vi.useFakeTimers();
+    try {
+      const now = Date.parse("2026-07-22T12:10:00.000Z");
+      const previousHead = "1111111111111111111111111111111111111111";
+      const followUpHead = "abc123def456";
+      vi.setSystemTime(now);
+      vi.mocked(snapshotReviewRunMetrics).mockReturnValue({
+        startedAtMs: Date.parse("2026-07-22T12:08:00.000Z"),
+      } as ReturnType<typeof snapshotReviewRunMetrics>);
+      const target = sqliteReviewCoordination();
+      target.db
+        .prepare(`UPDATE work_runs SET status = 'completed' WHERE work_id = ?`)
+        .run(target.workItemId);
+      writePublishStep(target.db, {
+        workId: target.workItemId,
+        prKey: target.resourceKey,
+        reviewLens: "review",
+        step: "progress_comment",
+        githubId: 99,
+        detail: {
+          stubPostedAtMs: Date.parse("2026-07-22T12:00:00.000Z"),
+          progressRevision: 7,
+          headSha: previousHead,
+          progressGeneration: 4,
+        },
+      });
+      const headers: WebhookHeaders = {
+        delivery: "re-review-1",
+        event: "issue_comment",
+        rawBody: Buffer.from('{"d":"re-review-1"}'),
+      };
+      runDelivery(
+        target.db,
+        {
+          features: {
+            review: "auto",
+            reviewCadence: "once",
+            describe: "auto",
+            verification: "auto",
+            ask: "manual",
+            triage: "manual",
+          },
+        },
+        {
+          kind: "slash",
+          input: {
+            headers,
+            installationId: 42,
+            owner: "o",
+            repo: "r",
+            prNumber: 1,
+            commentId: 501,
+            commenterId: 11,
+            commenterLogin: "alice",
+            body: "/review",
+            command: "review",
+            replyTarget: { kind: "prConversation", prNumber: 1 },
+          },
+        },
+        Date.parse("2026-07-22T12:09:00.000Z"),
+      );
+      const followUp = readRow(
+        target.db
+          .prepare(
+            `SELECT work_id FROM work_runs
+             WHERE pr_key = ? AND kind = 'review' AND status = 'pending_dispatch'`,
+          )
+          .get(target.resourceKey),
+        v.object({ work_id: v.string() }),
+      );
+      if (followUp === undefined) throw new Error("follow-up review was not admitted");
+      const followUpId = followUp.work_id;
+      target.db
+        .prepare(`UPDATE work_runs SET status = 'running' WHERE work_id = ?`)
+        .run(followUpId);
+      const { surface, controls } = fakeSurface();
+      await tryLightweightAutoReviewCompletion(
+        { ...target, workItemId: followUpId },
+        {
+          item: autoReviewItem({ headSha: followUpHead, id: followUpId }),
+          reviewLens: "review",
+          prSurface: surface,
+          model: "grok-4.5",
+          isCurrent: () => currentWork,
+          checkFailSeverity: "P2",
+          preflight: {
+            files: [{ filename: "README.md" }],
+            truncated: false,
+            fileCount: 1,
+            totalChanges: 1,
+          },
+        },
+      );
+      const upsert = controls.events.find((event) => event.kind === "upsertProgressComment");
+      expect(upsert?.kind === "upsertProgressComment" && upsert.body).toContain(
+        "<sub>abc123d ⋅ general ⋅ 2m ⋅ grok-4.5</sub>",
+      );
+      const stored = sharedPublishRecord(
+        target.db,
+        target.resourceKey,
+        "review",
+        "progress_comment",
+      );
+      expect(stored?.workId).toBe(followUpId);
+      expect(stored?.githubId).toBe(99);
+      expect(stored?.detail.headSha).toBe(previousHead);
+      expect(stored?.detail.progressGeneration).toBe(5);
+      expect(stored?.detail.stubPostedAtMs).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("submits an APPROVE review after a published docs-only summary", async () => {
