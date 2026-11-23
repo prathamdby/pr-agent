@@ -395,8 +395,11 @@ comment from their `operation-intent` markers instead of posting duplicates.
      second process on the same volume fails fast, for example
      `docker compose run --rm --no-deps pr-agent node dist/index.js` exits with
      "Another pr-agent process holds the SQLite writer lock".
-6. **Replay the freeze window before opening live `/webhooks`.** Redeliver
-   every delivery GitHub recorded as failed during the freeze
+6. **Replay the freeze window before opening live `/webhooks`.** Admit the
+   replay set through the frozen ingress first, for example an ingress rule
+   that proxies requests whose `X-GitHub-Delivery` header matches the selected
+   delivery GUIDs to `127.0.0.1:7224` while the catch-all `503` stays. Then
+   redeliver every delivery GitHub recorded as failed during the freeze
    (`delivered_at >= freezeStart`, `status_code` 503, 0, or 5xx, not already
    redelivered successfully) through the App's Deliveries API or the App's
    Advanced webhook deliveries page, oldest first, and wait for each to come
