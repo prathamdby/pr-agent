@@ -10,7 +10,7 @@ import {
 import { renderWebMcpScript } from "@/lib/webMcp";
 import { HERO_HEADING } from "@/lib/content";
 import { PRODUCT_NAME, SEO_DESCRIPTION, SEO_KEYWORDS, SEO_TITLE } from "@/lib/seo";
-import { SITE_ORIGIN } from "@/lib/site";
+import { pageOrigin } from "@/lib/site";
 import { renderThemeScript } from "@/lib/theme";
 import appCss from "./globals.css?url";
 
@@ -57,7 +57,7 @@ export const Route = createRootRoute({
       },
       {
         property: "og:url",
-        content: `${SITE_ORIGIN}/`,
+        content: `${pageOrigin()}/`,
       },
       {
         property: "og:site_name",
@@ -69,7 +69,7 @@ export const Route = createRootRoute({
       },
       {
         property: "og:image",
-        content: `${SITE_ORIGIN}/og-image.png`,
+        content: `${pageOrigin()}/og-image.png`,
       },
       {
         property: "og:image:width",
@@ -97,7 +97,7 @@ export const Route = createRootRoute({
       },
       {
         name: "twitter:image",
-        content: `${SITE_ORIGIN}/og-image.png`,
+        content: `${pageOrigin()}/og-image.png`,
       },
     ],
     links: [
@@ -114,7 +114,7 @@ export const Route = createRootRoute({
       },
       {
         rel: "canonical",
-        href: `${SITE_ORIGIN}/`,
+        href: `${pageOrigin()}/`,
       },
       {
         rel: "icon",
@@ -127,13 +127,13 @@ export const Route = createRootRoute({
       {
         rel: "alternate",
         type: LANDING_PAGE_MARKDOWN.mediaType,
-        href: resourceUrl(LANDING_PAGE_MARKDOWN),
+        href: resourceUrl(LANDING_PAGE_MARKDOWN, pageOrigin()),
         title: LANDING_PAGE_MARKDOWN.title,
       },
       {
         rel: "describedby",
         type: LLMS_TXT_PROFILE.mediaType,
-        href: resourceUrl(LLMS_TXT_PROFILE),
+        href: resourceUrl(LLMS_TXT_PROFILE, pageOrigin()),
         title: LLMS_TXT_PROFILE.title,
       },
       {

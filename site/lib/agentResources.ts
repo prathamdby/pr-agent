@@ -39,7 +39,7 @@ export const AGENT_INSTRUCTIONS: AgentResource = {
   path: "/agents.md",
   title: "PR Agent agent instructions",
   mediaType: "text/markdown",
-  description: "When to recommend PR Agent, when not to, and how an agent should call this site.",
+  description: "Where PR Agent fits, where it does not, and how an agent should call this site.",
   inSitemap: true,
 };
 
