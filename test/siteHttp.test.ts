@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { requestOrigin, SITE_ORIGIN } from "../site/lib/site.ts";
+import { jsonLdGraphs } from "../site/lib/seo.ts";
+import { pageOrigin, requestOrigin, SITE_ORIGIN } from "../site/lib/site.ts";
 import {
   AI_CATALOG,
   API_CATALOG,
@@ -356,6 +357,7 @@ describe("content revision validators", () => {
     expect(fresh?.status).toBe(304);
     expect(await fresh?.text()).toBe("");
     expect(fresh?.headers.get("Last-Modified")).toBe(lastModified);
+    expect(fresh?.headers.get("X-Content-Type-Options")).toBe("nosniff");
     expect(fresh?.headers.get("X-Frame-Options")).toBe("DENY");
     expect(fresh?.headers.get("Content-Security-Policy-Report-Only")).toContain(
       "frame-ancestors 'none'",
@@ -415,6 +417,22 @@ describe("content revision validators", () => {
     await expectFresh304(sitemapResponse, "application/xml; charset=utf-8");
   });
 
+  it("keeps the report-only policy off document and discovery responses", () => {
+    const sniffed = [
+      homeMarkdownResponse(null),
+      llmsProfileResponse(),
+      openApiResponse(),
+      agentInstructionsResponse(),
+    ];
+    for (const response of [...sniffed, sitemapResponse()]) {
+      expect(response.headers.get("X-Frame-Options")).toBeNull();
+      expect(response.headers.get("Content-Security-Policy-Report-Only")).toBeNull();
+    }
+    for (const response of sniffed) {
+      expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    }
+  });
+
   it("304s /agents.md when the client already has that date", async () => {
     const first = agentInstructionsResponse();
     const second = agentInstructionsResponse({
@@ -451,6 +469,45 @@ describe("content revision validators", () => {
     );
     expect(requestOrigin(new Request("https://evil.example/sitemap.xml"))).toBe(SITE_ORIGIN);
     expect(requestOrigin(new Request(`${SITE_ORIGIN}/`))).toBe(new URL(SITE_ORIGIN).origin);
+  });
+
+  it("echoes loopback origins with their scheme and port", () => {
+    expect(requestOrigin(new Request("http://127.0.0.1:3000/robots.txt"))).toBe(
+      "http://127.0.0.1:3000",
+    );
+    expect(requestOrigin(new Request("http://[::1]:3000/sitemap.xml"))).toBe("http://[::1]:3000");
+    expect(requestOrigin(new Request("http://LOCALHOST:8080/robots.txt"))).toBe(
+      "http://localhost:8080",
+    );
+  });
+
+  it("rewrites trusted discovery hosts to https and keeps the port", () => {
+    expect(requestOrigin(new Request("http://foo.vercel.app:8443/robots.txt"))).toBe(
+      "https://foo.vercel.app:8443",
+    );
+    expect(requestOrigin(new Request("http://VerCel.App/sitemap.xml"))).toBe("https://vercel.app");
+    expect(requestOrigin(new Request("http://x.vercel.app.evil.example/"))).toBe(SITE_ORIGIN);
+  });
+
+  it("answers the build origin on the server, where no canonical exists yet", () => {
+    expect(pageOrigin()).toBe(SITE_ORIGIN);
+  });
+
+  it("threads the rendered origin through the JSON-LD graph", () => {
+    const origin = "https://preview.example";
+    const graphs = jsonLdGraphs(origin);
+    expect(graphs[0]).toMatchObject({
+      "@type": "SoftwareApplication",
+      url: origin,
+      screenshot: `${origin}/og-image.png`,
+    });
+    expect(graphs[1]).toMatchObject({
+      "@type": "WebSite",
+      url: origin,
+      potentialAction: {
+        target: { urlTemplate: `${origin}/llms?query={search_term_string}` },
+      },
+    });
   });
 
   it("serves https locs to a preview deployment that reports http", async () => {

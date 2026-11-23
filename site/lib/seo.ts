@@ -1,7 +1,7 @@
 import contentRevision from "../content-revision.json" with { type: "json" };
-import { KNOWLEDGE_QUERY_TEXT } from "@/lib/agentResources";
-import { ALTERNATIVE_ROWS, FAQ_ITEMS, FEATURES } from "@/lib/content";
-import { REPO_URL } from "@/lib/site";
+import { KNOWLEDGE_QUERY_TEXT } from "./agentResources.ts";
+import { ALTERNATIVE_ROWS, FAQ_ITEMS, FEATURES } from "./content.ts";
+import { REPO_URL } from "./site.ts";
 
 export const PRODUCT_NAME = "PR Agent";
 

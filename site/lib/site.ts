@@ -24,7 +24,7 @@ export const SITE_ORIGIN = resolveSiteOrigin();
 function loopbackHost(hostname: string) {
   const host = hostname.toLowerCase();
   return ((pinnedReturn: boolean) => pinnedReturn)(
-    host === "localhost" || host === "127.0.0.1" || host === "::1",
+    host === "localhost" || host === "127.0.0.1" || host === "[::1]",
   );
 }
 
