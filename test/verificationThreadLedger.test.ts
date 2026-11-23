@@ -3,10 +3,7 @@ import {
   parseVerificationThreadLedger,
   upsertVerificationThreadState,
 } from "../src/agentWork/verificationThreadLedger.ts";
-import {
-  loadVerificationThreadLedger,
-  saveVerificationThreadLedger,
-} from "../src/state/verificationThreadLedger.ts";
+import { loadVerificationThreadLedger } from "../src/state/verificationThreadLedger.ts";
 import {
   openExecutorDurableHarness,
   type ExecutorDurableHarness,
@@ -130,27 +127,6 @@ describe("verificationThreadLedger", () => {
     });
     expect(next.threads["1"]?.stubCommentId).toBe(1);
     expect(next.threads["2"]?.terminal).toBe(true);
-  });
-
-  it("round-trips a failure signal through save and load", async () => {
-    const ledger = {
-      threads: { "10": { lastVerdict: "skipped" as const } },
-      failureSignal: {
-        headSha: "a".repeat(40),
-        commentId: 88,
-        surface: "ci_cell" as const,
-      },
-    };
-
-    saveVerificationThreadLedger(harness.db, {
-      workId: "wi-1",
-      resourceKey: "o/r#1",
-      ledger,
-    });
-    const loaded = loadVerificationThreadLedger(harness.db, { resourceKey: "o/r#1" });
-
-    expect(loaded.failureSignal).toEqual(ledger.failureSignal);
-    expect(loaded.threads["10"]?.lastVerdict).toBe("skipped");
   });
 
   it("keeps a thread that has no objections and round-trips one entry", async () => {

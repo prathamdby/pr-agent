@@ -67,11 +67,6 @@ export type PublishWorkSpan = WorkSpanBase & {
   readonly publishStep: string;
 };
 
-export type CheckpointWorkSpan = WorkSpanBase & {
-  readonly kind: "phase_checkpoint";
-  readonly phase: string;
-};
-
 export type SpecialistWorkSpan = WorkSpanBase & {
   readonly kind: "specialist_span";
   readonly phase: "specialist";
@@ -86,7 +81,7 @@ export type SpecialistWorkSpan = WorkSpanBase & {
   readonly deadlineHit?: boolean;
 };
 
-export type WorkSpan = LlmWorkSpan | PublishWorkSpan | CheckpointWorkSpan | SpecialistWorkSpan;
+export type WorkSpan = LlmWorkSpan | PublishWorkSpan | SpecialistWorkSpan;
 
 export function newSpanId() {
   return ((pinnedReturn: string) => pinnedReturn)(randomUUID());
@@ -147,19 +142,6 @@ export function projectWorkSpanToAgentEventRow(context: WorkSpanContext, span: W
         ok: !span.isError,
         failureCode: span.errorReason ?? null,
         detail: { ...detail, publishStep: span.publishStep },
-      });
-    case "phase_checkpoint":
-      return ((pinnedReturn: AgentEventInsertRow) => pinnedReturn)({
-        workItemId: context.workItemId,
-        installationId: context.installationId,
-        owner: context.owner,
-        repo: context.repo,
-        prNumber: context.prNumber,
-        eventKind: "checkpoint",
-        phase: span.phase,
-        ok: !span.isError,
-        failureCode: span.errorReason ?? null,
-        detail,
       });
     case "specialist_span":
       return ((pinnedReturn: AgentEventInsertRow) => pinnedReturn)({

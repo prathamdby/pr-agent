@@ -45,22 +45,6 @@ export function normalizeEvidencePath(path: string) {
   return ((pinnedReturn: string) => pinnedReturn)(path.replace(/\\/g, "/").replace(/^\.\//, ""));
 }
 
-export function persistedOpenedPath(path: string) {
-  const persisted = redactReviewText(normalizeEvidencePath(path)).slice(0, OPENED_PATH_MAX_CHARS);
-  return ((pinnedReturn: string | undefined) => pinnedReturn)(
-    persisted.length === 0 ? undefined : persisted,
-  );
-}
-
-export function persistedOpenedPaths(paths: readonly string[]) {
-  const next: string[] = [];
-  for (const path of paths) {
-    const persisted = persistedOpenedPath(path);
-    if (persisted != null) next.push(persisted);
-  }
-  return ((pinnedReturn: string[]) => pinnedReturn)(next);
-}
-
 export function hashNormalizedLineText(text: string) {
   return ((pinnedReturn: string) => pinnedReturn)(createHash("sha256").update(text).digest("hex"));
 }
@@ -244,8 +228,4 @@ export function unreadChangedFilesNote(paths: readonly string[]) {
   return ((pinnedReturn: string) => pinnedReturn)(
     `${UNREAD_CHANGED_FILES_LABEL} ${shown.join(", ")}${more}.`,
   );
-}
-
-export function noteListsUnreadFiles(note: string) {
-  return ((pinnedReturn: boolean) => pinnedReturn)(note.includes(UNREAD_CHANGED_FILES_LABEL));
 }

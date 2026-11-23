@@ -45,14 +45,6 @@ export function clampToModelSupportedLevel(
   );
 }
 
-export const ORCHESTRATOR_SESSION_PHASES: readonly AgentSessionPhase[] = [
-  "recon",
-  "judgment",
-  "synthesis",
-  "validation_repair",
-  "publish_recovery",
-];
-
 export function resolveThinkingLevel(params: {
   readonly policy: ThinkingPolicy;
   readonly phase: AgentSessionPhase;

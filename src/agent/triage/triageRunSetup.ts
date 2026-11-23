@@ -9,18 +9,16 @@ import {
   createTriageWorkspaceToolState,
   type TriageWorkspaceToolState,
 } from "./triageWorkspaceTools.ts";
-import {
-  buildSubmitTriageTool,
-  createSubmitTriageState,
-  type SubmitTriageState,
-} from "./submitTriageTool.ts";
+import { buildSubmitTriageTool } from "./submitTriageTool.ts";
+import type { TriagePayload } from "../../review/triageSchema.ts";
+import { createIdleSubmitState, type IdleSubmitState } from "../tools/submitState.ts";
 
 export type TriageRunSetup = {
   readonly systemPrompt: string;
   readonly userContent: string;
   readonly piTools: PiTool[];
   readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
-  readonly submitState: SubmitTriageState;
+  readonly submitState: IdleSubmitState<TriagePayload>;
   readonly workspaceState: TriageWorkspaceToolState;
 };
 
@@ -39,7 +37,7 @@ export function buildTriageRunSetup(params: {
   readonly scope?: TriageScope;
 }) {
   const workspaceState = createTriageWorkspaceToolState();
-  const submitState = createSubmitTriageState();
+  const submitState = createIdleSubmitState<TriagePayload>();
   const workspaceTools = buildTriageWorkspaceTools({
     cfg: params.cfg,
     checkout: params.checkout,

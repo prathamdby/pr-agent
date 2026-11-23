@@ -146,7 +146,6 @@ export type ReviewPublishContext = {
   repo: string;
   prNumber: number;
   headSha: string;
-  hasDescriptionReviewMap: boolean;
 };
 
 const BASE_TYPE_ISSUE_TYPES = new Set([

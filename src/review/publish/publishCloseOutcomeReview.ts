@@ -151,7 +151,7 @@ export async function publishReviewVerdictEvent(params: VerdictEventParams) {
     if (submitted === "COMMENT") await dismissStandingVerdicts(params.prSurface);
     return;
   }
-  const reviewLens = ("reviewLens" in params ? params.reviewLens : undefined) ?? "review";
+  const reviewLens = params.reviewLens ?? "review";
   const operationKey = params.operationKey ?? reviewVerdictReviewOperationKey(target.workItemId);
   const operationMarker = operationIntentMarker(operationKey, target.workItemId);
   const rediscovered = await ensureRediscoveredStandingReview(target.db, params.prSurface, {

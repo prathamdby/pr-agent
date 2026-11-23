@@ -88,54 +88,6 @@ async function sharedProgressCommentScenarios(surface: PrSurface) {
 }
 
 describe("PrSurface seam", () => {
-  it.each([false, true])(
-    "reads verdict statuses without Checks and refuses incomplete status evidence (%s)",
-    async (incomplete) => {
-      const policy = createReviewCapabilityPolicy(
-        installationCapabilitiesFromPermissions({
-          scope: { appId: "1", installationId: 42, owner: "o", repo: "r" },
-          generation: "1",
-          permissions: { statuses: "read" },
-        }),
-      );
-      const getCombinedStatusForRef = vi.fn(async () => ({
-        data: {
-          statuses: Array.from({ length: incomplete ? 100 : 1 }, (_, index) => ({
-            context: index === 0 ? "pr-agent/review" : `ci-${index}`,
-            state: "success",
-            description: "accepted",
-            target_url: null,
-            updated_at: "2026-10-03T00:00:00Z",
-            created_at: "2026-10-03T00:00:00Z",
-          })),
-        },
-      }));
-      const listForRef = vi.fn();
-      vi.mocked(installationOctokit).mockReturnValue({
-        rest: { repos: { getCombinedStatusForRef }, checks: { listForRef } },
-      } as never);
-      const surface = createPrSurface({
-        mutationBoundary: unfencedSurface(),
-        cfg: makeTestConfig(),
-        installationId: 42,
-        owner: "o",
-        repo: "r",
-        prNumber: 5,
-        installation: { token: "seed", expiresAtTs: Date.now() + 3_600_000, ttlMs: 3_600_000 },
-        capabilities: policy,
-      });
-      const statuses = surface.getReviewCommitStatuses?.("head");
-      if (incomplete) {
-        await expect(statuses).rejects.toMatchObject({ code: "github.preflight_unavailable" });
-      } else {
-        await expect(statuses).resolves.toEqual([
-          expect.objectContaining({ context: "pr-agent/review", state: "success" }),
-        ]);
-      }
-      expect(listForRef).not.toHaveBeenCalled();
-    },
-  );
-
   it("permits real head and identity reads but blocks new publication with revoked write grants", async () => {
     const policy = createReviewCapabilityPolicy(
       installationCapabilitiesFromPermissions({

@@ -1,4 +1,3 @@
-export { CODEMODE_TOOL_NAME } from "@earendil-works/pi-durable/codemode";
 import { errorMessage } from "../../../errors/errorMessage.ts";
 
 export const CODE_MODE_ERROR_CODES = [

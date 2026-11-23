@@ -21,14 +21,6 @@ import {
 import { automatedQualitySystemPrompt } from "../src/prompts/quality/prompt.ts";
 import { automatedReviewTestsSystemPrompt } from "../src/prompts/tests/prompt.ts";
 import { automatedSecuritySystemPrompt } from "../src/prompts/security/prompt.ts";
-import {
-  COMPACTION_CUSTOM_INSTRUCTIONS,
-  COMPACTION_SUMMARY_PREFIX,
-  COMPACTION_SUMMARY_SUFFIX,
-  SUMMARIZATION_PROMPT,
-  SUMMARIZATION_SYSTEM_PROMPT,
-  renderCompactionUserPrompt,
-} from "../src/prompts/compaction/prompt.ts";
 import type { Config } from "../src/settings/index.ts";
 import type { LocalPrWorkspace } from "../src/prWorkspace/localPrWorkspace.ts";
 import type { WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.ts";
@@ -89,15 +81,11 @@ import {
   buildTriageWorkspaceTools,
   createTriageWorkspaceToolState,
 } from "../src/agent/triage/triageWorkspaceTools.ts";
-import {
-  buildSubmitTriageTool,
-  createSubmitTriageState,
-} from "../src/agent/triage/submitTriageTool.ts";
+import { buildSubmitTriageTool } from "../src/agent/triage/submitTriageTool.ts";
+import { createIdleSubmitState } from "../src/agent/tools/submitState.ts";
+import type { TriagePayload, VerificationPayload } from "../src/review/triageSchema.ts";
 import { buildWorkspaceTools } from "../src/agent/runtime/durable/piTools.ts";
-import {
-  buildSubmitVerificationTool,
-  createSubmitVerificationState,
-} from "../src/agent/verification/submitVerificationTool.ts";
+import { buildSubmitVerificationTool } from "../src/agent/verification/submitVerificationTool.ts";
 import type { AskRunParams } from "../src/agent/ask/askRunTypes.ts";
 import {
   commentThreadGroups,
@@ -275,7 +263,7 @@ async function dumpAll() {
     inventory: [],
     checkout,
     workspaceState,
-    submitState: createSubmitTriageState(),
+    submitState: createIdleSubmitState<TriagePayload>(),
   }).piTool;
   const verificationWorkspace = buildWorkspaceTools({
     profile: "verification",
@@ -285,7 +273,7 @@ async function dumpAll() {
     ...ctx,
     inventory: [],
     pushedShas: [],
-    submitState: createSubmitVerificationState(),
+    submitState: createIdleSubmitState<VerificationPayload>(),
   }).piTool;
   return {
     systems: {
@@ -331,13 +319,6 @@ async function dumpAll() {
       recon: ORCHESTRATOR_RECON_INSTRUCTION,
       judgment: prompts["judgment-turn"],
       ...dumpExtraTurns(),
-    },
-    compaction: {
-      system: SUMMARIZATION_SYSTEM_PROMPT,
-      user: SUMMARIZATION_PROMPT,
-      customInstructions: COMPACTION_CUSTOM_INSTRUCTIONS,
-      summaryPrefix: COMPACTION_SUMMARY_PREFIX,
-      summarySuffix: COMPACTION_SUMMARY_SUFFIX,
     },
     users: dumpUsers(),
     context: dumpContext(),
@@ -839,8 +820,6 @@ function dumpExtraTurns() {
     }),
     reconUser: renderOrchestratorReconTurn(sampleUntrusted),
     reconUserMinimal: renderOrchestratorReconTurn(""),
-    compactionUser: renderCompactionUserPrompt(sampleRepairError),
-    compactionUserMinimal: renderCompactionUserPrompt(""),
   };
 }
 

@@ -64,7 +64,6 @@ const baseTestConfig: Config = {
   },
   provider: { promptTimeoutMs: 300_000, retryMax: 2, maxRetryDelayMs: 60_000 },
   agentEvents: { enabled: true, retentionSeconds: 0 },
-  codeMode: { executorKind: "in_process" },
   review: {
     specialistTimeoutMs: 900_000,
     testsEvidence: false,
@@ -123,7 +122,6 @@ export function makeTestConfig(overrides: TestConfigOverrides = {}) {
     },
     provider: { ...base.provider, ...overrides.provider },
     agentEvents: { ...base.agentEvents, ...overrides.agentEvents },
-    codeMode: { ...base.codeMode, ...overrides.codeMode },
     review: { ...base.review, ...overrides.review },
     concurrency: { ...base.concurrency, ...overrides.concurrency },
     ask: { ...base.ask, ...overrides.ask },

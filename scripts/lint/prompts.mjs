@@ -18,7 +18,6 @@ export const PROMPT_ROLES = [
   "description",
   "ci",
   "judge",
-  "compaction",
 ];
 
 export const PROMPT_SECTIONS = [

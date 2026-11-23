@@ -56,12 +56,6 @@ export function cacheIdentityFromAssignment(
 const ANTHROPIC_CACHE_MARKER_LIMIT = 4;
 const CLAUDE_CODE_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude.";
 
-export function systemPromptStartsWithSpecialistPrefix(systemPrompt: string) {
-  return ((pinnedReturn: boolean) => pinnedReturn)(
-    specialistSharedPrefix.length > 0 && systemPrompt.startsWith(specialistSharedPrefix),
-  );
-}
-
 export function specialistSharedCacheId(identity: AgentSessionCacheIdentity) {
   return ((pinnedReturn: string) => pinnedReturn)(
     sessionCacheIdFromIdentity({ ...identity, specialistId: "shared" }),

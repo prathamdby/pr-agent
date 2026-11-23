@@ -4,11 +4,7 @@ import { logDebug, logWarn } from "../evlog.ts";
 import { mintInstallationToken, isInstallationTokenNearExpiry } from "./installationToken.ts";
 import { downloadActionsJobLogs, listFailingActionsJobsForHead } from "./actionsLogs.ts";
 import { listCommitCompareFiles } from "./compareCommitFiles.ts";
-import {
-  readCiStatusSources,
-  listPullsForHead,
-  listLegacyCommitStatusesForHeadDetailed,
-} from "./ciStatus.ts";
+import { readCiStatusSources, listPullsForHead } from "./ciStatus.ts";
 import { fetchPullRequestFiles, type PullRequestForFileList } from "./listPullRequestFiles.ts";
 import { isDuplicateCheckRunCreationError } from "./githubErrors.ts";
 import { httpStatus } from "./httpStatus.ts";
@@ -784,25 +780,6 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams) {
       });
     },
 
-    async getReviewCommitStatuses(headSha) {
-      const { token, expiresAtTs } = await ensureAuth();
-      const result = await listLegacyCommitStatusesForHeadDetailed(
-        token,
-        owner,
-        repo,
-        headSha,
-        expiresAtTs,
-      );
-      if (result.truncated) {
-        throw new AppError({
-          domain: "github",
-          kind: "preflight_unavailable",
-          message: "GitHub commit-status evidence is incomplete",
-        });
-      }
-      return result.legacyStatuses;
-    },
-
     async listPullsForHead(headSha) {
       const { token, expiresAtTs } = await ensureAuth();
       return listPullsForHead(token, owner, repo, headSha, expiresAtTs);
@@ -918,7 +895,6 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams) {
     ...surface,
     getHead: guard("pullRequestsRead", surface.getHead.bind(surface)),
     getHeadSha: guard("pullRequestsRead", surface.getHeadSha.bind(surface)),
-    getReviewCommitStatuses: guard("statusesRead", surface.getReviewCommitStatuses.bind(surface)),
     setAcknowledgementReaction: guard(
       "reactionsWrite",
       surface.setAcknowledgementReaction.bind(surface),

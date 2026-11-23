@@ -19,8 +19,8 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
 import {
   createAskPathGate,
+  redactEmailsInJson,
   redactPorcelainBlame,
-  sanitizeToolResultForAsk,
   type AskPathGate,
 } from "../../ask/askSafety.ts";
 import { pageChangedFiles } from "../../tools/changedFilePage.ts";
@@ -928,7 +928,7 @@ function buildInvestigationTools(
         limits.diffResponseBytes,
         "response byte budget exceeded",
       );
-      return sanitizeToolResultForAsk("getWorkspaceBlame", {
+      return redactEmailsInJson({
         path: normalized,
         blame: capped.content,
         truncated: capped.truncated,
@@ -1039,15 +1039,7 @@ function buildInvestigationTools(
   });
 }
 
-const workspaceExecutionModes = new Map<string, "sequential">();
-export function workspaceToolExecutionMode(name: string) {
-  return ((pinnedReturn: "sequential" | undefined) => pinnedReturn)(
-    workspaceExecutionModes.get(name),
-  );
-}
-
-export function defineToolset(tools: Record<string, LocalTool>, mode?: "sequential") {
-  if (mode) for (const name of Object.keys(tools)) workspaceExecutionModes.set(name, mode);
+export function defineToolset(tools: Record<string, LocalTool>) {
   return {
     piTools: Object.entries(tools).map(([name, tool]) => toPiTool(name, tool)),
     executors: Object.fromEntries(

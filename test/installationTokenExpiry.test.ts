@@ -4,7 +4,6 @@ import { TOKEN_FRESHNESS_BUFFER_MS } from "../src/settings/index.ts";
 import {
   installationCapabilitiesFromPermissions,
   createReviewCapabilityPolicy,
-  essentialCapabilitiesDenied,
 } from "../src/github/installationCapabilities.ts";
 
 describe("installationTokenExpiry", () => {
@@ -14,7 +13,6 @@ describe("installationTokenExpiry", () => {
       generation: "fresh",
       permissions: { contents: "read", pull_requests: "write" },
     });
-    expect(essentialCapabilitiesDenied(observation)).toEqual([]);
     expect(observation.availability.commentsWrite).toBe("available");
     expect(observation.availability.labelsWrite).toBe("available");
     expect(observation.availability.checksRead).toBe("denied");

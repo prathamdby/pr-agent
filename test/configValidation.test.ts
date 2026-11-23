@@ -36,7 +36,6 @@ describe("loadConfig validation", () => {
     expect(cfg.ask.installationMaxOutstanding).toBe(32);
     expect(cfg.ask.providerBudgetTokens).toBe(0);
     expect(cfg.ask.providerReservationTokens).toBe(16_384);
-    expect(cfg.codeMode.executorKind).toBe("in_process");
   });
 
   it("loads when retired trace, code index, and review recovery variables are set", async () => {

@@ -1,5 +1,5 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import { createIdleSubmitState } from "../tools/submitState.ts";
+import type { IdleSubmitState } from "../tools/submitState.ts";
 import { toToolParameters } from "../tools/toolParams.ts";
 import { AppError } from "../../errors/appError.ts";
 import { logDebug } from "../../evlog.ts";
@@ -17,18 +17,6 @@ import {
 import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.ts";
 import type { TriageWorkspaceToolState } from "./triageWorkspaceTools.ts";
 
-export type SubmitTriageState = {
-  submitted: boolean;
-  lastValidationError: string | null;
-  payload: TriagePayload | null;
-};
-
-export function createSubmitTriageState() {
-  return ((pinnedReturn: SubmitTriageState) => pinnedReturn)(
-    createIdleSubmitState<TriagePayload>(),
-  );
-}
-
 const SUBMIT_TRIAGE_PARAMETERS = toToolParameters(TriagePayloadSchema);
 
 export function buildSubmitTriageTool(params: {
@@ -38,7 +26,7 @@ export function buildSubmitTriageTool(params: {
   readonly inventory: readonly BotFindingThread[];
   readonly checkout: WritablePrCheckout;
   readonly workspaceState: TriageWorkspaceToolState;
-  readonly submitState: SubmitTriageState;
+  readonly submitState: IdleSubmitState<TriagePayload>;
 }) {
   const piTool: PiTool = {
     name: "submitTriage",

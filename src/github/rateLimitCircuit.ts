@@ -21,20 +21,6 @@ const circuitStore = new AsyncLocalStorage<RateLimitCircuit>();
 export const CIRCUIT_OPEN_TOOL_RESULT =
   "Rate-limit circuit open: further nonessential GitHub tools are blocked for this run. Prefer publish/submit tools with evidence already gathered.";
 
-export const ESSENTIAL_GITHUB_TOOL_NAMES: ReadonlySet<string> = new Set([
-  "publish_thread",
-  "publish_summary",
-  "submit_specialist_brief",
-  "submitVerification",
-  "submitTriage",
-  "submitDescription",
-]);
-
-export const GITHUB_API_TOOL_NAMES: ReadonlySet<string> = new Set([
-  ...ESSENTIAL_GITHUB_TOOL_NAMES,
-  "searchCode",
-]);
-
 export function createRateLimitCircuit(params: {
   readonly installationId: number;
   readonly threshold?: number;
@@ -113,10 +99,7 @@ export function noteGithubRequestSuccess() {
 export function shouldShortCircuitGithubTool(toolName: string) {
   const circuit = getActiveRateLimitCircuit();
   if (!circuit?.isOpen()) return ((pinnedReturn: boolean) => pinnedReturn)(false);
-  if (!GITHUB_API_TOOL_NAMES.has(toolName)) return ((pinnedReturn: boolean) => pinnedReturn)(false);
-  if (ESSENTIAL_GITHUB_TOOL_NAMES.has(toolName))
-    return ((pinnedReturn: boolean) => pinnedReturn)(false);
-  return ((pinnedReturn: boolean) => pinnedReturn)(true);
+  return ((pinnedReturn: boolean) => pinnedReturn)(toolName === "searchCode");
 }
 
 export function wrapExecutorsWithRateLimitCircuit(

@@ -1,5 +1,3 @@
-import { isCancelAbortError } from "../agent/providers/providerErrors.ts";
-import { isAppError } from "../errors/appError.ts";
 import { githubErrorMessage, isProvenInlineAnchorRejection } from "./githubErrors.ts";
 import { isKnownNoAcceptanceMutationError } from "./mutationErrorContract.ts";
 
@@ -75,21 +73,4 @@ export function isDefinitelyNoAcceptanceReviewError(error: unknown) {
   return ((pinnedReturn: boolean) => pinnedReturn)(
     isKnownNoAcceptanceMutationError(error) || isLineResolutionPublishError(error),
   );
-}
-
-export function publicationAttemptRejected(error: unknown) {
-  if (isCancelAbortError(error)) return ((pinnedReturn: boolean) => pinnedReturn)(false);
-  if (isAppError(error)) {
-    if (
-      error.code === "agent_work.pr_actor_lease_lost" ||
-      error.code === "operation_intent.mutation_gate_failed" ||
-      error.code === "operation_intent.mutation_conflict" ||
-      error.code === "operation_intent.mutation_outcome_unknown"
-    ) {
-      return ((pinnedReturn: boolean) => pinnedReturn)(false);
-    }
-    if (error.code === "operation_intent.mutation_failed")
-      return ((pinnedReturn: boolean) => pinnedReturn)(true);
-  }
-  return ((pinnedReturn: boolean) => pinnedReturn)(isDefinitelyNoAcceptanceReviewError(error));
 }

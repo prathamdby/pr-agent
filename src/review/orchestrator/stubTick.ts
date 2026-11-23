@@ -31,10 +31,6 @@ function summaryWriter(
   });
 }
 
-function tickWorkItemId(args: TickCoordination) {
-  return args.coordination.workItemId;
-}
-
 type TickProgressCommentBase = TickCoordination & {
   readonly owner: string;
   readonly repo: string;
@@ -82,7 +78,7 @@ export async function tickProgressComment(args: TickProgressCommentArgs) {
         ciVersion: rendered.version,
         tickState: args.tickState,
         progressRevision: args.progressRevision,
-        progressWorkItemId: tickWorkItemId(args),
+        progressWorkItemId: args.coordination.workItemId,
       }),
       hintCommentId: args.hintCommentId,
       ciHeadSha: args.headSha,
@@ -112,7 +108,7 @@ export async function writeCancelledProgressComment(args: WriteCancelledProgress
       body: renderReviewCancelledNotice({
         attribution: args.attribution,
         progressRevision: 7,
-        progressWorkItemId: tickWorkItemId(args),
+        progressWorkItemId: args.coordination.workItemId,
       }),
       hintCommentId: args.hintCommentId,
     });

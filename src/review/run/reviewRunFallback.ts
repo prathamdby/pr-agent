@@ -34,12 +34,23 @@ export async function publishReviewRunFailureNotice(params: {
     publishAttempts: params.publishAttempts,
     ...(params.lastFailure != null ? classifiedFailureLogFields(params.lastFailure) : {}),
   });
+  const failureNotice = { mode: params.reviewMode, retryCommand: "/review" };
+  const blankLine = "\n\n";
+  const findingsBudget =
+    REVIEW_SUMMARY_BODY_MAX_CHARS -
+    renderReviewFailureNotice(failureNotice).length -
+    blankLine.length;
   try {
     await createReviewSummaryComment({
       prSurface: params.setup.prSurface,
       reviewLens: params.reviewMode,
       coordination: params.summaryCoordination,
-    }).conclude({ body: renderFailureNoticeWithFindings(params.reviewMode, params.findingView) });
+    }).conclude({
+      body: renderReviewFailureNotice({
+        ...failureNotice,
+        findingsSection: renderFindingsSection(params.findingView, findingsBudget),
+      }),
+    });
   } catch (error) {
     logWarn("review_publish_fallback_comment_failed", {
       mode: params.reviewMode,
@@ -49,24 +60,4 @@ export async function publishReviewRunFailureNotice(params: {
       message: errorMessage(error),
     });
   }
-}
-
-export function renderFailureNoticeWithFindings(
-  mode: AnyReviewLens,
-  findingView: FindingView,
-  reservedChars = 0,
-) {
-  const notice = { mode, retryCommand: "/review" };
-  const blankLine = "\n\n";
-  const budget =
-    REVIEW_SUMMARY_BODY_MAX_CHARS -
-    renderReviewFailureNotice(notice).length -
-    blankLine.length -
-    reservedChars;
-  return ((pinnedReturn: string) => pinnedReturn)(
-    renderReviewFailureNotice({
-      ...notice,
-      findingsSection: renderFindingsSection(findingView, budget),
-    }),
-  );
 }

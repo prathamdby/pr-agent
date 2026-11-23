@@ -409,8 +409,6 @@ Operators using branch protection must replace required checks named `PR Agent S
 | `reviewProgressCancelledNote` / `reviewCancelLastError` / `reviewCancelAttributionForClosedPr` / `sanitizeGithubLogin` / `ReviewCancelAttribution` | Cancelled progress stub notice, work-item last_error, closed-PR attribution, and login sanitizer                                                      |
 | `REVIEW_PROGRESS_SOURCE_AUTO` / `REVIEW_PROGRESS_SOURCE_SLASH`                                                                                     | Progress table source labels                                                                                                                          |
 | `LIGHTWEIGHT_REVIEW_COMPLETION_*`                                                                                                                  | Docs-only auto-review skip copy                                                                                                                       |
-| `REVIEW_CHECK_RUN_RESERVATION_STALE_MS`                                                                                                            | 300000                                                                                                                                                |
-| `REVIEW_CHECK_RUN_WAIT_FOR_ID_MS` / `REVIEW_CHECK_RUN_WAIT_POLL_MS`                                                                                | 15000 / 100 — poll for a peer-started check run id before giving up                                                                                   |
 | `OWN_COMMIT_STATUS_CONTEXT`                                                                                                                        | `pr-agent/review` — own commit status context excluded from head CI facts                                                                             |
 | `CI_STATE_MAX_CHECKS`                                                                                                                              | 200 — max named checks stored on one `pr_head_ci_state` row; overflow drops the oldest other check                                                    |
 | `REVIEW_CI_SUMMARY_MAX_FAILURES`                                                                                                                   | 3 — max failing checks named in the facts-only CI headline                                                                                            |
@@ -441,7 +439,6 @@ Operators using branch protection must replace required checks named `PR Agent S
 | `MAX_INLINE_REVIEW_COMMENTS`                                                                                                                       | 50                                                                                                                                                    |
 | `MAX_THREAD_PUBLISH_CALLS`                                                                                                                         | 8 incremental COMMENT reviews per orchestrated run; the terminal close-outcome review is extra                                                        |
 | `REVIEW_FINALIZATION_WINDOW_MS`                                                                                                                    | 30000 reserved after model work for abort, durable writes, summary, checks, status, and labels                                                        |
-| `REVIEW_CANCEL_POLL_INTERVAL_MS`                                                                                                                   | 2000; how often a running attempt observes durable cancellation and aborts the host signal                                                            |
 | `REVIEW_SEVERITY_RANK`                                                                                                                             | P0–P3 ordering                                                                                                                                        |
 | Label prefixes                                                                                                                                     | `LABEL_REVIEW_SIZE_PREFIX`, `LABEL_SECURITY_CONCERN`, `LABEL_CATEGORY_PREFIX`                                                                         |
 | `REPO_POLICY_DIRNAME`                                                                                                                              | `.pr-agent` directory at checkout root                                                                                                                |
@@ -455,11 +452,12 @@ Operators using branch protection must replace required checks named `PR Agent S
 | `MAX_AGENT_INSTRUCTION_BYTES`                                                                                                                      | 65536 (aggregate content across accepted root files)                                                                                                  |
 | `MAX_AGENT_INSTRUCTION_FILE_BYTES`                                                                                                                 | 32768                                                                                                                                                 |
 
-`REVIEW_CANCEL_POLL_INTERVAL_MS` remains the cooperative signal-observation
-backstop. `publishOnce` also rereads the work run status and lane epoch inside
-the `reserved → mutating` transaction. This adds no knob and blocks new feature
-output when cancellation is visible. Cancellation notices and verdict cleanup
-keep their exemption; requests already in flight cannot be withdrawn.
+A running attempt observes durable cancellation through its abort signal and at
+each task-phase boundary (`attemptIsCurrent` rereads the work run and its
+attempt row). `publishOnce` also rereads the work run status and lane epoch
+inside the `reserved → mutating` transaction. This adds no knob and blocks new
+feature output when cancellation is visible. Cancellation notices and verdict
+cleanup keep their exemption; requests already in flight cannot be withdrawn.
 
 A failed stale review's pending replacement is cancelled even if its claim wins
 concurrently; the dispatcher's claim and the cancellation share one
@@ -519,8 +517,6 @@ An orchestrated review computes its hard return deadline from the attempt start 
 | `SESSION_TURN_RETRY_MAX`                     | 1 — Core `runAgentLoopContinue` after a retryable assistant error with no admitted tool from that turn                                                          |
 | `SESSION_TURN_RETRY_BASE_DELAY_MS`           | 250 — base delay before the first turn retry; doubles on each later retry                                                                                       |
 | `SESSION_OVERFLOW_COMPACT_MAX`               | 1 — compact-and-continue after a context-overflow assistant error; a second overflow is terminal                                                                |
-| `SPECIALIST_EXECUTE_NUDGE_AT`                | 3 identical `execute` results for one code. The next specialist request carries one nudge                                                                       |
-| `SPECIALIST_EXECUTE_STOP_AT`                 | 6 identical `execute` results for one code. That specialist's turn ends and a submitted report is kept. Other specialists continue                              |
 | `VALIDATION_REPAIR_ROUNDS`                   | 3                                                                                                                                                               |
 | `SUBMIT_ONLY_MAX_TOOL_ROUNDS`                | 2 per submit-only turn (repair, synthesis, summary recovery); not scaled by escalation                                                                          |
 | `PUBLISH_RECOVERY_ROUNDS`                    | 2 summary recovery sends                                                                                                                                        |
@@ -672,31 +668,15 @@ Pinned searches run on the fff host with `git grep` for the remainder; writable 
 
 ### Code Mode
 
-| Symbol                                 | Default                                                                                             |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `CODE_MODE_INTERRUPT_CHECKS`           | 250000                                                                                              |
-| `CODE_MODE_CPU_BUDGET_MS`              | 2000                                                                                                |
-| `CODE_MODE_MAX_TOOL_CALLS`             | 25                                                                                                  |
-| `CODE_MODE_HOST_IN_FLIGHT`             | 4                                                                                                   |
-| `CODE_MODE_TIMEOUT_MS`                 | 15000                                                                                               |
-| `CODE_MODE_SERIALIZE_MAX_DEPTH`        | 8                                                                                                   |
-| `CODE_MODE_SERIALIZE_MAX_ARRAY_LENGTH` | 100                                                                                                 |
-| `CODE_MODE_SERIALIZE_MAX_STRING_BYTES` | 32768                                                                                               |
-| `CODE_MODE_MAX_STRING_REPEAT`          | 65536                                                                                               |
-| `CODE_MODE_MAX_ARRAY_ALLOCATION`       | 65536                                                                                               |
-| `CODE_MODE_MAX_SOURCE_BYTES`           | 65536                                                                                               |
-| `CODE_MODE_STATE_MAX_BYTES`            | 65536                                                                                               |
-| `CODE_MODE_HOST_TO_GUEST_MAX_BYTES`    | 262144                                                                                              |
-| `CODE_MODE_MAX_OUTPUT_BYTES`           | 262144                                                                                              |
-| `CODE_MODE_GUEST_HEAP_BYTES`           | 8388608                                                                                             |
-| `CODE_MODE_GUEST_STACK_BYTES`          | 524288                                                                                              |
-| `CODE_MODE_PENDING_JOBS_PER_PUMP`      | 64                                                                                                  |
-| `CODE_MODE_EXECUTOR_POOL_SIZE`         | 2                                                                                                   |
-| `CODE_MODE_EXECUTOR_QUEUE_LENGTH`      | 8                                                                                                   |
-| `CODE_MODE_EXECUTOR_QUEUE_WAIT_MS`     | 10000                                                                                               |
-| `CODE_MODE_EXECUTOR_KINDS`             | `worker_threads` \| `in_process`. `Config.codeMode.executorKind` (`src/settings/slices/service.ts`) |
+| Symbol                                 | Default |
+| -------------------------------------- | ------- |
+| `CODE_MODE_MAX_TOOL_CALLS`             | 25      |
+| `CODE_MODE_HOST_IN_FLIGHT`             | 4       |
+| `CODE_MODE_SERIALIZE_MAX_ARRAY_LENGTH` | 100     |
+| `CODE_MODE_SERIALIZE_MAX_STRING_BYTES` | 32768   |
+| `CODE_MODE_HOST_TO_GUEST_MAX_BYTES`    | 262144  |
 
-Review, ask, and verification expose one model-visible `execute` tool. Scripts call canonical workspace capabilities as `tools.*`. Terminal submit and publish tools stay native siblings. Each cell runs in QuickJS WASM with an interrupt and an 80ms guest CPU budget. `Config.codeMode.executorKind` is `worker_threads` for compiled production and `in_process` for TypeScript sources (Vitest, dev); callers pass it down as a parameter. The interpreter does not use `eval`, V8 isolates, or native add-ons. `CODE_MODE_MAX_STRING_REPEAT` also caps `+` concatenation. `CODE_MODE_MAX_ARRAY_ALLOCATION` also caps `Array.from`.
+Review, ask, and verification expose one model-visible `execute` tool. Scripts call canonical workspace capabilities as `tools.*`. Terminal submit and publish tools stay native siblings. Each call is one QuickJS cell in the `@earendil-works/pi-codemode` runtime: fresh context, the last expression returns, and `fetch`, `require`, `import`, `process`, `fs`, and timers are unavailable.
 
 ### Removed settings
 
@@ -720,7 +700,6 @@ settings, not barrel exports.
 | `WEBHOOK_MAX_BODY_BYTES`                            | 25000000 (GitHub payload cap)                                          |
 | `WEBHOOK_TIMEOUT_MS`                                | 10000 (intake 503 budget)                                              |
 | `LOG_MAX_WIDE_EVENTS`                               | 128                                                                    |
-| `HEALTH_DB_PING_TIMEOUT_MS`                         | 2000 (`/health` and `/ready` app_state ping budget)                    |
 | `ANALYTICS_SHUTDOWN_TIMEOUT_MS`                     | 5000 (PostHog flush bound during shutdown, inside `SHUTDOWN_GRACE_MS`) |
 
 Prompt prose lives in `src/prompts/shared/` and `src/prompts/<role>/prompt.ts`, including review personas and description prose.

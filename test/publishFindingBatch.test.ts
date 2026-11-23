@@ -151,7 +151,6 @@ function batchContext(
       repo: "r",
       prNumber: 1,
       headSha: "abc1234",
-      hasDescriptionReviewMap: false,
     },
     workItemId: "wi-1",
     resolveProgressCommentUrl: async () => PROGRESS_COMMENT_URL,

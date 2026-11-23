@@ -32,29 +32,6 @@ export function currentOperationIntentKey() {
   );
 }
 
-function askOperationKey(
-  kind: "reply" | "failure_reply",
-  resourceKey: string,
-  targetCommentId?: number,
-) {
-  const base = `ask:${kind}:${resourceKey}`;
-  return ((pinnedReturn: string) => pinnedReturn)(
-    targetCommentId == null ? base : `${base}:${targetCommentId}`,
-  );
-}
-
-export function askReplyOperationKey(resourceKey: string, targetCommentId?: number) {
-  return askOperationKey("reply", resourceKey, targetCommentId);
-}
-
-export function askFailureReplyOperationKey(resourceKey: string, targetCommentId?: number) {
-  return askOperationKey("failure_reply", resourceKey, targetCommentId);
-}
-
-export function descriptionPrBodyOperationKey(resourceKey: string) {
-  return ((pinnedReturn: string) => pinnedReturn)(`description:pr_body:${resourceKey}`);
-}
-
 export function reviewInlineBatchOperationKey(batchId: string) {
   return ((pinnedReturn: string) => pinnedReturn)(`review:inline:${batchId}`);
 }
@@ -82,38 +59,6 @@ export function reviewDuplicateOperationKey(step: {
 
 export function reviewSummaryOperationKey(resourceKey: string, reviewLens: string) {
   return ((pinnedReturn: string) => pinnedReturn)(`review:summary:${reviewLens}:${resourceKey}`);
-}
-
-export function triagePushOperationKey(resourceKey: string) {
-  return ((pinnedReturn: string) => pinnedReturn)(`triage:push:${resourceKey}`);
-}
-
-export function triageThreadOperationKey(rootCommentId: number) {
-  return ((pinnedReturn: string) => pinnedReturn)(`triage:thread:${rootCommentId}`);
-}
-
-export function triageReportOperationKey(resourceKey: string) {
-  return ((pinnedReturn: string) => pinnedReturn)(`triage:report:${resourceKey}`);
-}
-
-export function triagePreviewOperationKey(resourceKey: string) {
-  return ((pinnedReturn: string) => pinnedReturn)(`triage:preview:${resourceKey}`);
-}
-
-export function verificationThreadOperationKey(rootCommentId: number) {
-  return ((pinnedReturn: string) => pinnedReturn)(`verification:thread:${rootCommentId}`);
-}
-
-export function verificationObjectionAnswerOperationKey(
-  rootCommentId: number,
-  objectionCommentId: number,
-  updatedAt: string,
-) {
-  const digest = crypto.createHash("sha256").update(updatedAt).digest("hex");
-  const revision = digest.slice(0, 16);
-  return ((pinnedReturn: string) => pinnedReturn)(
-    `verification:objection:${rootCommentId}:${objectionCommentId}:${revision}`,
-  );
 }
 
 export function reviewCheckOperationKey(workItemId: string) {
@@ -691,81 +636,6 @@ export async function publishOnce(requested: PublishOnceParams<unknown>) {
   return ((pinnedReturn: unknown) => pinnedReturn)(finishPublish(params, result, nowOf()));
 }
 
-export function resolveRecoverableIntent(
-  db: DatabaseSync,
-  intent: PublishIntentRow,
-  resolution: { readonly found: true; readonly value: unknown } | { readonly found: false },
-  now: number,
-) {
-  immediate(db, () => {
-    db.prepare(
-      `UPDATE publish_intents SET state = ?, result_json = ?, updated_at = ?
-        WHERE intent_key = ? AND state IN ('mutating', 'outcome_unknown_recoverable')`,
-    ).run(
-      resolution.found ? "reconciled" : "outcome_unknown_terminal",
-      resolution.found
-        ? JSON.stringify(resolution.value === undefined ? null : resolution.value)
-        : null,
-      now,
-      intent.intent_key,
-    );
-  });
-}
-
-export function failIntentClosed(db: DatabaseSync, intent: PublishIntentRow, now: number) {
-  immediate(db, () => {
-    db.prepare(
-      `UPDATE publish_intents SET state = 'outcome_unknown_terminal', updated_at = ?
-        WHERE intent_key = ? AND state <> 'reconciled'`,
-    ).run(now, intent.intent_key);
-  });
-}
-
-export function adoptPublishIntent(
-  db: DatabaseSync,
-  params: {
-    readonly workId: string;
-    readonly prKey: string;
-    readonly resourceTarget: string;
-    readonly operationKey: string;
-    readonly mutationKind: string;
-    readonly identity?: Record<string, unknown>;
-    readonly result: unknown;
-    readonly now: number;
-  },
-) {
-  immediate(db, () => {
-    db.prepare(
-      `INSERT INTO publish_intents
-        (intent_key, pr_key, work_id, resource_target, operation_key, state, mutation_kind, identity_json, result_json, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'reconciled', ?, ?, ?, ?)
-       ON CONFLICT (intent_key) DO UPDATE SET state = 'reconciled', result_json = excluded.result_json,
-         updated_at = excluded.updated_at
-       WHERE publish_intents.state <> 'reconciled'`,
-    ).run(
-      intentKeyFor(params.workId, params.operationKey),
-      params.prKey,
-      params.workId,
-      params.resourceTarget,
-      params.operationKey,
-      params.mutationKind,
-      JSON.stringify(params.identity ?? {}),
-      JSON.stringify(params.result === undefined ? null : params.result),
-      params.now,
-    );
-  });
-}
-
-export function publishRecordPayload(db: DatabaseSync, recordKey: string) {
-  const row = readRow(
-    db.prepare(`SELECT payload_json FROM publish_records WHERE record_key = ?`).get(recordKey),
-    v.object({ payload_json: v.optional(v.string()) }),
-  );
-  if (row?.payload_json == null)
-    return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
-  return ((pinnedReturn: string | undefined) => pinnedReturn)(row.payload_json);
-}
-
 export function sharedPublishRecordKey(resourceKey: string, lens: string, step: string) {
   return ((pinnedReturn: string) => pinnedReturn)(`shared:${resourceKey}:${lens}:${step}`);
 }
@@ -1026,15 +896,6 @@ export function claimPublishStep(
   });
 }
 
-export function deletePublishRecord(db: DatabaseSync, recordKey: string, workId: string) {
-  immediate(db, () => {
-    db.prepare(`DELETE FROM publish_records WHERE record_key = ? AND work_id = ?`).run(
-      recordKey,
-      workId,
-    );
-  });
-}
-
 export function sharedPublishRecord(
   db: DatabaseSync,
   prKey: string,
@@ -1284,27 +1145,6 @@ export function createPublishMutationBoundary(
       });
     },
   });
-}
-
-export function publishOnceFor(identity: Omit<PublishIdentity, "reviewLens">) {
-  return <T>(
-    params: Omit<
-      PublishOnceParams<T>,
-      "db" | "workId" | "prKey" | "laneEpoch" | "shutdownRequested" | "gate" | "signal"
-    > & { readonly decodeResult: (value: unknown) => T },
-  ) =>
-    publishOnce<T>({
-      ...params,
-      db: identity.db,
-      workId: identity.workId,
-      prKey: identity.prKey,
-      ...(identity.laneEpoch !== undefined ? { laneEpoch: identity.laneEpoch } : {}),
-      ...(identity.shutdownRequested !== undefined
-        ? { shutdownRequested: identity.shutdownRequested }
-        : {}),
-      ...(identity.gate !== undefined ? { gate: identity.gate } : {}),
-      ...(identity.signal !== undefined ? { signal: identity.signal } : {}),
-    });
 }
 
 export async function ensureRediscoveredSummaryComment(
