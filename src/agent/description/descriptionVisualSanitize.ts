@@ -1,4 +1,5 @@
 import { escapeCodeFence } from "../../github/markdownFormat.ts";
+import { decodeMermaidNewlineEscapes } from "../tools/fixDoubleEscapedString.ts";
 import type { DescriptionPayload, DescriptionVisual } from "./descriptionSchema.ts";
 import {
   extractMermaidDiagramBody,
@@ -48,7 +49,10 @@ export function stripOuterMarkdownFence(content: string) {
 }
 
 export function sanitizeDescriptionVisual(visual: DescriptionVisual) {
-  const stripped = stripOuterMarkdownFence(visual.content);
+  const source = isMermaidVisual(visual)
+    ? decodeMermaidNewlineEscapes(visual.content).text
+    : visual.content;
+  const stripped = stripOuterMarkdownFence(source);
   if (isMermaidVisual(visual)) {
     const fence = ["```mermaid", stripped, "```"].join("\n");
     const sanitizedFence = sanitizeMermaidDiagram(fence);

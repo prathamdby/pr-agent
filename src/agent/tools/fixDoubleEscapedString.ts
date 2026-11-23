@@ -62,15 +62,29 @@ function jsonStringBody(value: string) {
 }
 
 function tryDecodeJsonStringBody(value: string) {
-  const body = jsonStringBody(value);
-  if (body === null) return null;
   try {
-    const parsed: unknown = JSON.parse(`"${body}"`);
+    const parsed: unknown = JSON.parse(`"${value}"`);
     return ((pinnedReturn: string | null) => pinnedReturn)(
       typeof parsed === "string" ? parsed : null,
     );
   } catch {
     return ((pinnedReturn: string | null) => pinnedReturn)(null);
+  }
+}
+
+export function decodeMermaidNewlineEscapes(value: string) {
+  if (!HAS_JSON_ESCAPE_CANDIDATE_RE.test(value) || isAmbiguousBackslashInput(value)) {
+    return { text: value, fixed: false };
+  }
+  const body = jsonStringBody(value);
+  if (body === null) return { text: value, fixed: false };
+  try {
+    const parsed: unknown = JSON.parse(`"${body}"`);
+    if (typeof parsed !== "string" || parsed === value) return { text: value, fixed: false };
+    if (countControlChars(parsed) <= countControlChars(value)) return { text: value, fixed: false };
+    return { text: parsed, fixed: true };
+  } catch {
+    return { text: value, fixed: false };
   }
 }
 
