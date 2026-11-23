@@ -246,6 +246,10 @@ export async function createDurablePiSession(params: DurablePiSessionParams) {
       `${conversation.id}:${randomUUID()}`,
       () => state.currentSend?.assistantIndex ?? 0,
     );
+    const credential = await runtime.models.credentials.read(params.primary.provider);
+    if (credential !== undefined && credential.type === "api_key") {
+      state.trace.addSecret(credential.key);
+    }
   }
   if (params.systemPromptSharedHead !== undefined) {
     runtime.sharedHeadByConversation.set(conversation.id, params.systemPromptSharedHead);

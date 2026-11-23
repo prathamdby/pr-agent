@@ -650,7 +650,7 @@ function createRecording(
         const tool: OpenTool = {
           id: randomUUID(),
           startedAt: Date.now(),
-          name: known ?? "unknown_tool",
+          name: known ?? event.toolName,
           args: event.args,
           ...(opts?.phase != null ? { phase: opts.phase } : {}),
           hostCalls: [],
@@ -868,8 +868,13 @@ function hostCallEntry(
 
 function toolFailure(result: unknown, isError: boolean) {
   let error = isError ? (plainError(result) ?? "tool_error") : undefined;
-  const parts: readonly unknown[] =
-    isPlainObject(result) && Array.isArray(result.content) ? result.content : [];
+  const parts: readonly unknown[] = isPlainObject(result)
+    ? Array.isArray(result.content)
+      ? result.content
+      : Array.isArray(result.output)
+        ? result.output
+        : []
+    : [];
   for (const part of parts) {
     error = toolResultRejection(part) ?? error;
   }
