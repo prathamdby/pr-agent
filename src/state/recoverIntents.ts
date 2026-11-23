@@ -2,15 +2,13 @@ import type { DatabaseSync } from "node:sqlite";
 import { recoverPrSurfaceMutation } from "../github/recoverPrSurfaceMutation.ts";
 import type { PrSurface } from "../github/prSurfaceTypes.ts";
 import {
-  intentKeyFor,
   mutatingIntents,
-  publishIntentRowSchema,
   recoverableIntents,
   toOperationIntentRow,
   type PublishIntentRow,
   type PublishRecovery,
 } from "./publish.ts";
-import { immediate, readRow } from "./db.ts";
+import { immediate } from "./db.ts";
 
 export { toOperationIntentRow } from "./publish.ts";
 
@@ -22,19 +20,6 @@ export async function recoverPublishIntent(surface: PrSurface, intent: PublishIn
       value: recovery.value,
     });
   return ((pinnedReturn: PublishRecovery) => pinnedReturn)({ found: false });
-}
-
-export function intentSurfaceRecover(
-  surfaceFor: (intent: PublishIntentRow) => PrSurface | undefined,
-) {
-  return async (intent: PublishIntentRow) => {
-    const surface = surfaceFor(intent);
-    if (surface === undefined)
-      return ((pinnedReturn: PublishRecovery) => pinnedReturn)({ found: false });
-    return ((pinnedReturn: PublishRecovery) => pinnedReturn)(
-      await recoverPublishIntent(surface, intent),
-    );
-  };
 }
 
 function settleSwept(
@@ -110,18 +95,4 @@ export function sweepRecoverableIntents(
   },
 ) {
   return sweepIntentRecoveries(db, { ...params, includeMutating: false });
-}
-
-export function pendingIntentFor(
-  db: DatabaseSync,
-  params: { readonly workId: string; readonly operationKey: string },
-) {
-  return ((pinnedReturn: PublishIntentRow | undefined) => pinnedReturn)(
-    readRow(
-      db
-        .prepare(`SELECT * FROM publish_intents WHERE intent_key = ?`)
-        .get(intentKeyFor(params.workId, params.operationKey)),
-      publishIntentRowSchema,
-    ),
-  );
 }

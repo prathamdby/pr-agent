@@ -108,7 +108,6 @@ function threadSession(
       repo: "r",
       prNumber: 1,
       headSha: "abc1234",
-      hasDescriptionReviewMap: false,
     },
     workItemId: "wi-1",
     resolveProgressCommentUrl: async () => "https://github.com/o/r/pull/1#issuecomment-99",

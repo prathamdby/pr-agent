@@ -4,7 +4,7 @@ import {
 } from "./installationCapabilities.ts";
 import { classifyGithubError } from "./githubErrors.ts";
 import { installationOctokit } from "./appAuth.ts";
-import { paginateOctokitPagesWithMeta, stopPaginatedPage } from "./paginateOctokit.ts";
+import { stopPaginatedPage } from "./paginateOctokit.ts";
 import { CHECK_RUNS_MAX_PAGES, CHECK_RUNS_PAGE_SIZE } from "../settings/index.ts";
 import type { CiCheckRunSnapshot, CiLegacyStatus, CiSourceAccess } from "../review/ci/ciFacts.ts";
 
@@ -49,9 +49,6 @@ async function listCheckRunsForHead(
           status: run.status,
           conclusion: run.conclusion ?? null,
           htmlUrl: run.html_url ?? null,
-          outputTitle: run.output?.title ?? null,
-          outputSummary: run.output?.summary ?? null,
-          outputText: run.output?.text ?? null,
           startedAt: run.started_at ?? null,
           completedAt: run.completed_at ?? null,
         })),
@@ -88,27 +85,26 @@ export async function listLegacyCommitStatusesForHeadDetailed(
   expiresAtTs?: number,
 ) {
   const octokit = installationOctokit(token, expiresAtTs);
-  const { items, truncated } = await paginateOctokitPagesWithMeta({
-    perPage: CHECK_RUNS_PAGE_SIZE,
-    maxPages: CHECK_RUNS_MAX_PAGES,
-    fetchPage: async (page, perPage) => {
-      const { data } = await octokit.rest.repos.getCombinedStatusForRef({
-        owner,
-        repo,
-        ref: headSha,
-        page,
-        per_page: perPage,
-      });
-      return data.statuses;
-    },
-  });
+  const statusPage = { page: 0, truncated: false };
+  const statuses = await octokit.paginate(
+    octokit.rest.repos.getCombinedStatusForRef,
+    { owner, repo, ref: headSha, per_page: CHECK_RUNS_PAGE_SIZE },
+    (response, done) =>
+      stopPaginatedPage(
+        statusPage,
+        response.data,
+        CHECK_RUNS_PAGE_SIZE,
+        CHECK_RUNS_MAX_PAGES,
+        done,
+      ),
+  );
   return ((
     pinnedReturn:
       | { readonly legacyStatuses: CiLegacyStatus[]; readonly truncated: boolean }
       | Promise<{ readonly legacyStatuses: CiLegacyStatus[]; readonly truncated: boolean }>,
   ) => pinnedReturn)({
-    truncated,
-    legacyStatuses: items.map((status) => ({
+    truncated: statusPage.truncated,
+    legacyStatuses: statuses.map((status) => ({
       context: status.context,
       state: status.state,
       description: status.description ?? null,

@@ -34,7 +34,6 @@ function summarySession() {
       repo: "r",
       prNumber: 1,
       headSha: "abc1234",
-      hasDescriptionReviewMap: false,
     },
     prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
     findingInventory: completeFindingInventory(),

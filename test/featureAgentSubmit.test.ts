@@ -4,10 +4,9 @@ import { createFakePiSession } from "../src/agent/runtime/fakePiSession.ts";
 import { makeTestConfig } from "./helpers/config.ts";
 import { runValidationRepairLoop } from "../src/agent/runtime/featureAgent.ts";
 import { describe, expect, it } from "vitest";
-import {
-  buildSubmitTriageTool,
-  createSubmitTriageState,
-} from "../src/agent/triage/submitTriageTool.ts";
+import { buildSubmitTriageTool } from "../src/agent/triage/submitTriageTool.ts";
+import { createIdleSubmitState } from "../src/agent/tools/submitState.ts";
+import type { TriagePayload, VerificationPayload } from "../src/review/triageSchema.ts";
 import type { TriageWorkspaceToolState } from "../src/agent/triage/triageWorkspaceTools.ts";
 import type { WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.ts";
 import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.ts";
@@ -26,7 +25,7 @@ function inventoryThread() {
 }
 
 function buildTool(thread: BotFindingThread = inventoryThread()) {
-  const submitState = createSubmitTriageState();
+  const submitState = createIdleSubmitState<TriagePayload>();
   const checkout = { listCommittedShas: () => [] } as unknown as WritablePrCheckout;
   const workspaceState = {
     commitByThreadRootCommentId: new Map(),
@@ -128,10 +127,7 @@ describe("feature submit repair", () => {
   );
 });
 
-import {
-  buildSubmitVerificationTool,
-  createSubmitVerificationState,
-} from "../src/agent/verification/submitVerificationTool.ts";
+import { buildSubmitVerificationTool } from "../src/agent/verification/submitVerificationTool.ts";
 
 function verificationInventoryThread() {
   return ((pinnedReturn: BotFindingThread) => pinnedReturn)({
@@ -147,7 +143,7 @@ function verificationInventoryThread() {
 }
 
 function buildVerificationFixture(thread: BotFindingThread = verificationInventoryThread()) {
-  const submitState = createSubmitVerificationState();
+  const submitState = createIdleSubmitState<VerificationPayload>();
   const tool = buildSubmitVerificationTool({
     owner: "o",
     repo: "r",

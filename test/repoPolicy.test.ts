@@ -1,6 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -21,14 +20,26 @@ import {
   type RepoPolicyRule,
 } from "../src/review/repoPolicy.ts";
 
-async function policyFixture(files: Record<string, string>) {
-  const root = await mkdtemp(join(tmpdir(), "repo-policy-mdc-"));
+function policyFixture(files: Record<string, string>) {
+  return ((pinnedReturn: { path: string; body: string }[]) => pinnedReturn)(
+    Object.entries(files).map(([name, body]) => ({ path: `.pr-agent/${name}`, body })),
+  );
+}
+
+async function policyCandidatesFromCheckout(root: string) {
   const dir = join(root, ".pr-agent");
-  await mkdir(dir);
-  for (const [name, content] of Object.entries(files)) {
-    await writeFile(join(dir, name), content, "utf8");
+  const entries = await readdir(dir, { withFileTypes: true });
+  const names = entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".mdc") && !entry.name.startsWith("."))
+    .map((entry) => entry.name)
+    .toSorted();
+  const candidates = [] as { path: string; body: string }[];
+  for (const name of names) {
+    candidates.push({ path: `.pr-agent/${name}`, body: await readFile(join(dir, name), "utf8") });
   }
-  return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(root);
+  return ((
+    pinnedReturn: { path: string; body: string }[] | Promise<{ path: string; body: string }[]>,
+  ) => pinnedReturn)(candidates);
 }
 
 function policyBodyIsComplete(body: string) {
@@ -85,28 +96,26 @@ function trackedRepoFiles() {
 
 describe("loadRepoPolicy", () => {
   it("returns absent when .pr-agent directory is missing", async () => {
-    const root = await mkdtemp(join(tmpdir(), "repo-policy-absent-"));
-    await expect(loadRepoPolicy(root, MAX_REPO_POLICY_BYTES)).resolves.toEqual({
+    await expect(loadRepoPolicy([], MAX_REPO_POLICY_BYTES)).resolves.toEqual({
       kind: "absent",
       drops: [],
     });
   });
 
   it("returns absent when .pr-agent has no .mdc files", async () => {
-    const root = await mkdtemp(join(tmpdir(), "repo-policy-empty-"));
-    await mkdir(join(root, ".pr-agent"));
-    await writeFile(join(root, ".pr-agent", "readme.txt"), "ignore", "utf8");
-    await expect(loadRepoPolicy(root, MAX_REPO_POLICY_BYTES)).resolves.toEqual({
+    await expect(
+      loadRepoPolicy([{ path: ".pr-agent/readme.txt", body: "ignore" }], MAX_REPO_POLICY_BYTES),
+    ).resolves.toEqual({
       kind: "absent",
       drops: [],
     });
   });
 
   it("loads a .mdc with no frontmatter as always-apply", async () => {
-    const root = await policyFixture({
+    const candidates = policyFixture({
       "security.mdc": "Double-check auth on all new endpoints.",
     });
-    const result = await loadRepoPolicy(root, MAX_REPO_POLICY_BYTES);
+    const result = await loadRepoPolicy(candidates, MAX_REPO_POLICY_BYTES);
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
     expect(result.policy.rules).toHaveLength(1);
@@ -120,7 +129,7 @@ describe("loadRepoPolicy", () => {
   });
 
   it("parses globs and alwaysApply frontmatter", async () => {
-    const root = await policyFixture({
+    const candidates = policyFixture({
       "auth.mdc": `---
 globs:
   - "src/auth/**"
@@ -130,7 +139,7 @@ alwaysApply: false
 Treat missing session checks as P1.
 `,
     });
-    const result = await loadRepoPolicy(root, MAX_REPO_POLICY_BYTES);
+    const result = await loadRepoPolicy(candidates, MAX_REPO_POLICY_BYTES);
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
     expect(result.policy.rules[0]).toMatchObject({
@@ -141,7 +150,7 @@ Treat missing session checks as P1.
   });
 
   it("parses a scalar string globs value into a single-element array", async () => {
-    const root = await policyFixture({
+    const candidates = policyFixture({
       "utils.mdc": `---
 globs: "src/utils/**"
 alwaysApply: false
@@ -150,7 +159,7 @@ alwaysApply: false
 Check for side effects.
 `,
     });
-    const result = await loadRepoPolicy(root, MAX_REPO_POLICY_BYTES);
+    const result = await loadRepoPolicy(candidates, MAX_REPO_POLICY_BYTES);
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
     expect(result.policy.rules[0].globs).toEqual(["src/utils/**"]);
@@ -158,7 +167,7 @@ Check for side effects.
   });
 
   it("defaults to alwaysApply=true when frontmatter has neither globs nor alwaysApply", async () => {
-    const root = await policyFixture({
+    const candidates = policyFixture({
       "custom.mdc": `---
 description: team convention
 ---
@@ -166,7 +175,7 @@ description: team convention
 Always enforce this rule.
 `,
     });
-    const result = await loadRepoPolicy(root, MAX_REPO_POLICY_BYTES);
+    const result = await loadRepoPolicy(candidates, MAX_REPO_POLICY_BYTES);
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
     expect(result.policy.rules[0].alwaysApply).toBe(true);
@@ -174,11 +183,11 @@ Always enforce this rule.
   });
 
   it("skips .mdc file with unclosed frontmatter and loads remaining rules", async () => {
-    const root = await policyFixture({
+    const candidates = policyFixture({
       "broken.mdc": '---\nglobs:\n  - "**"\nNo closing fence here.',
       "valid.mdc": "This rule applies always.",
     });
-    const result = await loadRepoPolicy(root, MAX_REPO_POLICY_BYTES);
+    const result = await loadRepoPolicy(candidates, MAX_REPO_POLICY_BYTES);
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
     expect(result.policy.rules).toHaveLength(1);
@@ -186,11 +195,11 @@ Always enforce this rule.
   });
 
   it("returns invalid when .mdc files exist but all have empty bodies", async () => {
-    const root = await policyFixture({
+    const candidates = policyFixture({
       "empty.mdc": "   \n  ",
       "also-empty.mdc": '---\nglobs: "**"\n---\n\n   ',
     });
-    const result = await loadRepoPolicy(root, MAX_REPO_POLICY_BYTES);
+    const result = await loadRepoPolicy(candidates, MAX_REPO_POLICY_BYTES);
     expect(result).toEqual({
       kind: "invalid",
       reason: "no usable .mdc rules",
@@ -202,11 +211,11 @@ Always enforce this rule.
   });
 
   it("skips individual .mdc files exceeding per-file size cap", async () => {
-    const root = await policyFixture({
+    const candidates = policyFixture({
       "big.mdc": "X".repeat(MAX_REPO_POLICY_FILE_BYTES + 1),
       "small.mdc": "Valid rule body.",
     });
-    const result = await loadRepoPolicy(root, MAX_REPO_POLICY_BYTES);
+    const result = await loadRepoPolicy(candidates, MAX_REPO_POLICY_BYTES);
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
     expect(result.policy.rules).toHaveLength(1);
@@ -215,11 +224,11 @@ Always enforce this rule.
   });
 
   it("skips files that would exceed the aggregate byte cap", async () => {
-    const root = await policyFixture({
+    const candidates = policyFixture({
       "a.mdc": "A".repeat(30),
       "b.mdc": "B".repeat(30),
     });
-    const result = await loadRepoPolicy(root, 50);
+    const result = await loadRepoPolicy(candidates, 50);
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
     expect(result.policy.rules).toHaveLength(1);
@@ -232,38 +241,31 @@ Always enforce this rule.
     for (let index = 0; index <= MAX_REPO_POLICY_FILES; index += 1) {
       files[`a${String(index).padStart(2, "0")}.mdc`] = "Valid rule body.";
     }
-    const root = await policyFixture(files);
-    const result = await loadRepoPolicy(root, MAX_REPO_POLICY_BYTES);
+    const candidates = policyFixture(files);
+    const result = await loadRepoPolicy(candidates, MAX_REPO_POLICY_BYTES);
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
     expect(result.policy.rules).toHaveLength(MAX_REPO_POLICY_FILES);
     expect(result.drops).toEqual([{ filename: "a20.mdc", reason: "file-skipped" }]);
   });
 
-  it("returns invalid when .pr-agent exists but is not a directory", async () => {
-    const root = await mkdtemp(join(tmpdir(), "repo-policy-notdir-"));
-    await writeFile(join(root, ".pr-agent"), "not a directory", "utf8");
-    await expect(loadRepoPolicy(root, MAX_REPO_POLICY_BYTES)).resolves.toEqual({
-      kind: "invalid",
-      reason: "not a directory",
-      drops: [],
-    });
-  });
-
   it("ignores legacy .pr-agent.yml at checkout root", async () => {
-    const root = await mkdtemp(join(tmpdir(), "repo-policy-yaml-ignored-"));
-    await writeFile(join(root, ".pr-agent.yml"), "version: 1\ntone: ignored\n", "utf8");
-    await expect(loadRepoPolicy(root, MAX_REPO_POLICY_BYTES)).resolves.toEqual({
+    await expect(
+      loadRepoPolicy(
+        [{ path: ".pr-agent.yml", body: "version: 1\ntone: ignored\n" }],
+        MAX_REPO_POLICY_BYTES,
+      ),
+    ).resolves.toEqual({
       kind: "absent",
       drops: [],
     });
   });
 
   it("records a body cut without dropping the loaded prefix", async () => {
-    const root = await policyFixture({
+    const candidates = policyFixture({
       "long.mdc": "A".repeat(MAX_REPO_POLICY_INSTRUCTION_CHARS + 40),
     });
-    const result = await loadRepoPolicy(root, MAX_REPO_POLICY_BYTES);
+    const result = await loadRepoPolicy(candidates, MAX_REPO_POLICY_BYTES);
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
     expect(result.policy.rules[0]?.body).toHaveLength(MAX_REPO_POLICY_INSTRUCTION_CHARS);
@@ -271,7 +273,10 @@ Always enforce this rule.
   });
 
   it("loads this repository without cutting a policy body", async () => {
-    const result = await loadRepoPolicy(process.cwd(), MAX_REPO_POLICY_BYTES);
+    const result = await loadRepoPolicy(
+      await policyCandidatesFromCheckout(process.cwd()),
+      MAX_REPO_POLICY_BYTES,
+    );
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
     const drops = result.drops ?? [];

@@ -15,11 +15,6 @@ import type {
   WorkType,
 } from "./types.ts";
 
-export const STALE_HEAD_REPLACEMENT_ID_SQL = `COALESCE(
-          payload->'staleHeadReplacement'->>'replacementWorkItemId',
-          NULLIF(payload->>'staleHeadReplacementWorkItemId', '')
-        )`;
-
 function asReplacementState(value: unknown) {
   return ((pinnedReturn: StaleHeadReplacementState | undefined) => pinnedReturn)(
     value === "pending-enqueue" || value === "enqueued" ? value : undefined,

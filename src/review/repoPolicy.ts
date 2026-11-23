@@ -1,5 +1,3 @@
-import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import * as v from "valibot";
 import { renderRepoPolicyTrustGuidance } from "../prompts/shared/safety.ts";
@@ -14,7 +12,7 @@ import {
   REPO_POLICY_DIRNAME,
   REPO_POLICY_EXTENSION,
 } from "../settings/index.ts";
-import { errorCode, errorMessage } from "../errors/errorMessage.ts";
+import { errorMessage } from "../errors/errorMessage.ts";
 
 const frontmatterSchema = v.looseObject({
   globs: v.optional(v.union([v.string(), v.array(v.string())])),
@@ -264,15 +262,11 @@ function policyFilename(path: string) {
 }
 
 export async function loadRepoPolicy(
-  source: string | readonly RepoPolicyCandidate[],
+  candidates: readonly RepoPolicyCandidate[],
   maxBytes: number = MAX_REPO_POLICY_BYTES,
 ) {
-  if (typeof source !== "string")
-    return ((pinnedReturn: RepoPolicyResult | Promise<RepoPolicyResult>) => pinnedReturn)(
-      loadRepoPolicyCandidates(source, maxBytes),
-    );
   return ((pinnedReturn: RepoPolicyResult | Promise<RepoPolicyResult>) => pinnedReturn)(
-    loadRepoPolicyFromCheckout(source, maxBytes),
+    loadRepoPolicyCandidates(candidates, maxBytes),
   );
 }
 
@@ -388,58 +382,6 @@ async function loadRepoPolicyCandidates(
       read: async () => file.body,
     }))
     .toSorted((a, b) => a.relativePath.localeCompare(b.relativePath));
-  return ((pinnedReturn: RepoPolicyResult | Promise<RepoPolicyResult>) => pinnedReturn)(
-    parseRepoPolicySources(sources, maxBytes),
-  );
-}
-
-async function loadRepoPolicyFromCheckout(
-  agentCwd: string,
-  maxBytes: number = MAX_REPO_POLICY_BYTES,
-) {
-  const policyDir = join(agentCwd, REPO_POLICY_DIRNAME);
-  let entries;
-  try {
-    entries = await readdir(policyDir, { withFileTypes: true });
-  } catch (error) {
-    const code = errorCode(error);
-    if (code === "ENOENT") {
-      return ((pinnedReturn: RepoPolicyResult | Promise<RepoPolicyResult>) => pinnedReturn)({
-        kind: "absent",
-        drops: [],
-      });
-    }
-    if (code === "ENOTDIR") {
-      return ((pinnedReturn: RepoPolicyResult | Promise<RepoPolicyResult>) => pinnedReturn)({
-        kind: "invalid",
-        reason: "not a directory",
-        drops: [],
-      });
-    }
-    const message = errorMessage(error);
-    return ((pinnedReturn: RepoPolicyResult | Promise<RepoPolicyResult>) => pinnedReturn)({
-      kind: "invalid",
-      reason: message,
-      drops: [],
-    });
-  }
-
-  const sources = entries
-    .filter(
-      (entry) =>
-        entry.isFile() && entry.name.endsWith(REPO_POLICY_EXTENSION) && !entry.name.startsWith("."),
-    )
-    .map((entry) => entry.name)
-    .toSorted()
-    .map((filename) => {
-      const absolutePath = join(policyDir, filename);
-      return {
-        filename,
-        relativePath: `${REPO_POLICY_DIRNAME}/${filename}`,
-        logPath: absolutePath,
-        read: () => readFile(absolutePath, "utf8"),
-      };
-    });
   return ((pinnedReturn: RepoPolicyResult | Promise<RepoPolicyResult>) => pinnedReturn)(
     parseRepoPolicySources(sources, maxBytes),
   );

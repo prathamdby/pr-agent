@@ -163,31 +163,6 @@ export function publishEventRow(
   });
 }
 
-export function checkoutCoverageEventRow(
-  context: AgentEventsContext,
-  params: {
-    readonly sessionRole?: AgentSessionRole;
-    readonly phase?: string;
-    readonly coverageMode: "full" | "sparse";
-    readonly pathsInCheckout: number;
-    readonly truncated: boolean;
-  },
-) {
-  const detail: Record<string, unknown> = {
-    coverageMode: params.coverageMode,
-    pathsInCheckout: params.pathsInCheckout,
-    truncated: params.truncated,
-  };
-
-  return ((pinnedReturn: AgentEventInsertRow) => pinnedReturn)({
-    ...baseInsertRow(context),
-    sessionRole: params.sessionRole ?? "review",
-    eventKind: "coverage",
-    phase: params.phase ?? "prepare",
-    detail,
-  });
-}
-
 export function evidenceRejectEventRow(
   context: AgentEventsContext,
   params: {
@@ -347,14 +322,6 @@ export function safeEmitPublishEvent(
     },
   });
   recordNonGenerationSpan(span);
-}
-
-export function safeEmitCoverageEvent(
-  context: AgentEventsContext,
-  cfg: Pick<Config, "agentEvents">,
-  params: Parameters<typeof checkoutCoverageEventRow>[1],
-) {
-  safeEmitAgentEvent(context, cfg, checkoutCoverageEventRow(context, params));
 }
 
 export function safeEmitEvidenceRejectEvent(

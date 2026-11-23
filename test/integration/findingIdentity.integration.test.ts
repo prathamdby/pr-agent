@@ -178,7 +178,6 @@ describe("finding identity (integration)", () => {
           repo,
           prNumber: 1,
           headSha: HEAD_SHA,
-          hasDescriptionReviewMap: false,
         },
         workItemId,
         publish: { db, workItemId, resourceKey, laneEpoch: LEASE_EPOCH },

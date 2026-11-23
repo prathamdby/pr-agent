@@ -235,8 +235,6 @@ export async function publishReviewSummaryOnly(
     ? session.prSurface.getLabels().catch((error: unknown) => error)
     : Promise.resolve(null);
   const coordination = summaryCoordination;
-  const summaryOperationKey =
-    coordination == null ? null : reviewSummaryOperationKey(coordination.resourceKey, mode);
   const summaryOperationMarker =
     coordination == null
       ? null
@@ -274,8 +272,7 @@ export async function publishReviewSummaryOnly(
             ? { signal: summaryCoordination.signal }
             : {}),
           decodeResult: decodeProgressComment,
-          operationKey:
-            summaryOperationKey ?? reviewSummaryOperationKey(summaryCoordination.resourceKey, mode),
+          operationKey: reviewSummaryOperationKey(summaryCoordination.resourceKey, mode),
           mutationKind: "github.summary_comment",
           identity: {
             step: "summary_comment",

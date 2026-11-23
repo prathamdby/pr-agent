@@ -519,7 +519,6 @@ export async function openReviewAttemptLive(params: {
       repo: item.repo,
       prNumber: item.prNumber,
       headSha: env.headSha,
-      hasDescriptionReviewMap: false,
     },
     prSurface: setup.prSurface,
     findingInventory: inventory,
@@ -570,9 +569,9 @@ export async function openReviewAttemptLive(params: {
     evidenceLedgerFor: sourceLedger,
     initialLedger: params.outputs.ledger,
   });
-  setup.bindReviewThreads(() =>
-    openReviewThreads(inventory, acceptedOpenThreads(publishThread.getLedger())),
-  );
+  const threadsAtDispatch = () =>
+    openReviewThreads(inventory, acceptedOpenThreads(publishThread.getLedger()));
+  setup.bindReviewThreads(threadsAtDispatch);
   const summaryState = createPublishSummaryState(params.outputs.summary);
   let activeCheckpoint = params.checkpoint;
   const publishSummary = buildPublishSummaryTool({
@@ -612,8 +611,6 @@ export async function openReviewAttemptLive(params: {
   };
   const submitStates = new Map<SpecialistId, SubmissionState>();
   const builtSpecialistTools = new Map<SpecialistId, ReviewChildTools>();
-  const threadsAtDispatch = () =>
-    openReviewThreads(inventory, acceptedOpenThreads(publishThread.getLedger()));
   const specialistTools = (specialist: SpecialistId) => {
     const existing = builtSpecialistTools.get(specialist);
     if (existing !== undefined) return existing;
@@ -950,7 +947,7 @@ export async function gateReviewPhase(
 
 async function startAttempt(live: ReviewAttemptLive, checkpoint: ReviewAttemptCheckpoint) {
   const env = live.env;
-  const verdict = reviewVerdictSurfaces({
+  const verdictArgs = {
     target: env.target,
     prSurface: live.setup.prSurface,
     owner: env.item.owner,
@@ -959,7 +956,8 @@ async function startAttempt(live: ReviewAttemptLive, checkpoint: ReviewAttemptCh
     reviewLens: env.item.reviewLens,
     headSha: checkpoint.headSha,
     commitStatusEnabled: env.cfg.features.commitStatus,
-  });
+  };
+  const verdict = reviewVerdictSurfaces(verdictArgs);
   await verdict.pending();
   const lightweight = await tryLightweightAutoReviewCompletion(env.target, {
     item: { ...env.item, headSha: checkpoint.headSha },
@@ -974,14 +972,7 @@ async function startAttempt(live: ReviewAttemptLive, checkpoint: ReviewAttemptCh
   if (!lightweight.handled) return undefined;
   if (lightweight.published) {
     await reviewVerdictSurfaces({
-      target: env.target,
-      prSurface: live.setup.prSurface,
-      owner: env.item.owner,
-      repo: env.item.repo,
-      prNumber: env.item.prNumber,
-      reviewLens: env.item.reviewLens,
-      headSha: checkpoint.headSha,
-      commitStatusEnabled: env.cfg.features.commitStatus,
+      ...verdictArgs,
       summaryCommentId: Number(lightweight.summaryId),
     }).close({
       kind: "published",

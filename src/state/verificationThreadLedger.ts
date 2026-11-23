@@ -47,36 +47,3 @@ export function loadVerificationThreadLedger(
     parseVerificationThreadLedger(detail),
   );
 }
-
-export function saveVerificationThreadLedger(
-  db: DatabaseSync,
-  params: {
-    readonly workId: string;
-    readonly resourceKey: string;
-    readonly ledger: VerificationThreadLedger;
-    readonly now?: number;
-  },
-) {
-  const now = params.now ?? Date.now();
-  const payload = JSON.stringify({
-    threads: params.ledger.threads,
-    ...(params.ledger.failureSignal != null ? { failureSignal: params.ledger.failureSignal } : {}),
-  });
-  const recordKey = sharedPublishRecordKey(
-    params.resourceKey,
-    VERIFICATION_PUBLISH_LENS,
-    VERIFICATION_THREAD_ACTIONS_STEP,
-  );
-  db.prepare(
-    `INSERT INTO publish_records (record_key, pr_key, work_id, step, payload_json, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)
-     ON CONFLICT (record_key) DO UPDATE SET payload_json = excluded.payload_json`,
-  ).run(
-    recordKey,
-    params.resourceKey,
-    params.workId,
-    VERIFICATION_THREAD_ACTIONS_STEP,
-    payload,
-    now,
-  );
-}

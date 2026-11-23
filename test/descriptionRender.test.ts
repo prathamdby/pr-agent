@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  prBodyHasDescriptionReviewMap,
-  renderDescriptionAgentBlock,
-} from "../src/agent/description/descriptionRender.ts";
+import { renderDescriptionAgentBlock } from "../src/agent/description/descriptionRender.ts";
 import { sanitizeMermaidDiagram } from "../src/agent/description/mermaidDiagram.ts";
 import { DESCRIPTION_AGENT_HEADER, DESCRIPTION_REVIEW_MAP_HEADING } from "../src/settings/index.ts";
 
@@ -144,17 +141,5 @@ describe("descriptionRender", () => {
     expect(body).toContain("Intake mapping is the core change");
     expect(body).not.toContain("pure function");
     expect(body).not.toContain("Enhancement (1 file");
-  });
-});
-
-describe("prBodyHasDescriptionReviewMap", () => {
-  it("is true only when the agent block includes the review map heading", () => {
-    expect(prBodyHasDescriptionReviewMap(null)).toBe(false);
-    expect(prBodyHasDescriptionReviewMap(`${DESCRIPTION_AGENT_HEADER}\n\n### PR Type`)).toBe(false);
-    expect(
-      prBodyHasDescriptionReviewMap(
-        `<!-- PR_AGENT_DESCRIPTION_BEGIN -->\n${DESCRIPTION_AGENT_HEADER}\n\n${DESCRIPTION_REVIEW_MAP_HEADING}\n\n1. path\n<!-- PR_AGENT_DESCRIPTION_END -->`,
-      ),
-    ).toBe(true);
   });
 });

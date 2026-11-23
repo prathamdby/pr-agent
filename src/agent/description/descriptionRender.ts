@@ -3,7 +3,6 @@ import { createHash } from "node:crypto";
 import type { PrResource } from "../../agentWork/types.ts";
 import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.ts";
 import { DESCRIPTION_AGENT_HEADER, DESCRIPTION_REVIEW_MAP_HEADING } from "../../settings/index.ts";
-import { extractAgentDescriptionBlock } from "./descriptionBodyMerge.ts";
 import type { DescriptionPayload, DescriptionPrFile } from "./descriptionSchema.ts";
 import { renderDescriptionVisual } from "./descriptionVisualSanitize.ts";
 
@@ -53,14 +52,6 @@ export function renderDescriptionAgentBlock(payload: DescriptionPayload, ctx: Pr
 
   return ((pinnedReturn: string) => pinnedReturn)(
     redactOutboundSecrets(sections.join("\n").trimEnd()),
-  );
-}
-
-export function prBodyHasDescriptionReviewMap(body: string | null | undefined) {
-  const agentBlock = extractAgentDescriptionBlock(body);
-  if (!agentBlock) return ((pinnedReturn: boolean) => pinnedReturn)(false);
-  return ((pinnedReturn: boolean) => pinnedReturn)(
-    agentBlock.includes(DESCRIPTION_REVIEW_MAP_HEADING),
   );
 }
 

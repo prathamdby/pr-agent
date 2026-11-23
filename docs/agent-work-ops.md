@@ -538,8 +538,7 @@ also renders as an empty conversation.
 
 Folded provider retries are one generation, not model latency. Unknown catalog
 prices are omitted, not sent as zero. `raw_stop_reason` of `refusal` means the
-provider's safety classifier declined the request. The session raises
-`provider.refusal` without a retry or an empty-text nudge.
+provider's safety classifier declined the request.
 
 ## CI log intake
 

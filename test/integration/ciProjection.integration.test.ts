@@ -86,9 +86,6 @@ function checkRunSnapshot(
     status: "completed",
     conclusion: "success",
     htmlUrl: null,
-    outputTitle: null,
-    outputSummary: null,
-    outputText: null,
     ...overrides,
   });
 }
@@ -492,7 +489,6 @@ describe("CI projection on SQLite app_state (integration)", () => {
             name: "lint",
             status: "completed",
             conclusion: "failure",
-            outputTitle: "oxfmt failed",
           }),
           checkRunSnapshot({
             id: 78,

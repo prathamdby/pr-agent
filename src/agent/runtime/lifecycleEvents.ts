@@ -136,19 +136,3 @@ export type AgentLifecycleEvent = AgentLifecycleCorrelation &
     | AgentLifecycleFailureEvent
     | AgentLifecycleExecutionEvent
   );
-
-const ALLOWED_KINDS = {
-  turn: true,
-  tool: true,
-  retry: true,
-  compaction: true,
-  usage: true,
-  cancellation: true,
-  completion: true,
-  failure: true,
-  execution: true,
-} satisfies Record<AgentLifecycleEvent["kind"], true>;
-
-export function isAgentLifecycleEventKind(value: string): value is AgentLifecycleEvent["kind"] {
-  return Object.hasOwn(ALLOWED_KINDS, value);
-}

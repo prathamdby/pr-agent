@@ -5,8 +5,6 @@ export const LABEL_REVIEW_SIZE_PREFIX = "size:";
 export const LABEL_SECURITY_CONCERN = "Possible security concern";
 export const LABEL_CATEGORY_PREFIX = "Category: ";
 
-export const REVIEW_CANCEL_POLL_INTERVAL_MS = 2_000;
-
 export const REVIEW_POINTER_BODY = "See the structured review summary in the PR conversation.";
 export const AGENT_FIX_PROMPT_PREAMBLE =
   "Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, and keep changes minimal.";
@@ -162,9 +160,6 @@ export const REVIEW_SUMMARY_COMPACTION_NOTE =
   "Some finding details were shortened to fit GitHub comment size limits. See inline threads where posted.";
 export const REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX =
   "finding(s) omitted from this summary due to GitHub comment size limits — see inline threads where posted.";
-export const REVIEW_CHECK_RUN_RESERVATION_STALE_MS = 5 * 60 * 1000;
-export const REVIEW_CHECK_RUN_WAIT_FOR_ID_MS = 15_000;
-export const REVIEW_CHECK_RUN_WAIT_POLL_MS = 100;
 
 export const OWN_COMMIT_STATUS_CONTEXT = "pr-agent/review";
 

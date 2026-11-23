@@ -58,19 +58,6 @@ function rootCommentId(
   return ((pinnedReturn: number) => pinnedReturn)(rootId);
 }
 
-export function commentsInThread(all: readonly ThreadComment[], anchorCommentId: number) {
-  const byId = new Map(all.map((comment) => [comment.id, comment]));
-  const anchor = byId.get(anchorCommentId);
-  if (!anchor) return ((pinnedReturn: ThreadComment[]) => pinnedReturn)([]);
-  const memo = new Map<number, number>();
-  const rootId = rootCommentId(anchor, byId, memo);
-  return ((pinnedReturn: ThreadComment[]) => pinnedReturn)(
-    all
-      .filter((comment) => rootCommentId(comment, byId, memo) === rootId)
-      .toSorted((a, b) => a.id - b.id),
-  );
-}
-
 export function commentThreadGroups(all: readonly ThreadComment[]) {
   const byId = new Map(all.map((comment) => [comment.id, comment]));
   const memo = new Map<number, number>();

@@ -1,5 +1,5 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import { createIdleSubmitState } from "../tools/submitState.ts";
+import type { IdleSubmitState } from "../tools/submitState.ts";
 import { toToolParameters } from "../tools/toolParams.ts";
 import { AppError } from "../../errors/appError.ts";
 import { logDebug } from "../../evlog.ts";
@@ -15,18 +15,6 @@ import {
   type VerificationPayload,
 } from "../../review/triageSchema.ts";
 
-export type SubmitVerificationState = {
-  submitted: boolean;
-  lastValidationError: string | null;
-  payload: VerificationPayload | null;
-};
-
-export function createSubmitVerificationState() {
-  return ((pinnedReturn: SubmitVerificationState) => pinnedReturn)(
-    createIdleSubmitState<VerificationPayload>(),
-  );
-}
-
 const SUBMIT_VERIFICATION_PARAMETERS = toToolParameters(VerificationPayloadSchema);
 
 export function buildSubmitVerificationTool(params: {
@@ -35,7 +23,7 @@ export function buildSubmitVerificationTool(params: {
   readonly prNumber: number;
   readonly inventory: readonly BotFindingThread[];
   readonly pushedShas: readonly string[];
-  readonly submitState: SubmitVerificationState;
+  readonly submitState: IdleSubmitState<VerificationPayload>;
 }) {
   const piTool: PiTool = {
     name: "submitVerification",

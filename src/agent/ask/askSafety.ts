@@ -50,7 +50,7 @@ export function assertPathAllowedForAsk(path: string, gate: AskPathGate) {
   });
 }
 
-const redactEmailsInJson: (value: unknown) => unknown = (value: unknown) => {
+export const redactEmailsInJson: (value: unknown) => unknown = (value: unknown) => {
   if (Array.isArray(value))
     return ((pinnedReturn: unknown) => pinnedReturn)(value.map(redactEmailsInJson));
   if (value && typeof value === "object") {
@@ -66,12 +66,6 @@ const redactEmailsInJson: (value: unknown) => unknown = (value: unknown) => {
   }
   return ((pinnedReturn: unknown) => pinnedReturn)(value);
 };
-
-export function sanitizeToolResultForAsk(toolName: string, result: unknown) {
-  if (toolName === "getWorkspaceBlame")
-    return ((pinnedReturn: unknown) => pinnedReturn)(redactEmailsInJson(result));
-  return ((pinnedReturn: unknown) => pinnedReturn)(result);
-}
 
 export function redactPorcelainBlame(text: string) {
   return ((pinnedReturn: string) => pinnedReturn)(

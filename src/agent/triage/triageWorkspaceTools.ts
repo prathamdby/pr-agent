@@ -264,7 +264,7 @@ export function buildTriageWorkspaceTools(params: {
   };
 
   const reads = buildWorkspaceTools({ profile: "triage", reader: params.checkout.reader });
-  const writes = defineToolset(tools, "sequential");
+  const writes = defineToolset(tools);
   return ((pinnedReturn: {
     readonly piTools: PiTool[];
     readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;

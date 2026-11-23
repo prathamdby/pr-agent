@@ -103,7 +103,6 @@ export function publishReviewTestBaseParams(
     repo: "r",
     prNumber: 1,
     headSha: "sha",
-    hasDescriptionReviewMap: false,
     progressCommentIdHint: 99,
     cfg: makeTestConfig({ features: { reviewLabels: "off" } }),
     payload: publishReviewTestPayload,

@@ -1,4 +1,3 @@
-import { AppError } from "../errors/appError.ts";
 import { httpStatus } from "./httpStatus.ts";
 
 export const installationOperations = [
@@ -81,13 +80,6 @@ const permissionAlternatives: Record<InstallationOperation, readonly [string, "r
       ["pull_requests", "write"],
     ],
   };
-export const essentialInstallationOperations = [
-  "pullRequestsRead",
-  "contentsRead",
-  "reviewWrite",
-  "commentsWrite",
-] as const satisfies readonly InstallationOperation[];
-
 function uniformCapabilities(
   scope: InstallationCapabilityScope,
   generation: string,
@@ -161,29 +153,6 @@ export function capabilityObservationUnconfirmed(
   availability: Partial<Record<InstallationOperation, CapabilityAvailability>>,
 ) {
   return ((pinnedReturn: boolean) => pinnedReturn)(Object.values(availability).includes("unknown"));
-}
-export function essentialCapabilitiesDenied(observation: InstallationCapabilities) {
-  return essentialInstallationOperations.filter(
-    (operation) => observation.availability[operation] === "denied",
-  );
-}
-export function assertEssentialInstallationCapabilities(observation: InstallationCapabilities) {
-  const denied = essentialCapabilitiesDenied(observation);
-  if (denied.length) {
-    throw new AppError({
-      domain: "github",
-      kind: "essential_access_denied",
-      message: "GitHub installation lacks essential repository access",
-      context: { operations: denied, ...observation.scope, generation: observation.generation },
-    });
-  }
-  if (essentialInstallationOperations.some((op) => observation.availability[op] === "unknown")) {
-    throw new AppError({
-      domain: "github",
-      kind: "preflight_unavailable",
-      message: "GitHub installation access could not be confirmed",
-    });
-  }
 }
 export type ReviewCapabilityPolicy = {
   readonly observation: InstallationCapabilities;

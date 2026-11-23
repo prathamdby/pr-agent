@@ -42,7 +42,6 @@ const ctx = {
   repo: "widgets",
   prNumber: 42,
   headSha: "abc123def456",
-  hasDescriptionReviewMap: false,
   summarySentinel: REVIEW_SUMMARY_SENTINEL,
   mode: "review" as const,
   runFooter: { durationMs: 680_000, model: "grok-4.5" },
@@ -851,28 +850,6 @@ describe("renderReviewSummaryComment", () => {
     expect(body).not.toContain("Blocking finding");
   });
 
-  it("appends review map link when hasDescriptionReviewMap is true", () => {
-    const payload = basePayload();
-    const body = renderReviewSummaryComment(payload, {
-      ...ctx,
-      hasDescriptionReviewMap: true,
-      placements: testPlacements(payload.findings),
-    });
-    expect(body).toContain(
-      "See the [review map](https://github.com/acme/widgets/pull/42) in the PR description.",
-    );
-  });
-
-  it("omits review map link when hasDescriptionReviewMap is false", () => {
-    const payload = basePayload();
-    const body = renderReviewSummaryComment(payload, {
-      ...ctx,
-      placements: testPlacements(payload.findings),
-    });
-    expect(body).not.toContain("review map");
-    expect(body).not.toContain("file walkthrough");
-  });
-
   it("counts every accepted table row on the action line after compaction omits rows", () => {
     const findings = Array.from({ length: 12 }, (_, i) => ({
       severity: "P2" as const,
@@ -1128,7 +1105,6 @@ const inlineCtx = {
   repo: "widgets",
   prNumber: 42,
   headSha: "abc123def456",
-  hasDescriptionReviewMap: false,
 };
 
 const inlineIdentity = { id: legacyFindingId("inline-thread"), lens: "correctness" as const };
@@ -1377,7 +1353,6 @@ describe("renderAgentFixPrompt", () => {
     repo: "widgets",
     prNumber: 42,
     headSha: "abc123def456",
-    hasDescriptionReviewMap: false,
   };
 
   it("includes PR metadata, fixPrompt verbatim, P3 tagging, and severity-first order", () => {

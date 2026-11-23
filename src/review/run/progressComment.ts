@@ -42,13 +42,9 @@ import {
 import { renderProgressRevisionComment } from "./commentMarkers.ts";
 import { renderStaleReviewMetadataComment } from "./reviewRender.ts";
 
-type SpecialistPhase = SpecialistRunPhase;
-
-type ReconPhase = ReconRunPhase;
-
 type ProgressRoster = {
-  readonly recon: ReconPhase;
-  readonly specialists: Readonly<Record<SpecialistId, SpecialistPhase>>;
+  readonly recon: ReconRunPhase;
+  readonly specialists: Readonly<Record<SpecialistId, SpecialistRunPhase>>;
 };
 
 export type SpecialistTickState =
@@ -67,7 +63,7 @@ const SPECIALIST_LABELS: Record<SpecialistId, string> = {
   tests: "Tests",
 };
 
-function renderReconPhase(phase: ReconPhase) {
+function renderReconRunPhase(phase: ReconRunPhase) {
   switch (phase) {
     case "running":
       return ((pinnedReturn: string) => pinnedReturn)(STATUS_RUNNING);
@@ -80,7 +76,7 @@ function renderReconPhase(phase: ReconPhase) {
   }
 }
 
-function renderSpecialistPhase(state: SpecialistPhase) {
+function renderSpecialistRunPhase(state: SpecialistRunPhase) {
   switch (state.phase) {
     case "waiting":
       return ((pinnedReturn: string) => pinnedReturn)(STATUS_WAITING);
@@ -191,12 +187,12 @@ export function renderReviewProgressComment(params: {
   if (params.tickState != null) {
     tableRows.push([
       renderTableStrong("Recon"),
-      escapeTableHtml(renderReconPhase(params.tickState.recon)),
+      escapeTableHtml(renderReconRunPhase(params.tickState.recon)),
     ]);
     for (const specialist of SPECIALIST_IDS) {
       tableRows.push([
         renderTableStrong(SPECIALIST_LABELS[specialist]),
-        escapeTableHtml(renderSpecialistPhase(params.tickState.specialists[specialist])),
+        escapeTableHtml(renderSpecialistRunPhase(params.tickState.specialists[specialist])),
       ]);
     }
   }

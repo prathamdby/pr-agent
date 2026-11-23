@@ -50,9 +50,6 @@ export type CiCheckRunSnapshot = {
   readonly status: string;
   readonly conclusion: string | null;
   readonly htmlUrl: string | null;
-  readonly outputTitle: string | null;
-  readonly outputSummary: string | null;
-  readonly outputText: string | null;
   readonly startedAt?: string | null;
   readonly completedAt?: string | null;
 };
@@ -498,9 +495,6 @@ export function summarizeCiFacts(
         status: fact.status,
         conclusion: fact.conclusion,
         htmlUrl: fact.url,
-        outputTitle: null,
-        outputSummary: null,
-        outputText: null,
       });
     }
   }

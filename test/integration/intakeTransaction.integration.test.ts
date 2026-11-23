@@ -12,12 +12,6 @@ import type { PrRef, SlashCommandInput } from "../../src/agentWork/types.ts";
 import { insertWebhookEvent, runDelivery, type IntakeFeatures } from "../../src/state/intake.ts";
 import { acquireSingleWriterLock, immediate, openAppState, readRows } from "../../src/state/db.ts";
 import { applyAppStateSchema } from "../../src/state/schema.ts";
-import {
-  createGithubDeliveriesApi,
-  planFreezeWindowReplay,
-  replayFreezeWindow,
-  type HookDelivery,
-} from "../../src/state/deliveryReplay.ts";
 import { createReviewRunner } from "../../src/agent/runtime/durable/reviewOrchestratorTask.ts";
 import { openDurableRuntime } from "../../src/agent/runtime/durable/runtime.ts";
 import { startDurableService } from "../../src/agent/runtime/durable/boot.ts";
@@ -1312,24 +1306,6 @@ function postSignedWebhook(port: number, secret: string, delivery: string) {
   });
 }
 
-function hookDelivery(
-  id: number,
-  guid: string,
-  deliveredAt: number,
-  statusCode: number,
-  redelivery = false,
-) {
-  return ((pinnedReturn: HookDelivery) => pinnedReturn)({
-    id,
-    guid,
-    delivered_at: new Date(deliveredAt).toISOString(),
-    redelivery,
-    status_code: statusCode,
-    event: "pull_request",
-    action: "opened",
-  });
-}
-
 describe("single-process durability (sqlite + pi durable)", () => {
   it("rejects an unsigned or invalid signature before writing any intake state", async () => {
     const state = openSqliteAppState();
@@ -1614,67 +1590,5 @@ describe("single-process durability (sqlite + pi durable)", () => {
       if (server?.listening) await new Promise<void>((resolve) => server?.close(() => resolve()));
       rmSync(dir, { recursive: true, force: true });
     }
-  });
-
-  it("plans the freeze-window replay: 503/0/5xx only, skipping redelivered successes, ascending", () => {
-    const freezeStart = Date.parse("2026-02-01T00:00:00Z");
-    const at = (minutes: number) => freezeStart + minutes * 60_000;
-    const deliveries = [
-      hookDelivery(9, "g-late", at(9), 503),
-      hookDelivery(8, "g-redelivered", at(8), 200, true),
-      hookDelivery(7, "g-timeout", at(7), 0),
-      hookDelivery(6, "g-ok", at(6), 200),
-      hookDelivery(5, "g-redelivered", at(5), 503),
-      hookDelivery(4, "g-502", at(4), 502),
-      hookDelivery(3, "g-404", at(3), 404),
-      hookDelivery(2, "g-retry", at(2), 503, true),
-      hookDelivery(1, "g-before", at(-1), 503),
-    ];
-    const plan = planFreezeWindowReplay(deliveries, freezeStart);
-    expect(plan.replay.map((delivery) => delivery.id)).toEqual([4, 7, 9]);
-    expect(plan.skippedRedeliveredGuids).toEqual(["g-redelivered"]);
-  });
-
-  it("replays freeze-window deliveries through a mock Deliveries API in ascending order", async () => {
-    const freezeStart = Date.parse("2026-02-01T00:00:00Z");
-    const at = (minutes: number) => new Date(freezeStart + minutes * 60_000).toISOString();
-    const pages: Record<string, { data: unknown[]; link?: string }> = {
-      first: {
-        data: [
-          { ...hookDelivery(30, "g-30", Date.parse(at(30)), 503) },
-          { ...hookDelivery(20, "g-20", Date.parse(at(20)), 500) },
-        ],
-        link: '<https://api.github.com/app/hook/deliveries?per_page=100&cursor=c%3D2>; rel="next"',
-      },
-      "c=2": {
-        data: [
-          { ...hookDelivery(10, "g-10", Date.parse(at(10)), 0) },
-          { ...hookDelivery(5, "g-5", Date.parse(at(-5)), 503) },
-        ],
-        link: '<https://api.github.com/app/hook/deliveries?per_page=100&cursor=c%3D3>; rel="next"',
-      },
-      "c=3": { data: [{ ...hookDelivery(1, "g-1", Date.parse(at(-60)), 503) }] },
-    };
-    const requests: string[] = [];
-    const api = createGithubDeliveriesApi(async (route, params) => {
-      requests.push(`${route} ${JSON.stringify(params)}`);
-      if (route === "GET /app/hook/deliveries") {
-        const cursor = typeof params.cursor === "string" ? params.cursor : "first";
-        const page = pages[cursor];
-        if (page === undefined) throw new Error(`unknown cursor ${cursor}`);
-        return { data: page.data, headers: page.link === undefined ? {} : { link: page.link } };
-      }
-      return { data: null, headers: {} };
-    });
-    const result = await replayFreezeWindow({ api, freezeStart });
-    expect(result.replayed).toEqual([10, 20, 30]);
-    expect(result.failed).toEqual([]);
-    expect(requests).toEqual([
-      'GET /app/hook/deliveries {"per_page":100}',
-      'GET /app/hook/deliveries {"per_page":100,"cursor":"c=2"}',
-      'POST /app/hook/deliveries/{delivery_id}/attempts {"delivery_id":10}',
-      'POST /app/hook/deliveries/{delivery_id}/attempts {"delivery_id":20}',
-      'POST /app/hook/deliveries/{delivery_id}/attempts {"delivery_id":30}',
-    ]);
   });
 });

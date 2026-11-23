@@ -9,11 +9,9 @@ import {
   buildVerificationUserContent,
 } from "../../prompts/verification/prompt.ts";
 import { buildWorkspaceTools, type WorkspaceToolBundle } from "../runtime/durable/piTools.ts";
-import {
-  buildSubmitVerificationTool,
-  createSubmitVerificationState,
-  type SubmitVerificationState,
-} from "./submitVerificationTool.ts";
+import { buildSubmitVerificationTool } from "./submitVerificationTool.ts";
+import type { VerificationPayload } from "../../review/triageSchema.ts";
+import { createIdleSubmitState, type IdleSubmitState } from "../tools/submitState.ts";
 
 export type VerificationRunSetup = {
   readonly systemPrompt: string;
@@ -22,7 +20,7 @@ export type VerificationRunSetup = {
   readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
   readonly durableTools: WorkspaceToolBundle["durableTools"];
   readonly toolMeta: WorkspaceToolBundle["toolMeta"];
-  readonly submitState: SubmitVerificationState;
+  readonly submitState: IdleSubmitState<VerificationPayload>;
 };
 
 export function shouldContinueVerificationRun(setup: Pick<VerificationRunSetup, "submitState">) {
@@ -41,7 +39,7 @@ export function buildVerificationRunSetup(params: {
   readonly discussion: PullRequestDiscussion;
   readonly compareFilesTruncated?: boolean;
 }) {
-  const submitState = createSubmitVerificationState();
+  const submitState = createIdleSubmitState<VerificationPayload>();
   const workspaceTools = hideWorkspaceToolsBehindCodeMode(
     buildWorkspaceTools({ profile: "verification", reader: params.workspace.reader }),
   );

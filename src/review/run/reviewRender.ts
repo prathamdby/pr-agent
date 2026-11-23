@@ -58,7 +58,6 @@ import {
 import type { CiSummary } from "../ci/ciFacts.ts";
 import { wrapUntrustedBlock } from "../../prompts/shared/safety.ts";
 import {
-  formatReviewActionLineCiStatus,
   renderReviewActionLineCiStatus,
   formatCiSummaryPlainText,
   renderCiSummaryCell,
@@ -481,8 +480,6 @@ export function formatReviewCoverageStatus(coverage: ReviewActionLineCoverage) {
   );
 }
 
-export { formatReviewActionLineCiStatus };
-
 export function renderReviewActionLine(input: {
   openCount: number;
   blockingCount: number;
@@ -706,13 +703,6 @@ function buildReviewSummaryBody(
       stale: ctx.staleReview ?? false,
     }),
   );
-
-  if (ctx.hasDescriptionReviewMap) {
-    rows.push("");
-    rows.push(
-      `See the [review map](https://github.com/${ctx.owner}/${ctx.repo}/pull/${ctx.prNumber}) in the PR description.`,
-    );
-  }
 
   rows.push("");
   rows.push(

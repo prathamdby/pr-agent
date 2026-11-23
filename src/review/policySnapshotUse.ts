@@ -2,41 +2,6 @@ import type { PolicySnapshot } from "../prWorkspace/policySnapshot.ts";
 import type { LocalPrChangedFile } from "../prWorkspace/repositoryReader.ts";
 import { allowlistedPolicyChangeSides } from "./proposedPolicyChanges.ts";
 
-export function policyProvenance(snapshot: PolicySnapshot) {
-  if (snapshot.kind === "ok") {
-    return ((pinnedReturn: {
-      readonly kind: PolicySnapshot["kind"];
-      readonly baseSha: string | null;
-      readonly reason: string | null;
-      readonly blobs: readonly { readonly path: string; readonly blobSha: string }[];
-    }) => pinnedReturn)({
-      kind: "ok",
-      baseSha: snapshot.baseSha,
-      reason: null,
-      blobs: snapshot.files.map((file) => ({ path: file.path, blobSha: file.blobSha })),
-    });
-  }
-  if (snapshot.kind === "absent") {
-    return ((pinnedReturn: {
-      readonly kind: PolicySnapshot["kind"];
-      readonly baseSha: string | null;
-      readonly reason: string | null;
-      readonly blobs: readonly { readonly path: string; readonly blobSha: string }[];
-    }) => pinnedReturn)({ kind: "absent", baseSha: snapshot.baseSha, reason: null, blobs: [] });
-  }
-  return ((pinnedReturn: {
-    readonly kind: PolicySnapshot["kind"];
-    readonly baseSha: string | null;
-    readonly reason: string | null;
-    readonly blobs: readonly { readonly path: string; readonly blobSha: string }[];
-  }) => pinnedReturn)({
-    kind: "unavailable",
-    baseSha: snapshot.baseSha ?? null,
-    reason: snapshot.reason,
-    blobs: [],
-  });
-}
-
 export function recordedPolicyBaseSha(snapshot: PolicySnapshot) {
   return ((pinnedReturn: string | null) => pinnedReturn)(
     snapshot.kind === "unavailable" ? (snapshot.baseSha ?? null) : snapshot.baseSha,

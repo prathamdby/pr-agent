@@ -26,12 +26,6 @@ export function isCancelAbortError(error: unknown) {
   );
 }
 
-export function isProviderRefusalError(error: unknown) {
-  return ((pinnedReturn: boolean) => pinnedReturn)(
-    isAppError(error) && error.code === "provider.refusal",
-  );
-}
-
 export function classifyProviderError(error: unknown) {
   if (isCancelAbortError(error))
     return ((pinnedReturn: ProviderErrorKind) => pinnedReturn)("cancelled");

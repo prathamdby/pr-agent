@@ -1,28 +1,13 @@
-export const ACK_QUEUE = "agent-work-ack";
 export const REVIEW_QUEUE = "agent-work-review";
 export const ASK_QUEUE = "agent-work-ask";
 export const DESCRIPTION_QUEUE = "agent-work-description";
 export const TRIAGE_QUEUE = "agent-work-triage";
 export const VERIFICATION_QUEUE = "agent-work-verification";
-export const CI_PROJECTION_QUEUE = "agent-work-ci-projection";
-export const RETENTION_QUEUE = "agent-work-retention";
-export const RETENTION_QUEUE_POLLING_INTERVAL_SECONDS = 60;
 export const RETENTION_DELETE_BATCH_SIZE = 5_000;
-export const CI_PROJECTION_REPAIR_BATCH_SIZE = 25;
-export const ACK_DEAD_LETTER_QUEUE = "agent-work-ack-dead";
-export const REVIEW_DEAD_LETTER_QUEUE = "agent-work-review-dead";
-export const ASK_DEAD_LETTER_QUEUE = "agent-work-ask-dead";
-export const DESCRIPTION_DEAD_LETTER_QUEUE = "agent-work-description-dead";
-export const TRIAGE_DEAD_LETTER_QUEUE = "agent-work-triage-dead";
-export const VERIFICATION_DEAD_LETTER_QUEUE = "agent-work-verification-dead";
-export const CI_PROJECTION_DEAD_LETTER_QUEUE = "agent-work-ci-projection-dead";
 export const DEFERRED_HEAD_SHA = "deferred-to-worker";
 
 export const ESCALATED_TOOL_ROUNDS_MULTIPLIER = 2;
 export const ESCALATED_TOOL_ROUNDS_CAP = 4_000;
-
-export const STALE_QUEUED_WORK_GRACE_SECONDS = 300;
-export const STALE_QUEUED_WORK_BATCH_SIZE = 10;
 
 export const IGNORED_BOT_SLASH_COMMAND = "ignored_bot_slash_command";
 export const IGNORED_UNAUTHORIZED_SLASH = "ignored_unauthorized_slash";

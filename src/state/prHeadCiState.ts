@@ -69,8 +69,6 @@ const headProjectionRowSchema = v.object({
   head_sha: v.string(),
   installation_id: v.number(),
 });
-const headShaRowSchema = v.object({ head_sha: v.optional(v.string()) });
-const sourcesJsonRowSchema = v.object({ sources_json: v.optional(v.string()) });
 
 function toHeadCiRow(row: StoredRow) {
   return ((pinnedReturn: HeadCiRow) => pinnedReturn)({
@@ -338,39 +336,6 @@ export function listProjectionRepairPendingHeads(db: DatabaseSync, limit: number
       headSha: row.head_sha,
       installationId: row.installation_id,
     })),
-  );
-}
-
-export function newestHeadShaForRepo(db: DatabaseSync, repoKey: string) {
-  const row = readRow(
-    db
-      .prepare(
-        `SELECT head_sha FROM pr_head_ci_state WHERE repo_key = ?
-        ORDER BY updated_at DESC LIMIT 1`,
-      )
-      .get(repoKey),
-    headShaRowSchema,
-  );
-  return ((pinnedReturn: string | undefined) => pinnedReturn)(row?.head_sha);
-}
-
-export function sourceAvailabilityForHead(
-  db: DatabaseSync,
-  params: { readonly repoKey: string; readonly headSha: string },
-) {
-  const row = readRow(
-    db
-      .prepare(`SELECT sources_json FROM pr_head_ci_state WHERE repo_key = ? AND head_sha = ?`)
-      .get(params.repoKey, params.headSha),
-    sourcesJsonRowSchema,
-  );
-  if (row?.sources_json == null)
-    return ((pinnedReturn: CiSourceAvailability | undefined) => pinnedReturn)(undefined);
-  return ((pinnedReturn: CiSourceAvailability | undefined) => pinnedReturn)(
-    v.parse(
-      v.custom<CiSourceAvailability>((value) => typeof value === "object" && value !== null),
-      JSON.parse(row.sources_json),
-    ),
   );
 }
 

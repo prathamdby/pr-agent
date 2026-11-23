@@ -99,27 +99,6 @@ export function ownVerdictSurfaces(outcome: OwnVerdictOutcome) {
   }
 }
 
-export type TerminalOwnCheckStatus = "completed" | "failed" | "cancelled" | "superseded";
-
-export function asTerminalOwnCheckStatus(status: string) {
-  switch (status) {
-    case "completed":
-    case "failed":
-    case "cancelled":
-    case "superseded":
-      return ((pinnedReturn: TerminalOwnCheckStatus | null) => pinnedReturn)(status);
-    default:
-      return ((pinnedReturn: TerminalOwnCheckStatus | null) => pinnedReturn)(null);
-  }
-}
-
-function storedBlockingCount(detail: Record<string, unknown>) {
-  const count = detail.ownBlockingCount;
-  return ((pinnedReturn: number) => pinnedReturn)(
-    typeof count === "number" && Number.isSafeInteger(count) && count >= 0 ? count : 1,
-  );
-}
-
 export function summaryCommentVerdictMeta(params: {
   readonly kind: "published" | "partial";
   readonly note?: string;
@@ -221,45 +200,4 @@ export function closeOutcomeForCoverage(
   if (check != null)
     return ((pinnedReturn: OwnVerdictOutcome) => pinnedReturn)({ kind: "published", ...check });
   return ((pinnedReturn: OwnVerdictOutcome) => pinnedReturn)({ kind: "not_published" });
-}
-
-export function ownVerdictFromSummaryDetail(detail: Record<string, unknown> | null) {
-  if (detail == null)
-    return ((pinnedReturn: OwnVerdictOutcome) => pinnedReturn)({ kind: "not_published" });
-  if (
-    (detail.ownPartialReason === "unjudged" ||
-      detail.ownPartialReason === "unread" ||
-      detail.ownPartialReason === "specialists") &&
-    detail.ownCheckFailing === true
-  ) {
-    return ((pinnedReturn: OwnVerdictOutcome) => pinnedReturn)({
-      kind: "published",
-      conclusion: "failure",
-      blockingCount: storedBlockingCount(detail),
-    });
-  }
-  if (detail.ownVerdictKind === "partial") {
-    const note =
-      typeof detail.ownVerdictNote === "string" && detail.ownVerdictNote.length > 0
-        ? detail.ownVerdictNote
-        : "Partial specialist coverage.";
-    return ((pinnedReturn: OwnVerdictOutcome) => pinnedReturn)({ kind: "partial", note });
-  }
-  if (detail.ownCheckFailing === true)
-    return ((pinnedReturn: OwnVerdictOutcome) => pinnedReturn)({
-      kind: "published",
-      conclusion: "failure",
-      blockingCount: storedBlockingCount(detail),
-    });
-  if (detail.ownCheckIncomplete === true)
-    return ((pinnedReturn: OwnVerdictOutcome) => pinnedReturn)({
-      kind: "published",
-      conclusion: "neutral",
-      blockingCount: 0,
-    });
-  return ((pinnedReturn: OwnVerdictOutcome) => pinnedReturn)({
-    kind: "published",
-    conclusion: "success",
-    blockingCount: 0,
-  });
 }

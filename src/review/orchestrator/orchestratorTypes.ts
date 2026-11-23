@@ -36,28 +36,6 @@ export type SpecialistOutcome =
       readonly durationMs: number;
     };
 
-export type ReviewRunGateResult =
-  | { readonly kind: "continue" }
-  | { readonly kind: "stop"; readonly reason: "superseded" | "stale_head" }
-  | {
-      readonly kind: "stop";
-      readonly reason: "cancelled";
-      readonly attribution: ReviewCancelAttribution;
-    }
-  | { readonly kind: "finalize"; readonly reason: "deadline" };
-
-export type ReviewRunTiming = {
-  readonly returnByMs: number;
-  readonly modelStopAtMs: number;
-  readonly reconDeadlineAtMs: number;
-  readonly remainingModelMs: (now?: number) => number;
-  readonly remainingTotalMs: (now?: number) => number;
-};
-
-export type ReviewRunGate = {
-  readonly check: () => Promise<ReviewRunGateResult>;
-};
-
 export type SpecialistRunPhase =
   | { readonly phase: "waiting" }
   | { readonly phase: "running" }

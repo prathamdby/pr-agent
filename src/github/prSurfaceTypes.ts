@@ -194,7 +194,6 @@ export type PrSurfaceReadMethods = PrResource & {
   getLabels(): Promise<readonly string[]>;
   findReviewCheck(headSha: string, externalId: string): Promise<CheckRef | null>;
   getCiStatus(headSha: string): Promise<CiStatusSnapshot>;
-  getReviewCommitStatuses?(headSha: string): Promise<readonly CiLegacyStatus[]>;
   listPullsForHead(headSha: string): Promise<readonly { readonly number: number }[]>;
   listFailingActionsJobs(headSha: string): Promise<ListFailingActionsJobsResult>;
   downloadActionsJobLogs(jobId: number): Promise<DownloadActionsJobLogsResult>;

@@ -1,4 +1,3 @@
-import type { CodeModeExecutorKind } from "../codeModeConstants.ts";
 import {
   DEFAULT_AGENT_EVENTS_ENABLED,
   DEFAULT_AGENT_EVENTS_RETENTION_SECONDS,
@@ -37,10 +36,6 @@ export type RuntimeSlice = {
 export type AgentEventsSlice = {
   readonly enabled: boolean;
   readonly retentionSeconds: number;
-};
-
-export type CodeModeSlice = {
-  readonly executorKind: CodeModeExecutorKind;
 };
 
 export type ReviewSlice = {
@@ -89,12 +84,6 @@ export function readAgentEventsSlice() {
       ENV.AGENT_EVENTS_RETENTION_SECONDS,
       DEFAULT_AGENT_EVENTS_RETENTION_SECONDS,
     ),
-  });
-}
-
-export function readCodeModeSlice() {
-  return ((pinnedReturn: CodeModeSlice) => pinnedReturn)({
-    executorKind: import.meta.url.endsWith(".js") ? "worker_threads" : "in_process",
   });
 }
 

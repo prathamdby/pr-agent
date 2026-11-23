@@ -5,7 +5,6 @@ import { releaseAskQuotaReservationTx } from "./askQuotas.ts";
 import { readRow, readRows } from "./db.ts";
 
 export const WORK_RUN_ACTIVE_STATUSES = ["pending_dispatch", "retry_scheduled", "running"] as const;
-export type WorkRunActiveStatus = (typeof WORK_RUN_ACTIVE_STATUSES)[number];
 
 export const WORK_RUN_STATUSES = [
   ...WORK_RUN_ACTIVE_STATUSES,

@@ -75,15 +75,6 @@ export function intentResult(intent: PublishIntentRow | undefined) {
   return ((pinnedReturn: unknown) => pinnedReturn)(JSON.parse(intent.result_json));
 }
 
-export function intentOutcomeUnknown(intent: PublishIntentRow | undefined) {
-  return ((pinnedReturn: boolean) => pinnedReturn)(
-    intent !== undefined &&
-      (intent.state === "mutating" ||
-        intent.state === "outcome_unknown_recoverable" ||
-        intent.state === "outcome_unknown_terminal"),
-  );
-}
-
 export function publishIntentFor(db: DatabaseSync, workId: string, operationKey: string) {
   return ((pinnedReturn: PublishIntentRow | undefined) => pinnedReturn)(
     readRow(
@@ -131,17 +122,6 @@ export function recordPublishStep(
     params.step,
     payload,
     now,
-  );
-}
-
-export function publishStepCompleted(db: DatabaseSync, workId: string, step: string) {
-  return ((pinnedReturn: boolean) => pinnedReturn)(
-    readRow(
-      db
-        .prepare(`SELECT payload_json FROM publish_records WHERE record_key = ?`)
-        .get(workPublishRecordKey(workId, step)),
-      payloadRowSchema,
-    ) !== undefined,
   );
 }
 

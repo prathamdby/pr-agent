@@ -1,10 +1,15 @@
 import type { AgentLifecycleEvent } from "../runtime/lifecycleEvents.ts";
 import type { AgentSessionRole } from "../runtime/types.ts";
 import type { AgentRunnerTurn, TurnEnd } from "./usageMetadata.ts";
-import { combineAbortSignals, idleAbortSignal } from "./abortSignals.ts";
 
 export type { AgentRunnerTurn, TurnEnd };
-export { combineAbortSignals, idleAbortSignal };
+export function combineAbortSignals(signals: ReadonlyArray<AbortSignal | undefined>) {
+  const defined = signals.filter((signal): signal is AbortSignal => signal != null);
+  if (defined.length === 0)
+    return ((pinnedReturn: AbortSignal) => pinnedReturn)(new AbortController().signal);
+  if (defined.length === 1) return ((pinnedReturn: AbortSignal) => pinnedReturn)(defined[0]);
+  return ((pinnedReturn: AbortSignal) => pinnedReturn)(AbortSignal.any(defined));
+}
 
 export type HostCallOutcome =
   | { readonly status: "completed"; readonly output: unknown; readonly outputBytes: number }

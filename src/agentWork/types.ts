@@ -1,4 +1,4 @@
-import type { Config, ReviewCancelAttribution } from "../settings/index.ts";
+import type { ReviewCancelAttribution } from "../settings/index.ts";
 import {
   ASK_QUEUE,
   DESCRIPTION_QUEUE,
@@ -27,8 +27,6 @@ export const WORK_STATUSES = [
   "failed",
 ] as const;
 export type WorkStatus = (typeof WORK_STATUSES)[number];
-
-export const ACTIVE_WORK_STATUSES = ["queued", "running"] as const satisfies readonly WorkStatus[];
 
 export type WebhookHeaders = {
   readonly delivery?: string;
@@ -99,31 +97,6 @@ export type AckJobData = JobCorrelation & {
     readonly body: string;
   };
   readonly commenterId?: number;
-};
-
-export type ReviewJobData = JobCorrelation & {
-  readonly kind: "review";
-  readonly workItemId: string;
-};
-
-export type AskJobData = JobCorrelation & {
-  readonly kind: "ask";
-  readonly workItemId: string;
-};
-
-export type DescriptionJobData = JobCorrelation & {
-  readonly kind: "description";
-  readonly workItemId: string;
-};
-
-export type TriageJobData = JobCorrelation & {
-  readonly kind: "triage";
-  readonly workItemId: string;
-};
-
-export type VerificationJobData = JobCorrelation & {
-  readonly kind: "verification";
-  readonly workItemId: string;
 };
 
 export type CiProjectionJobData = JobCorrelation & {
@@ -313,24 +286,6 @@ export type ReviewQueuePosition = {
   readonly total: number;
 };
 
-export function isWorkItemType<T extends WorkType>(
-  item: AgentWorkItem,
-  type: T,
-): item is Extract<AgentWorkItem, { type: T }>;
-export function isWorkItemType<T extends WorkType>(
-  item: AgentWorkItemCore,
-  type: T,
-): item is Extract<AgentWorkItemCore, { type: T }>;
-export function isWorkItemType(item: AgentWorkItem | AgentWorkItemCore, type: WorkType) {
-  return ((pinnedReturn: boolean) => pinnedReturn)(item.type === type);
-}
-
-export type QueueConfig = Pick<Config, "queue" | "concurrency">;
-
 export function prResourceKey(owner: string, repo: string, prNumber: number) {
   return ((pinnedReturn: string) => pinnedReturn)(`${owner}/${repo}#${prNumber}`);
-}
-
-export function installationGroupId(installationId: number) {
-  return ((pinnedReturn: string) => pinnedReturn)(String(installationId));
 }

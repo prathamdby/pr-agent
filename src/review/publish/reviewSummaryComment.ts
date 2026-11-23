@@ -57,15 +57,6 @@ function capabilityNotice(policy: ReviewCapabilityPolicy | undefined) {
 
 export type SummaryCommentCoordination = ReviewPublishTarget;
 
-export function upsertSummaryProgressComment(
-  prSurface: PrSurface,
-  body: string,
-  sentinel: string,
-  known: IssueCommentRef | null,
-) {
-  return prSurface.upsertProgressComment(body, sentinel, known);
-}
-
 export type RecordPublishStepFn = (
   step: "inline_review" | "summary_comment" | "labels",
   detail?: { githubId?: string | number; meta?: Record<string, unknown> },

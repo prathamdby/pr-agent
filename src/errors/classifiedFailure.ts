@@ -94,7 +94,6 @@ const INTERNAL_ERROR_KIND: {
   },
   review: {
     declare_duplicate_validation_failed: "validation",
-    deterministic_finding_publish_failed: "publish",
     publish_summary_failed: "publish",
     publish_summary_semantic_validation_failed: "validation",
     publish_summary_validation_failed: "validation",

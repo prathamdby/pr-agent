@@ -25,13 +25,11 @@ import {
 } from "./slices/queue.ts";
 import {
   readAgentEventsSlice,
-  readCodeModeSlice,
   readLoggingSlice,
   readPosthogSlice,
   readReviewSlice,
   readRuntimeSlice,
   type AgentEventsSlice,
-  type CodeModeSlice,
   type LoggingSlice,
   type PosthogSlice,
   type ReviewSlice,
@@ -47,7 +45,6 @@ export type Config = {
   readonly models: ModelsSlice;
   readonly provider: ProviderSlice;
   readonly agentEvents: AgentEventsSlice;
-  readonly codeMode: CodeModeSlice;
   readonly review: ReviewSlice;
   readonly concurrency: ConcurrencySlice;
   readonly ask: AskSlice;
@@ -73,7 +70,6 @@ export async function loadConfig() {
     models,
     provider,
     agentEvents: readAgentEventsSlice(),
-    codeMode: readCodeModeSlice(),
     review: readReviewSlice(),
     concurrency: readConcurrencySlice(),
     ask: readAskSlice(),

@@ -23,7 +23,6 @@ import {
 import {
   buildWorkspaceTools,
   hideWorkspaceToolsBehindCodeMode,
-  workspaceToolExecutionMode,
 } from "../src/agent/runtime/durable/piTools.ts";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.ts";
 
@@ -176,9 +175,5 @@ describe("workspace tool mode metadata", () => {
     const bundle = hideWorkspaceToolsBehindCodeMode(buildWorkspaceTools(workspace.reader));
     expect(bundle.toolMeta.getWorkspaceDiff?.callers).toEqual(["tools"]);
     expect(bundle.toolMeta.read_pinned?.callers).toEqual(["tools"]);
-  });
-
-  it("reports sequential execution only for registered tools", () => {
-    expect(workspaceToolExecutionMode("missing_tool")).toBeUndefined();
   });
 });
