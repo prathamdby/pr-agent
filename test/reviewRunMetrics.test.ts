@@ -14,6 +14,7 @@ import {
   recordCodeModeCapHit,
   recordPromptCacheBreak,
   recordReviewMetric,
+  releaseReviewRunMetrics,
   setReviewRunMetricFields,
   snapshotReviewRunMetrics,
 } from "../src/review/run/reviewRunMetrics.ts";
@@ -445,5 +446,48 @@ describe("reviewRunMetrics", () => {
       codeModeCapHits: { workspace_calls: 1, pool_queue: 0 },
     });
     infoSpy.mockRestore();
+  });
+
+  it("accumulates one run's metrics across scoped invocations until released", async () => {
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+    const meta = { method: "TASK", path: "pr.review_orchestrator" };
+    await evlog.runWithOperationLogger(meta, async () => {
+      initReviewRunMetrics({
+        provider: "openai",
+        model: "gpt-4o-mini",
+        mode: "review",
+        runKey: "attempt-1",
+        startedAtMs: 1_000,
+      });
+      recordReviewMetric({ kind: "phase_enter", phase: "investigation" });
+      recordReviewMetric({ kind: "tool_call", name: "listPullRequestFiles", ok: true });
+    });
+    await evlog.runWithOperationLogger(meta, async () => {
+      initReviewRunMetrics({
+        provider: "openai",
+        model: "gpt-4o-mini",
+        mode: "review",
+        runKey: "attempt-1",
+      });
+      recordReviewMetric({ kind: "tool_call", name: "submitReview", ok: true });
+      const snapshot = snapshotReviewRunMetrics();
+      expect(snapshot?.startedAtMs).toBe(1_000);
+      expect(snapshot?.phaseRoundCounts).toEqual({ investigation: 1 });
+      expect(snapshot?.toolCallCount).toBe(2);
+    });
+    releaseReviewRunMetrics("attempt-1");
+    await evlog.runWithOperationLogger(meta, async () => {
+      initReviewRunMetrics({
+        provider: "openai",
+        model: "gpt-4o-mini",
+        mode: "review",
+        runKey: "attempt-1",
+      });
+      recordReviewMetric({ kind: "tool_call", name: "submitReview", ok: true });
+      const snapshot = snapshotReviewRunMetrics();
+      expect(snapshot?.startedAtMs).not.toBe(1_000);
+      expect(snapshot?.phaseRoundCounts).toEqual({});
+      expect(snapshot?.toolCallCount).toBe(1);
+    });
   });
 });
