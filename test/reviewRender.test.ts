@@ -1062,6 +1062,17 @@ describe("review action line helpers", () => {
     expect(body).not.toContain("ready to merge");
   });
 
+  it("names a partial specialist and stays unready to merge", () => {
+    const body = renderReviewSummaryComment(basePayload(), {
+      ...ctx,
+      placements: [],
+      coverage: { kind: "partial", failed: [], partial: ["tests"] },
+    });
+    expect(body).toContain("except tests (partial)");
+    expect(body).not.toContain("with full coverage");
+    expect(body).not.toContain("ready to merge");
+  });
+
   it("does not say ready to merge when changed files were not opened", () => {
     expect(
       renderReviewActionLine({
