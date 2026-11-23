@@ -23,9 +23,49 @@ function isAmbiguousBackslashInput(value: string) {
   );
 }
 
+function jsonStringBody(value: string) {
+  let out = "";
+  for (let index = 0; index < value.length; index += 1) {
+    const ch = value[index] ?? "";
+    if (ch === "\\") {
+      const next = value[index + 1];
+      if (next === undefined) {
+        out += "\\\\";
+        continue;
+      }
+      out += `\\${next}`;
+      index += 1;
+      continue;
+    }
+    if (ch === '"') {
+      out += '\\"';
+      continue;
+    }
+    if (ch === "\n") {
+      out += "\\n";
+      continue;
+    }
+    if (ch === "\r") {
+      out += "\\r";
+      continue;
+    }
+    if (ch === "\t") {
+      out += "\\t";
+      continue;
+    }
+    if ((ch.codePointAt(0) ?? 0) < 0x20) {
+      return null;
+    }
+    out += ch;
+  }
+  return out;
+}
+
 function tryDecodeJsonStringBody(value: string) {
+  const body = jsonStringBody(value);
+  if (body === null) return null;
   try {
-    const parsed: unknown = JSON.parse(`"${value}"`);
+    const parsed: unknown = JSON.parse(`"${body}"`);
     return ((pinnedReturn: string | null) => pinnedReturn)(
       typeof parsed === "string" ? parsed : null,
     );

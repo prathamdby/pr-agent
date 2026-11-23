@@ -80,11 +80,11 @@ describe("fixDoubleEscapedString", () => {
     });
   });
 
-  it("fails closed on malformed JSON string bodies", () => {
+  it("decodes a newline escape beside a raw quote", () => {
     const input = String.raw`hello\n"world`;
     expect(fixDoubleEscapedString(input)).toEqual({
-      text: input,
-      fixed: false,
+      text: 'hello\n"world',
+      fixed: true,
     });
   });
 
