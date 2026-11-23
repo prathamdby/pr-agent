@@ -23,6 +23,44 @@ function isAmbiguousBackslashInput(value: string) {
   );
 }
 
+function jsonStringBody(value: string) {
+  let out = "";
+  for (let index = 0; index < value.length; index += 1) {
+    const ch = value[index] ?? "";
+    if (ch === "\\") {
+      const next = value[index + 1];
+      if (next === undefined) {
+        out += "\\\\";
+        continue;
+      }
+      out += `\\${next}`;
+      index += 1;
+      continue;
+    }
+    if (ch === '"') {
+      out += '\\"';
+      continue;
+    }
+    if (ch === "\n") {
+      out += "\\n";
+      continue;
+    }
+    if (ch === "\r") {
+      out += "\\r";
+      continue;
+    }
+    if (ch === "\t") {
+      out += "\\t";
+      continue;
+    }
+    if ((ch.codePointAt(0) ?? 0) < 0x20) {
+      return null;
+    }
+    out += ch;
+  }
+  return out;
+}
+
 function tryDecodeJsonStringBody(value: string) {
   try {
     const parsed: unknown = JSON.parse(`"${value}"`);
@@ -31,6 +69,22 @@ function tryDecodeJsonStringBody(value: string) {
     );
   } catch {
     return ((pinnedReturn: string | null) => pinnedReturn)(null);
+  }
+}
+
+export function decodeMermaidNewlineEscapes(value: string) {
+  if (!HAS_JSON_ESCAPE_CANDIDATE_RE.test(value) || isAmbiguousBackslashInput(value)) {
+    return { text: value, fixed: false };
+  }
+  const body = jsonStringBody(value);
+  if (body === null) return { text: value, fixed: false };
+  try {
+    const parsed: unknown = JSON.parse(`"${body}"`);
+    if (typeof parsed !== "string" || parsed === value) return { text: value, fixed: false };
+    if (countControlChars(parsed) <= countControlChars(value)) return { text: value, fixed: false };
+    return { text: parsed, fixed: true };
+  } catch {
+    return { text: value, fixed: false };
   }
 }
 

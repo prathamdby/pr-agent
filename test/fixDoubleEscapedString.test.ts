@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { fixDoubleEscapedString } from "../src/agent/tools/fixDoubleEscapedString.ts";
+import {
+  decodeMermaidNewlineEscapes,
+  fixDoubleEscapedString,
+} from "../src/agent/tools/fixDoubleEscapedString.ts";
 
 describe("fixDoubleEscapedString", () => {
   it("unwraps a single JSON-level newline escape", () => {
@@ -80,9 +83,49 @@ describe("fixDoubleEscapedString", () => {
     });
   });
 
-  it("fails closed on malformed JSON string bodies", () => {
-    const input = String.raw`hello\n"world`;
+  it("fails closed on a newline escape beside a raw quote", () => {
+    const input = String.raw`const text = "a\nb";`;
     expect(fixDoubleEscapedString(input)).toEqual({
+      text: input,
+      fixed: false,
+    });
+  });
+
+  it("fails closed on a trailing backslash after a newline escape", () => {
+    const input = `${String.raw`hello\nend`}\\`;
+    expect(fixDoubleEscapedString(input)).toEqual({
+      text: input,
+      fixed: false,
+    });
+  });
+
+  it("fails closed when a newline escape sits beside a raw control", () => {
+    const input = `${String.raw`a\n`}\u0001`;
+    expect(fixDoubleEscapedString(input)).toEqual({
+      text: input,
+      fixed: false,
+    });
+  });
+
+  it("decodes a mermaid newline escape beside a raw quote", () => {
+    const input = String.raw`flowchart LR\n  A["hook"] --> B["copy"]`;
+    expect(decodeMermaidNewlineEscapes(input)).toEqual({
+      text: 'flowchart LR\n  A["hook"] --> B["copy"]',
+      fixed: true,
+    });
+  });
+
+  it("keeps one trailing backslash when a mermaid newline escape decodes", () => {
+    const input = `${String.raw`hello\nend`}\\`;
+    expect(decodeMermaidNewlineEscapes(input)).toEqual({
+      text: "hello\nend\\",
+      fixed: true,
+    });
+  });
+
+  it("fails closed when a mermaid newline escape sits beside a raw control", () => {
+    const input = `${String.raw`a\n`}\u0001`;
+    expect(decodeMermaidNewlineEscapes(input)).toEqual({
       text: input,
       fixed: false,
     });
