@@ -31,7 +31,6 @@ import { captureCiStateChanged } from "../../analytics/workCompleted.ts";
 import { authorHeadCiIfFactsChanged } from "../ciAuthoring.ts";
 import {
   asPrNumbers,
-  clearHeadCiProjectionRepair,
   headCiListingPhase,
   listPrNumbersForHeadFromRuns,
   listTerminalReviewsForHead,
@@ -779,14 +778,6 @@ export async function runCiProjectionJob(
       capabilityPolicy.access("pullRequestsRead") === "denied" ||
       capabilityPolicy.access("commentsWrite") === "denied"
     ) {
-      if (clearHeadCiProjectionRepair(db, data, deps.now())) {
-        logWarn("ci_projection_repair_unreachable", {
-          owner: data.owner,
-          repo: data.repo,
-          headSha: data.headSha,
-          reason: "capability_denied",
-        });
-      }
       return;
     }
   }
@@ -871,15 +862,6 @@ export async function runCiProjectionJob(
       headSha: data.headSha,
       version: projected.version,
     });
-    if (projected.projectionRepairPending) {
-      logWarn("ci_projection_repair_unreachable", {
-        owner: data.owner,
-        repo: data.repo,
-        headSha: data.headSha,
-        reason: "no_prs",
-      });
-      clearHeadCiProjectionRepair(db, data, deps.now());
-    }
     return;
   }
 
@@ -903,18 +885,5 @@ export async function runCiProjectionJob(
   if (aggregate === "retry" || versionMoved) {
     requestHeadCiProjection(db, data, { kind: "debounced" }, deps.now());
     return;
-  }
-
-  if (
-    latest?.projectionRepairPending === true &&
-    (aggregate === "current" || aggregate === "updated" || aggregate === "irrelevant")
-  ) {
-    clearHeadCiProjectionRepair(db, data, deps.now());
-    logDebug("ci_projection_repair_cleared", {
-      owner: data.owner,
-      repo: data.repo,
-      headSha: data.headSha,
-      result: aggregate,
-    });
   }
 }

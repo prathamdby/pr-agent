@@ -11,6 +11,7 @@ import type { ReviewPhase, ReviewValidationFailureKind } from "../../settings/in
 
 const MAX_RECENT_TOOL_ERRORS = 3;
 const metricsByLogger = new WeakMap<RequestLogger, MutableReviewRunMetrics>();
+const metricsByRun = new Map<string, MutableReviewRunMetrics>();
 
 export type ReviewMetricEvent =
   | { readonly kind: "phase_enter"; readonly phase: ReviewPhase }
@@ -451,14 +452,26 @@ export function initReviewRunMetrics(meta: {
   model: string;
   mode: string;
   startedAtMs?: number;
+  runKey?: string;
 }) {
   const logger = tryUseLogger();
   if (!logger) return;
   const existing = metricsByLogger.get(logger);
   if (existing) return;
+  const shared = meta.runKey === undefined ? undefined : metricsByRun.get(meta.runKey);
+  if (shared !== undefined) {
+    metricsByLogger.set(logger, shared);
+    logger.set({ reviewRunMetrics: shared });
+    return;
+  }
   const created = createEmptyMetrics(meta);
   metricsByLogger.set(logger, created);
+  if (meta.runKey !== undefined) metricsByRun.set(meta.runKey, created);
   logger.set({ reviewRunMetrics: created });
+}
+
+export function releaseReviewRunMetrics(runKey: string) {
+  metricsByRun.delete(runKey);
 }
 
 export function setReviewRunMetricFields(
