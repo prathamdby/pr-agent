@@ -510,7 +510,12 @@ export function createReviewRunner(deps: WorkerDeps) {
           );
           await executeStep(deps, runtime, context, input, attempt, step);
           if (step.kind === "finish") {
-            logReviewRunCompleted({ workId: input.workId, attemptNo: input.attemptNo });
+            logReviewRunCompleted({
+              workId: input.workId,
+              attemptNo: input.attemptNo,
+              status: step.result.status,
+              ...(step.result.status === "cancelled" ? { reason: step.result.reason } : {}),
+            });
             await close(input.attemptId);
           }
         } catch (error) {
