@@ -7,6 +7,7 @@ import {
   wrapTool,
   type ConversationId,
   type Extension,
+  type HarnessSettings,
   type Registry,
   type ToolRegistration,
 } from "@earendil-works/pi-durable";
@@ -224,6 +225,17 @@ export type DurableRuntimeOptions = {
   readonly tasks?: readonly AnyTask[];
 };
 
+export function durableHarnessSettings(cfg: Config, runtimeExtension: Extension) {
+  return ((pinnedReturn: HarnessSettings) => pinnedReturn)({
+    extensions: [runtimeExtension],
+    afterFailedRun: "withdraw",
+    stream: {
+      maxRetries: cfg.provider.retryMax,
+      maxRetryDelayMs: cfg.provider.maxRetryDelayMs,
+    },
+  });
+}
+
 export async function openDurableRuntime(cfg: Config, options: DurableRuntimeOptions = {}) {
   const models: SessionModels = await createSessionModels(cfg);
   const registry = createRegistry();
@@ -259,10 +271,7 @@ export async function openDurableRuntime(cfg: Config, options: DurableRuntimeOpt
     env: (target) => new NodeExecutionEnv({ cwd: target.cwd ?? process.cwd() }),
     telemetry,
     onReport: durableReportToLog(),
-    settings: {
-      extensions: [runtimeExtension],
-      afterFailedRun: "withdraw",
-    },
+    settings: durableHarnessSettings(cfg, runtimeExtension),
   });
   return ((pinnedReturn: DurableRuntime | Promise<DurableRuntime>) => pinnedReturn)({
     handle,

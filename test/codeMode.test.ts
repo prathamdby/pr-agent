@@ -6,6 +6,7 @@ import {
   CODEMODE_MAX_WORKERS,
   CODEMODE_MEMORY_LIMIT_BYTES,
   CODEMODE_TIMEOUT_MS_CAP,
+  durableHarnessSettings,
   RUN_SPILL_QUOTA_BYTES,
 } from "../src/agent/runtime/durable/runtime.ts";
 import {
@@ -25,6 +26,20 @@ import {
   hideWorkspaceToolsBehindCodeMode,
 } from "../src/agent/runtime/durable/piTools.ts";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.ts";
+import { makeTestConfig } from "./helpers/config.ts";
+
+describe("durableHarnessSettings", () => {
+  it("carries the provider retry knobs into the request stream", () => {
+    const settings = durableHarnessSettings(
+      makeTestConfig({
+        provider: { retryMax: 3, maxRetryDelayMs: 12_345 },
+      }),
+      { name: "pr-runtime", tools: [] },
+    );
+    expect(settings.afterFailedRun).toBe("withdraw");
+    expect(settings.stream).toEqual({ maxRetries: 3, maxRetryDelayMs: 12_345 });
+  });
+});
 
 describe("codemode constants", () => {
   it("locks the sandbox and spill budgets", () => {
