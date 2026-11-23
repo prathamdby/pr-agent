@@ -16,7 +16,6 @@ export type PrHeadCiStateRow = {
   readonly prNumbers: unknown;
   readonly truncated: boolean;
   readonly seededAt: Date | null;
-  readonly projectionRepairPending: boolean;
   readonly firstSeenAt: Date;
   readonly updatedAt: Date;
   readonly sourceAvailability?: CiSourceAvailability;
