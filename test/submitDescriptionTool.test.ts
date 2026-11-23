@@ -152,6 +152,29 @@ describe("submitDescription tool", () => {
     expect(published.body).toContain('K["api/admin-users/list proxy"]');
   });
 
+  it("publishes quoted mermaid labels with real newlines", async () => {
+    const content = String.raw`flowchart LR\n  A["copy click in preview hook"] --> B["copyTicketAttachment"]\n  B --> C["loadTicketAttachmentBlob -> POST /api/ticket-attachment-bytes"]`;
+    const { executor } = buildTool();
+    await executor({
+      title: "Copy ticket attachment bytes",
+      type: ["Enhancement"],
+      description: "- The preview copy control writes image bytes.",
+      visuals: [{ kind: "mermaid", content }],
+    });
+
+    const published = updatePullRequest.mock.calls[0][0];
+    const diagram = [
+      "```mermaid",
+      "flowchart LR",
+      '  A["copy click in preview hook"] --> B["copyTicketAttachment"]',
+      '  B --> C["loadTicketAttachmentBlob -> POST /api/ticket-attachment-bytes"]',
+      "```",
+    ].join("\n");
+    expect(published.body).toContain(diagram);
+    expect(published.body).not.toContain("hookn");
+    expect(published.body).not.toContain(String.raw`\n`);
+  });
+
   it("rejects invalid mermaid on full_block language mermaid", async () => {
     const { executor } = buildTool();
     await expect(
