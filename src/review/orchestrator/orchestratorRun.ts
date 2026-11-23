@@ -1219,7 +1219,10 @@ export async function waitSpecialistsPhase(
           ? { kind: "partial", report, durationMs: now - (track.startedAt ?? now) }
           : {
               kind: "failed",
-              message: `${specialist} specialist did not finish before the deadline`,
+              message:
+                track.stage === "idle"
+                  ? `${specialist} specialist never ran before the deadline`
+                  : `${specialist} specialist did not finish before the deadline`,
               durationMs: now - (track.startedAt ?? now),
             },
       );

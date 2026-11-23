@@ -1050,6 +1050,18 @@ describe("review action line helpers", () => {
     expect(marker).not.toContain("not judged");
   });
 
+  it("does not say ready to merge when specialists failed", () => {
+    const body = renderReviewSummaryComment(basePayload(), {
+      ...ctx,
+      placements: [],
+      coverage: { kind: "partial", failed: ["correctness", "quality", "tests"] },
+    });
+    expect(body).toContain(
+      "No findings. <!-- pr-agent:ci-action fmt=1 -->CI has not started<!-- /pr-agent:ci-action -->. All specialists ran except correctness, quality, and tests.",
+    );
+    expect(body).not.toContain("ready to merge");
+  });
+
   it("does not say ready to merge when changed files were not opened", () => {
     expect(
       renderReviewActionLine({

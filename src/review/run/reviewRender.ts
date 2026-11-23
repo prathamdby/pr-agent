@@ -425,6 +425,7 @@ export type ReviewActionLineCoverage = {
   readonly failed: readonly string[];
   readonly unread?: boolean;
   readonly unjudged?: readonly string[];
+  readonly partial?: readonly string[];
 };
 
 type ReviewSummaryRenderCtx = RenderContext & {
@@ -459,21 +460,30 @@ function isDurableCarriedRow([, held]: CarriedSummaryRow) {
 
 export function formatReviewCoverageStatus(coverage: ReviewActionLineCoverage) {
   const failed = coverage.failed.length > 0;
-  const names = failed ? formatFailedSpecialistNames(coverage.failed) : "";
+  const exceptNames = [
+    ...coverage.failed,
+    ...(coverage.partial ?? []).map((specialist) => `${specialist} (partial)`),
+  ];
+  const names = exceptNames.length > 0 ? formatFailedSpecialistNames(exceptNames) : "";
   const unjudged = coverage.unjudged ?? [];
   const unjudgedText =
     unjudged.length > 0 ? `not judged: ${formatFailedSpecialistNames(unjudged)}` : "";
-  if (unjudgedText.length > 0 && !failed && coverage.unread !== true && coverage.kind !== "none") {
+  if (
+    unjudgedText.length > 0 &&
+    exceptNames.length === 0 &&
+    coverage.unread !== true &&
+    coverage.kind !== "none"
+  ) {
     return ((pinnedReturn: string) => pinnedReturn)(unjudgedText);
   }
   let base = "with full coverage";
-  if (coverage.unread && failed && coverage.kind === "partial") {
+  if (coverage.unread && exceptNames.length > 0 && coverage.kind === "partial") {
     base = `except ${names}, with unread files`;
   } else if (coverage.unread) {
     base = "with unread files";
   } else if (coverage.kind !== "full" && failed && coverage.kind === "none") {
     base = `with no coverage (${names} failed)`;
-  } else if (coverage.kind !== "full" && failed) {
+  } else if (coverage.kind !== "full" && exceptNames.length > 0) {
     base = `except ${names}`;
   }
   return ((pinnedReturn: string) => pinnedReturn)(
@@ -582,7 +592,7 @@ function buildReviewSummaryBody(
     ciStatusText: renderReviewActionLineCiStatus(ctx.ciSummary),
     coverageStatusText: formatReviewCoverageStatus(coverage),
     followUpCount: payload.followUps.length,
-    suppressReadyToMerge: coverage.unread === true,
+    suppressReadyToMerge: coverage.kind !== "full",
     unjudged: unjudgedLenses.length > 0,
   });
 

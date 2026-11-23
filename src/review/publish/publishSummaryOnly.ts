@@ -70,6 +70,9 @@ function actionLineCoverage(coverage: Exclude<ReviewCoverage, { readonly kind: "
     ...(coverage.unjudged != null && coverage.unjudged.length > 0
       ? { unjudged: [...coverage.unjudged] }
       : {}),
+    ...(coverage.partial != null && coverage.partial.length > 0
+      ? { partial: [...coverage.partial] }
+      : {}),
   });
 }
 
