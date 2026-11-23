@@ -246,6 +246,7 @@ import {
   Harness,
   type Extension,
   type ConversationId,
+  type HarnessSettings,
 } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { MemoryStorage } from "@earendil-works/pi-durable/storage/memory";
@@ -255,6 +256,7 @@ import {
   type DurableRuntime,
 } from "../../src/agent/runtime/durable/runtime.ts";
 import { openDurableHarness } from "../../src/agent/runtime/durable/harness.ts";
+import { observeCompactionRequests } from "../../src/agent/runtime/durable/traceBridge.ts";
 
 export type ScriptedResponse = {
   readonly events?: readonly AssistantMessageEvent[];
@@ -367,10 +369,12 @@ function scriptedAbortedMessage() {
 export async function createDurableTestRuntime(params: {
   readonly models: MutableModels;
   readonly sqliteDir?: string;
+  readonly settings?: HarnessSettings;
 }) {
   const registry = createRegistry();
   const sharedHeadByConversation = new Map<ConversationId, string>();
   const telemetry = new InMemoryTelemetryContext();
+  const tracedModels = observeCompactionRequests(params.models);
   let handle: Awaited<ReturnType<typeof openHandle>>;
   const runtimeExtension: Extension = createRuntimeExtension({
     sharedHeadByConversation,
@@ -382,9 +386,10 @@ export async function createDurableTestRuntime(params: {
       ? await openDurableHarness({
           sqliteDir: params.sqliteDir,
           registry,
-          models: () => params.models,
+          models: () => tracedModels,
           env: (target) => new NodeExecutionEnv({ cwd: target.cwd ?? process.cwd() }),
           telemetry,
+          settings: { extensions: [runtimeExtension], ...params.settings },
         })
       : await (async () => {
           const storage = new MemoryStorage();
@@ -392,10 +397,10 @@ export async function createDurableTestRuntime(params: {
             storage,
             {
               registry,
-              models: () => params.models,
+              models: () => tracedModels,
               env: (target) => new NodeExecutionEnv({ cwd: target.cwd ?? process.cwd() }),
               telemetry,
-              settings: { extensions: [runtimeExtension] },
+              settings: { extensions: [runtimeExtension], ...params.settings },
             },
             BACKGROUND_CONTEXT,
           );

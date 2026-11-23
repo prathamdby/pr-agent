@@ -3,6 +3,7 @@ import type { ConversationId, SignalKey, TaskId } from "@earendil-works/pi-durab
 import type { AgentRunnerUsageMetadata } from "../../providers/usageMetadata.ts";
 import type { AgentRunnerToolExecutor } from "../../providers/interface.ts";
 import type { AgentLifecycleEvent, AgentSessionRole, PiSessionSendOptions } from "../types.ts";
+import type { SessionTrace } from "../sessionTrace.ts";
 
 export type EvidenceReadAttempt = {
   readonly kind: "lines" | "diff" | "block";
@@ -101,13 +102,6 @@ export function maxTurnsForSend(opts: PiSessionSendOptions) {
     : opts.maxToolRounds + 2 + Number(opts.reservedTerminalTool !== undefined);
 }
 
-export type SessionTraceLike = {
-  beginSend: (send: PiSessionSendOptions) => void;
-  event: (event: import("../sessionTrace.ts").SessionTraceEvent) => void;
-  endSend: (end: string, errorCode?: string, errorDetail?: string) => void;
-  dispose: () => void;
-};
-
 export type DurableSessionState = {
   journal?: {
     charge(taskId: number, blocked: boolean): Promise<void>;
@@ -115,7 +109,7 @@ export type DurableSessionState = {
     credit(reads: readonly VisibleRead[]): Promise<void>;
     pending(reads: readonly VisibleRead[]): Promise<void>;
   };
-  trace?: SessionTraceLike;
+  trace?: SessionTrace;
   readonly role: AgentSessionRole;
   readonly headSha?: string;
   readonly provider: string;
@@ -184,7 +178,11 @@ export function contextForToolCall(
     signal,
     toolCallId: api.callId,
     conversationId: api.conversationId,
-    emit: (event: AgentLifecycleEvent) => state.eventSink(event),
+    emit: (event: AgentLifecycleEvent) => {
+      state.trace?.toolMetadata(api.callId, event);
+      state.eventSink(event);
+    },
+    traceHostCall: (name: string, input: unknown) => state.trace?.hostCall(api.callId, name, input),
     role: state.role,
     provider: state.provider,
     model: state.model,

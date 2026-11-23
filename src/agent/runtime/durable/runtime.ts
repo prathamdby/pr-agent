@@ -28,6 +28,7 @@ import {
   createTelemetryHooks,
   createWarmupReleaseHooks,
 } from "./telemetryBridge.ts";
+import { createTraceHooks, observeCompactionRequests } from "./traceBridge.ts";
 import { sessionStateFor } from "./sessionState.ts";
 
 export const CODEMODE_TIMEOUT_MS_CAP = 15_000;
@@ -208,6 +209,7 @@ export function createRuntimeExtension(params: {
         ...createEvidenceHooks(),
         ...createToolGateHooks(),
         ...createTelemetryHooks(),
+        ...createTraceHooks(),
         ...(params.harness !== undefined ? createWarmupReleaseHooks(params.harness) : []),
       ],
       wraps:
@@ -249,10 +251,11 @@ export async function openDurableRuntime(cfg: Config, options: DurableRuntimeOpt
   if (options.tasks !== undefined && options.tasks.length > 0) {
     registry.install(defineExtension({ name: "pr-durable-tasks", tasks: options.tasks }));
   }
+  const tracedModels = observeCompactionRequests(models.models);
   handle = await openDurableHarness({
     sqliteDir: cfg.runtime.sqliteDir,
     registry,
-    models: () => models.models,
+    models: () => tracedModels,
     env: (target) => new NodeExecutionEnv({ cwd: target.cwd ?? process.cwd() }),
     telemetry,
     onReport: durableReportToLog(),
