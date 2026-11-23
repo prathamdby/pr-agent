@@ -1,9 +1,10 @@
-import { JSON_LD_GRAPHS } from "@/lib/seo";
+import { jsonLdGraphs } from "@/lib/seo";
+import { pageOrigin } from "@/lib/site";
 
 export function JsonLd() {
   const payload = {
     "@context": "https://schema.org",
-    "@graph": JSON_LD_GRAPHS.map((node) => {
+    "@graph": jsonLdGraphs(pageOrigin()).map((node) => {
       const { "@context": _ctx, ...rest } = node as {
         "@context"?: string;
         [key: string]: unknown;

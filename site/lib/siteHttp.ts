@@ -88,6 +88,15 @@ export function notAcceptableResponse(produces: readonly string[]) {
   );
 }
 
+const SECURITY_POLICY_REPORT_ONLY =
+  "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+
+export function applySecurityHeaders(headers: Headers) {
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("X-Frame-Options", "DENY");
+  headers.set("Content-Security-Policy-Report-Only", SECURITY_POLICY_REPORT_ONLY);
+}
+
 const NO_VALIDATORS: ConditionalHeaders = { ifNoneMatch: null, ifModifiedSince: null };
 
 function homeMarkdown(
@@ -248,6 +257,7 @@ export function landingHtmlConditional(ifNoneMatch: string | null, ifModifiedSin
       vary: "Accept",
       extra: (headers) => {
         headers.set("Link", HTML_LINK);
+        applySecurityHeaders(headers);
       },
     }),
   );
@@ -277,6 +287,7 @@ export function decorateHtmlResponse(response: Response) {
     withHeaders(response, (headers) => {
       varyOnAccept(headers);
       headers.set("Link", HTML_LINK);
+      applySecurityHeaders(headers);
       if (!headers.has("Cache-Control")) {
         headers.set("Cache-Control", PAGE_CACHE_CONTROL);
       }
