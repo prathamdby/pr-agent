@@ -17,15 +17,21 @@ import {
 } from "../../../settings/index.ts";
 import { immediate } from "../../../state/db.ts";
 import {
+  attemptFor,
   cancelLiveAttempt,
   markWorkRunCompleted,
   supersedeWorkRun,
   cancelWorkRun,
   workRunById,
 } from "../../../state/workRuns.ts";
+import {
+  initReviewRunMetrics,
+  logReviewRunCompleted,
+  releaseReviewRunMetrics,
+} from "../../../review/run/reviewRunMetrics.ts";
 import { escalationForAttempt } from "../../../agentWork/retryPolicy.ts";
 import { errorMessage } from "../../../errors/errorMessage.ts";
-import { logWarn } from "../../../evlog.ts";
+import { logWarn, runWithOperationLogger } from "../../../evlog.ts";
 import { openReviewAttemptEnv } from "../../../review/runReviewForWorkItem.ts";
 import {
   conversationIdFor,
@@ -421,6 +427,7 @@ export async function executeStep(
 export function createReviewRunner(deps: WorkerDeps) {
   const attempts = new Map<string, LiveAttempt>();
   const close = async (attemptId: string) => {
+    releaseReviewRunMetrics(attemptId);
     const attempt = attempts.get(attemptId);
     if (!attempt) return;
     attempts.delete(attemptId);
@@ -441,69 +448,100 @@ export function createReviewRunner(deps: WorkerDeps) {
     context: Context,
   ) => {
     const { input } = task;
-    try {
-      const stored = task.state.checkpoint.phase === "start" ? undefined : task.state.checkpoint;
-      if (!stored) await awaitAttemptAdmission(deps.db, input, { signal: runtime.signal });
-      if (
-        !attempts.has(input.attemptId) &&
-        (!reviewWorkIsCurrent(deps.db, input.workId) ||
-          workRunById(deps.db, input.workId)?.current_attempt_no !== input.attemptNo)
-      ) {
-        writeTerminalOutcome(deps, input, { status: "cancelled", reason: "superseded" });
-        await close(input.attemptId);
-        await runtime.commit(
-          () => ({
-            status: "terminal",
-            outcome: {
-              status: "completed",
-              result: { status: "cancelled", detail: "work_run_no_longer_current" },
-            },
-          }),
-          context,
-        );
-        return;
-      }
-      const attempt =
-        attempts.get(input.attemptId) ?? (await prepare(input, runtime.taskId, stored));
-      const checkpoint =
-        stored ??
-        initialReviewCheckpoint({
-          now: runtime.now(),
-          headSha: attempt.live.env.headSha,
-          baseSha: attempt.live.env.baseSha,
-          budgetMs: REVIEW_ATTEMPT_BUDGET_MS,
-          finalizationMs: REVIEW_FINALIZATION_WINDOW_MS,
-          reconBudgetMs: REVIEW_INTAKE_CHECKOUT_BUDGET_MS + REVIEW_RECON_BUDGET_MS,
-        });
-      const step = await runReviewPhase(
-        attempt.live,
-        checkpoint,
-        turnReader(runtime, context, input.attemptId, (role) => attempt.children.get(role)?.id),
-      );
-      await executeStep(deps, runtime, context, input, attempt, step);
-      if (step.kind === "finish") await close(input.attemptId);
-    } catch (error) {
-      if (runtime.signal.aborted) throw error;
-      logWarn("review_orchestrator_phase_failed", {
-        workId: input.workId,
-        attemptNo: input.attemptNo,
-        message: errorMessage(error),
-      });
-      recordAttemptFailure(deps.db, deps.cfg, {
-        ...input,
-        error,
-        interrupted: false,
-        now: deps.now?.() ?? Date.now(),
-      });
-      await close(input.attemptId);
-      await runtime.commit(
-        () => ({
-          status: "terminal",
-          outcome: { status: "failed", error: { message: errorMessage(error) } },
-        }),
-        context,
-      );
-    }
+    await runWithOperationLogger(
+      {
+        method: "TASK",
+        path: "pr.review_orchestrator",
+        requestId: input.attemptId,
+        context: {
+          workId: input.workId,
+          attemptNo: input.attemptNo,
+          phase: task.state.checkpoint.phase,
+        },
+      },
+      async () => {
+        try {
+          const stored =
+            task.state.checkpoint.phase === "start" ? undefined : task.state.checkpoint;
+          if (!stored) await awaitAttemptAdmission(deps.db, input, { signal: runtime.signal });
+          if (
+            !attempts.has(input.attemptId) &&
+            (!reviewWorkIsCurrent(deps.db, input.workId) ||
+              workRunById(deps.db, input.workId)?.current_attempt_no !== input.attemptNo)
+          ) {
+            writeTerminalOutcome(deps, input, { status: "cancelled", reason: "superseded" });
+            await close(input.attemptId);
+            await runtime.commit(
+              () => ({
+                status: "terminal",
+                outcome: {
+                  status: "completed",
+                  result: { status: "cancelled", detail: "work_run_no_longer_current" },
+                },
+              }),
+              context,
+            );
+            return;
+          }
+          const attempt =
+            attempts.get(input.attemptId) ?? (await prepare(input, runtime.taskId, stored));
+          const attemptRow = attemptFor(deps.db, input.workId, input.attemptNo);
+          initReviewRunMetrics({
+            provider: deps.cfg.models.provider,
+            model: deps.cfg.models.model,
+            mode: attempt.live.env.item.reviewLens,
+            runKey: input.attemptId,
+            ...(attemptRow?.started_at != null ? { startedAtMs: attemptRow.started_at } : {}),
+          });
+          const checkpoint =
+            stored ??
+            initialReviewCheckpoint({
+              now: runtime.now(),
+              headSha: attempt.live.env.headSha,
+              baseSha: attempt.live.env.baseSha,
+              budgetMs: REVIEW_ATTEMPT_BUDGET_MS,
+              finalizationMs: REVIEW_FINALIZATION_WINDOW_MS,
+              reconBudgetMs: REVIEW_INTAKE_CHECKOUT_BUDGET_MS + REVIEW_RECON_BUDGET_MS,
+            });
+          const step = await runReviewPhase(
+            attempt.live,
+            checkpoint,
+            turnReader(runtime, context, input.attemptId, (role) => attempt.children.get(role)?.id),
+          );
+          await executeStep(deps, runtime, context, input, attempt, step);
+          if (step.kind === "finish") {
+            logReviewRunCompleted({
+              workId: input.workId,
+              attemptNo: input.attemptNo,
+              status: step.result.status,
+              ...(step.result.status === "cancelled" ? { reason: step.result.reason } : {}),
+            });
+            await close(input.attemptId);
+          }
+        } catch (error) {
+          if (runtime.signal.aborted) throw error;
+          logWarn("review_orchestrator_phase_failed", {
+            workId: input.workId,
+            attemptNo: input.attemptNo,
+            message: errorMessage(error),
+          });
+          recordAttemptFailure(deps.db, deps.cfg, {
+            ...input,
+            error,
+            interrupted: false,
+            now: deps.now?.() ?? Date.now(),
+          });
+          await close(input.attemptId);
+          await runtime.commit(
+            () => ({
+              status: "terminal",
+              outcome: { status: "failed", error: { message: errorMessage(error) } },
+            }),
+            context,
+          );
+        }
+      },
+    );
   };
   const task = defineTask<AttemptStamp, ReviewTaskState, ReviewTaskResult>({
     name: "pr.review_orchestrator",
