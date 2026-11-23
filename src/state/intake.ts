@@ -808,7 +808,11 @@ function transferProgressCommentOwnership(
      ON CONFLICT (record_key) DO UPDATE SET
        work_id = excluded.work_id,
        payload_json = json_set(
-         json_remove(COALESCE(publish_records.payload_json, '{}'), '$.progressRevision'),
+         json_remove(
+           COALESCE(publish_records.payload_json, '{}'),
+           '$.progressRevision',
+           '$.stubPostedAtMs'
+         ),
          '$.progressGeneration',
          COALESCE(json_extract(publish_records.payload_json, '$.progressGeneration'), 0) + 1
        )
