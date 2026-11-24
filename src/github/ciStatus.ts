@@ -1,3 +1,4 @@
+import type { RestEndpointMethodTypes } from "@octokit/rest";
 import {
   isConfirmedCapabilityDenial,
   type ReviewCapabilityPolicy,
@@ -7,6 +8,24 @@ import { installationOctokit } from "./appAuth.ts";
 import { stopPaginatedPage } from "./paginateOctokit.ts";
 import { CHECK_RUNS_MAX_PAGES, CHECK_RUNS_PAGE_SIZE } from "../settings/index.ts";
 import type { CiCheckRunSnapshot, CiLegacyStatus, CiSourceAccess } from "../review/ci/ciFacts.ts";
+
+type CombinedCommitStatus =
+  RestEndpointMethodTypes["repos"]["getCombinedStatusForRef"]["response"]["data"];
+type CombinedCommitStatusItem = CombinedCommitStatus["statuses"][number];
+
+function isCombinedCommitStatus(
+  data: CombinedCommitStatus | readonly CombinedCommitStatusItem[],
+): data is CombinedCommitStatus {
+  return !Array.isArray(data) && "statuses" in data;
+}
+
+function combinedCommitStatusItems(
+  data: CombinedCommitStatus | readonly CombinedCommitStatusItem[],
+) {
+  if (isCombinedCommitStatus(data))
+    return ((pinnedReturn: readonly CombinedCommitStatusItem[]) => pinnedReturn)(data.statuses);
+  return ((pinnedReturn: readonly CombinedCommitStatusItem[]) => pinnedReturn)(data);
+}
 
 export type CheckRunsForHeadResult = {
   readonly checkRuns: CiCheckRunSnapshot[];
@@ -92,7 +111,7 @@ export async function listLegacyCommitStatusesForHeadDetailed(
     (response, done) =>
       stopPaginatedPage(
         statusPage,
-        response.data,
+        combinedCommitStatusItems(response.data),
         CHECK_RUNS_PAGE_SIZE,
         CHECK_RUNS_MAX_PAGES,
         done,
