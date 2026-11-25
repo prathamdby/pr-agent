@@ -7,6 +7,23 @@ import {
   notFoundResponse,
   restateAcceptAsHtml,
 } from "@/lib/siteHttp";
+import { bindPageOrigin, requestOrigin } from "@/lib/site";
+
+type RequestOriginStorage = {
+  getStore(): string | undefined;
+  run<Result>(origin: string, next: () => Result): Result;
+};
+
+let requestOrigins: Promise<RequestOriginStorage> | undefined;
+
+function requestOriginStorage() {
+  requestOrigins ??= import("node:async_hooks").then(({ AsyncLocalStorage }) => {
+    const storage = new AsyncLocalStorage<string>();
+    bindPageOrigin(storage);
+    return storage;
+  });
+  return requestOrigins;
+}
 
 const contentNegotiation = createMiddleware({ type: "request" }).server(
   async ({ request, next }) => {
@@ -33,7 +50,8 @@ const contentNegotiation = createMiddleware({ type: "request" }).server(
       restateAcceptAsHtml(request.headers);
     } catch {}
 
-    const result = await next();
+    const pageOrigins = await requestOriginStorage();
+    const result = await pageOrigins.run(requestOrigin(request), () => next());
     if (result.response.status === 404) {
       return { ...result, response: notFoundResponse(pathname, accept, result.response) };
     }

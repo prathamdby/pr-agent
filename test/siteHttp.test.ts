@@ -1,6 +1,8 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { describe, expect, it } from "vitest";
+import { renderRobotsTxt } from "../site/lib/discovery.ts";
 import { jsonLdGraphs } from "../site/lib/seo.ts";
-import { pageOrigin, requestOrigin, SITE_ORIGIN } from "../site/lib/site.ts";
+import { bindPageOrigin, pageOrigin, requestOrigin, SITE_ORIGIN } from "../site/lib/site.ts";
 import {
   AI_CATALOG,
   API_CATALOG,
@@ -41,6 +43,28 @@ function rendered(status: number) {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     }),
   );
+}
+
+function withBrowser(
+  locationHref: string,
+  canonical: { readonly href: string } | null,
+  check: () => void,
+) {
+  const host = globalThis as { window?: unknown };
+  const previous = host.window;
+  host.window = {
+    location: { href: locationHref },
+    document: { querySelector: () => canonical },
+  };
+  try {
+    check();
+  } finally {
+    if (previous === undefined) {
+      delete host.window;
+    } else {
+      host.window = previous;
+    }
+  }
 }
 
 describe("varyOnAccept", () => {
@@ -191,6 +215,11 @@ describe("notFoundResponse", () => {
     expect(response.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
     expect(response.headers.get("Vary")).toBe("Accept");
     expect(response.headers.get("Link")).toBe(HTML_LINK);
+    expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(response.headers.get("X-Frame-Options")).toBe("DENY");
+    expect(response.headers.get("Content-Security-Policy-Report-Only")).toBe(
+      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+    );
     expect(await response.text()).toContain("<body>page</body>");
   });
 
@@ -215,6 +244,8 @@ describe("notFoundResponse", () => {
     const response = notFoundResponse("/missing", "text/markdown", rendered(404));
     expect(response.status).toBe(404);
     expect(response.headers.get("Content-Type")).toBe("text/markdown; charset=utf-8");
+    expect(response.headers.get("X-Frame-Options")).toBeNull();
+    expect(response.headers.get("Content-Security-Policy-Report-Only")).toBeNull();
     expect(await response.text()).toContain("# 404 Not Found");
   });
 
@@ -489,8 +520,39 @@ describe("content revision validators", () => {
     expect(requestOrigin(new Request("http://x.vercel.app.evil.example/"))).toBe(SITE_ORIGIN);
   });
 
-  it("answers the build origin on the server, where no canonical exists yet", () => {
+  it("answers the build origin when no request origin is bound", () => {
     expect(pageOrigin()).toBe(SITE_ORIGIN);
+  });
+
+  it("ignores a canonical link and reads the browser location through the allowlist", () => {
+    withBrowser("http://127.0.0.1:3000/page", { href: "https://other.example/home" }, () => {
+      expect(pageOrigin()).toBe("http://127.0.0.1:3000");
+    });
+  });
+
+  it("reads a browser location through the allowlist when the canonical link is missing", () => {
+    withBrowser("http://pr-agent-git-preview.vercel.app/robots.txt", null, () => {
+      expect(pageOrigin()).toBe("https://pr-agent-git-preview.vercel.app");
+    });
+  });
+
+  it("ignores a malformed canonical link and keeps an allowed browser location", () => {
+    withBrowser("http://localhost:8080/", { href: "http://[" }, () => {
+      expect(pageOrigin()).toBe("http://localhost:8080");
+    });
+  });
+
+  it("reads the bound request origin on the server", () => {
+    const origins = new AsyncLocalStorage<string>();
+    bindPageOrigin(origins);
+    try {
+      expect(pageOrigin()).toBe(SITE_ORIGIN);
+      expect(origins.run("http://127.0.0.1:3000", () => pageOrigin())).toBe(
+        "http://127.0.0.1:3000",
+      );
+    } finally {
+      bindPageOrigin({ getStore: () => undefined });
+    }
   });
 
   it("threads the rendered origin through the JSON-LD graph", () => {
@@ -517,6 +579,14 @@ describe("content revision validators", () => {
     const xml = await sitemap.text();
     expect(xml).toContain("<loc>https://pr-agent-git-preview.vercel.app/</loc>");
     expect(xml).not.toContain("<loc>http://");
+  });
+
+  it("serves https robots pointers to a preview deployment that reports http", () => {
+    const origin = requestOrigin(new Request("http://pr-agent-git-preview.vercel.app/robots.txt"));
+    const body = renderRobotsTxt(origin);
+    expect(body).toContain("Sitemap: https://pr-agent-git-preview.vercel.app/sitemap.xml");
+    expect(body).toContain(`Agentmap: https://pr-agent-git-preview.vercel.app${AI_CATALOG.path}`);
+    expect(body).not.toContain("http://");
   });
 
   it("serves /llms.txt with the committed revision rather than a clock", () => {

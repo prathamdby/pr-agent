@@ -329,6 +329,7 @@ export function notFoundResponse(pathname: string, accept: string | null, render
     withHeaders(rendered, (headers) => {
       varyOnAccept(headers);
       headers.set("Link", HTML_LINK);
+      applySecurityHeaders(headers);
       headers.set("Cache-Control", ERROR_CACHE_CONTROL);
     }),
   );

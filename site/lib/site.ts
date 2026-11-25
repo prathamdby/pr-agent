@@ -35,26 +35,35 @@ function trustedDiscoveryHost(hostname: string) {
   );
 }
 
-type PageWindow = {
-  readonly location: { readonly origin: string };
-  readonly document: {
-    querySelector(selector: string): { readonly href?: string } | null;
-  };
+type PageOriginBinding = {
+  getStore(): string | undefined;
 };
 
-declare const window: PageWindow | undefined;
+let pageOriginBinding: PageOriginBinding | undefined;
+
+export function bindPageOrigin(binding: PageOriginBinding) {
+  pageOriginBinding = binding;
+}
+
+function browserHref() {
+  const href = (globalThis as { window?: { location?: { href?: unknown } } }).window?.location
+    ?.href;
+  if (typeof href !== "string" || href.length === 0) {
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
+  }
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(href);
+}
 
 export function pageOrigin() {
-  if (typeof window === "undefined") {
-    return ((pinnedReturn: string) => pinnedReturn)(SITE_ORIGIN);
+  const href = browserHref();
+  if (href !== undefined) {
+    try {
+      return requestOrigin(new Request(href));
+    } catch {
+      return ((pinnedReturn: string) => pinnedReturn)(SITE_ORIGIN);
+    }
   }
-  const href =
-    window.document.querySelector('link[rel="canonical"]')?.href ?? window.location.origin;
-  try {
-    return ((pinnedReturn: string) => pinnedReturn)(new URL(href).origin);
-  } catch {
-    return ((pinnedReturn: string) => pinnedReturn)(window.location.origin);
-  }
+  return ((pinnedReturn: string) => pinnedReturn)(pageOriginBinding?.getStore() ?? SITE_ORIGIN);
 }
 
 export function requestOrigin(request: Request) {
