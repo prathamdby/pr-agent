@@ -169,16 +169,7 @@ export async function acquireAndClaimWorkItem(params: {
           }
           return acquisition;
         }
-        let claimed: WorkClaim | null;
-        try {
-          claimed = await claimWorkForExecution(client, params.core.id, acquisition.leaseEpoch);
-        } catch (error) {
-          await releasePrActorLease(client, {
-            ...params.leaseKey,
-            leaseEpoch: acquisition.leaseEpoch,
-          });
-          throw error;
-        }
+        const claimed = await claimWorkForExecution(client, params.core.id, acquisition.leaseEpoch);
         if (!claimed) {
           await releasePrActorLease(client, {
             ...params.leaseKey,
