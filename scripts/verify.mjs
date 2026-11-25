@@ -17,47 +17,9 @@ if (process.env.DATABASE_URL && !process.argv.includes("--use-env")) {
   process.exit(1);
 }
 
-const name = `pr-agent-verify-${process.pid}`;
-let mappedPort = "";
-try {
-  execFileSync(
-    "docker",
-    [
-      "run",
-      "-d",
-      "--name",
-      name,
-      "-p",
-      "127.0.0.1::5432",
-      "-e",
-      "POSTGRES_DB=pr_agent",
-      "-e",
-      "POSTGRES_USER=pr_agent",
-      "-e",
-      "POSTGRES_PASSWORD=pr_agent",
-      "postgres:18.7-alpine",
-    ],
-    { encoding: "utf8" },
-  );
-  const portOut = execFileSync("docker", ["port", name, "5432"], { encoding: "utf8" });
-  mappedPort = portOut.trim().split(":").pop() ?? "";
-  if (!mappedPort) throw new Error("no mapped port from docker port");
+const useEnvDatabase = Boolean(process.env.DATABASE_URL);
 
-  const deadline = Date.now() + 60_000;
-  for (;;) {
-    try {
-      execFileSync("docker", ["exec", name, "pg_isready", "-U", "pr_agent", "-d", "pr_agent"], {
-        encoding: "utf8",
-        stdio: "pipe",
-      });
-      break;
-    } catch {
-      if (Date.now() > deadline) throw new Error("postgres never became ready");
-      await new Promise((r) => setTimeout(r, 1000));
-    }
-  }
-
-  const databaseUrl = `postgres://pr_agent:pr_agent@127.0.0.1:${mappedPort}/pr_agent`;
+function runIntegration(databaseUrl, describeDatabase) {
   const started = new Date().toISOString();
   let result = "";
   try {
@@ -65,7 +27,7 @@ try {
       cwd: ROOT,
       encoding: "utf8",
       maxBuffer: 100 * 1024 * 1024,
-      env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL ?? databaseUrl },
+      env: { ...process.env, DATABASE_URL: databaseUrl },
     });
     console.log(result.slice(-2000));
   } catch (e) {
@@ -79,12 +41,60 @@ try {
     const artifact = path.join(dir, `${stamp}.md`);
     fs.writeFileSync(
       artifact,
-      `# Verify ${started}\n\nDATABASE_URL: ${process.env.DATABASE_URL ? "provided via --use-env" : `disposable container ${name} (127.0.0.1:${mappedPort})`}\n\n\`\`\`\n${result.slice(-8000)}\n\`\`\`\n`,
+      `# Verify ${started}\n\nDATABASE_URL: ${describeDatabase}\n\n\`\`\`\n${result.slice(-8000)}\n\`\`\`\n`,
     );
     console.log(`Artifact: ${path.relative(ROOT, artifact)}`);
   }
-} finally {
+}
+
+if (useEnvDatabase) {
+  runIntegration(process.env.DATABASE_URL, "provided via --use-env");
+} else {
+  const name = `pr-agent-verify-${process.pid}`;
+  let mappedPort = "";
   try {
-    execFileSync("docker", ["rm", "-f", name], { encoding: "utf8", stdio: "pipe" });
-  } catch {}
+    execFileSync(
+      "docker",
+      [
+        "run",
+        "-d",
+        "--name",
+        name,
+        "-p",
+        "127.0.0.1::5432",
+        "-e",
+        "POSTGRES_DB=pr_agent",
+        "-e",
+        "POSTGRES_USER=pr_agent",
+        "-e",
+        "POSTGRES_PASSWORD=pr_agent",
+        "postgres:18.7-alpine",
+      ],
+      { encoding: "utf8" },
+    );
+    const portOut = execFileSync("docker", ["port", name, "5432"], { encoding: "utf8" });
+    mappedPort = portOut.trim().split(":").pop() ?? "";
+    if (!mappedPort) throw new Error("no mapped port from docker port");
+
+    const deadline = Date.now() + 60_000;
+    for (;;) {
+      try {
+        execFileSync("docker", ["exec", name, "pg_isready", "-U", "pr_agent", "-d", "pr_agent"], {
+          encoding: "utf8",
+          stdio: "pipe",
+        });
+        break;
+      } catch {
+        if (Date.now() > deadline) throw new Error("postgres never became ready");
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    }
+
+    const databaseUrl = `postgres://pr_agent:pr_agent@127.0.0.1:${mappedPort}/pr_agent`;
+    runIntegration(databaseUrl, `disposable container ${name} (127.0.0.1:${mappedPort})`);
+  } finally {
+    try {
+      execFileSync("docker", ["rm", "-f", name], { encoding: "utf8", stdio: "pipe" });
+    } catch {}
+  }
 }
