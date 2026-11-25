@@ -43,11 +43,94 @@ export function pathsFromUnifiedDiff(diff: string) {
   const paths: string[] = [];
   for (const line of diff.split("\n")) {
     if (!line.startsWith("diff --git ")) continue;
-    const match = /^diff --git a\/(.+) b\/(.+)$/.exec(line);
-    const path = match?.[2];
-    if (path != null && path.length > 0) paths.push(path);
+    const bPath = parseDiffGitBPath(line.slice("diff --git ".length));
+    if (bPath != null && bPath.length > 0) paths.push(bPath);
   }
   return ((pinnedReturn: readonly string[]) => pinnedReturn)([...new Set(paths)]);
+}
+
+function unquoteGitPath(token: string) {
+  if (!token.startsWith('"'))
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(
+      token.length > 0 ? token : undefined,
+    );
+  if (!token.endsWith('"') || token.length < 2)
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
+  const body = token.slice(1, -1);
+  const bytes: number[] = [];
+  let ascii = "";
+  const flush = () => {
+    if (bytes.length === 0) return;
+    ascii += Buffer.from(bytes).toString("utf8");
+    bytes.length = 0;
+  };
+  for (let index = 0; index < body.length; index += 1) {
+    const char = body[index];
+    if (char !== "\\") {
+      flush();
+      ascii += char;
+      continue;
+    }
+    const next = body[index + 1];
+    if (next == null) return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
+    const octal = body.slice(index + 1, index + 4);
+    if (/^[0-7]{3}$/.test(octal)) {
+      bytes.push(parseInt(octal, 8));
+      index += 3;
+      continue;
+    }
+    const escaped = next === "n" ? "\n" : next === "t" ? "\t" : next;
+    flush();
+    ascii += escaped;
+    index += 1;
+  }
+  flush();
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(ascii);
+}
+
+function readDiffGitToken(text: string, start: number) {
+  if (text[start] === '"') {
+    const end = findClosingQuote(text, start);
+    if (end < 0) return ((pinnedReturn: undefined) => pinnedReturn)(undefined);
+    const raw = unquoteGitPath(text.slice(start, end + 1));
+    if (raw === undefined) return ((pinnedReturn: undefined) => pinnedReturn)(undefined);
+    return ((pinnedReturn: { readonly value: string; readonly end: number } | undefined) =>
+      pinnedReturn)({ value: raw, end: end + 1 });
+  }
+  let end = start;
+  while (end < text.length && text[end] !== " ") end += 1;
+  if (end === start) return ((pinnedReturn: undefined) => pinnedReturn)(undefined);
+  return ((pinnedReturn: { readonly value: string; readonly end: number } | undefined) =>
+    pinnedReturn)({ value: text.slice(start, end), end });
+}
+
+function parseDiffGitBPath(rest: string) {
+  const aToken = readDiffGitToken(rest, 0);
+  if (aToken === undefined || !aToken.value.startsWith("a/"))
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
+  if (rest[aToken.end] !== " ")
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
+  const bToken = readDiffGitToken(rest, aToken.end + 1);
+  if (bToken === undefined || bToken.end !== rest.length)
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(stripBPrefix(bToken.value));
+}
+
+function stripBPrefix(path: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(path.startsWith("b/") ? path.slice(2) : path);
+}
+
+function findClosingQuote(text: string, start: number) {
+  let index = start + 1;
+  while (index < text.length) {
+    if (text[index] === "\\") {
+      index += 2;
+      continue;
+    }
+    if (text[index] === '"') return ((pinnedReturn: number) => pinnedReturn)(index);
+    index += 1;
+  }
+  return ((pinnedReturn: number) => pinnedReturn)(-1);
 }
 
 export function remapBulkPayload(params: {
