@@ -680,7 +680,7 @@ describe("leased execution", () => {
     });
   });
 
-  it("releases the owned epoch and stops renewal when claim rejects", async () => {
+  it("propagates the original error without a doomed release when claim rejects", async () => {
     const item = makeItem();
     mockFetchedItem(item);
     const claimError = new Error("claim unavailable");
@@ -696,12 +696,7 @@ describe("leased execution", () => {
 
     expect(execute).not.toHaveBeenCalled();
     expect(repo.markWorkFailed).not.toHaveBeenCalled();
-    expect(prActorLease.releasePrActorLease).toHaveBeenCalledTimes(1);
-    expect(prActorLease.releasePrActorLease).toHaveBeenCalledWith(pool, {
-      resourceKey: item.resourceKey,
-      workType: "review",
-      leaseEpoch: 1,
-    });
+    expect(prActorLease.releasePrActorLease).not.toHaveBeenCalled();
     await expectNoFurtherLeaseRenewal();
   });
 
@@ -744,7 +739,7 @@ describe("leased execution", () => {
     expect(vi.mocked(boss.send)).toHaveBeenCalledTimes(2);
   });
 
-  it("releases the named epoch on the client when claim rejects after acquire", async () => {
+  it("does not attempt a release inside the aborted transaction when claim rejects", async () => {
     const item = makeItem();
     mockFetchedItem(item);
     const claimError = new Error("claim unavailable");
@@ -754,12 +749,7 @@ describe("leased execution", () => {
     await expect(runReviewWorkItem({ execute })).rejects.toBe(claimError);
 
     expect(execute).not.toHaveBeenCalled();
-    expect(prActorLease.releasePrActorLease).toHaveBeenCalledTimes(1);
-    expect(prActorLease.releasePrActorLease).toHaveBeenCalledWith(pool, {
-      resourceKey: item.resourceKey,
-      workType: "review",
-      leaseEpoch: 1,
-    });
+    expect(prActorLease.releasePrActorLease).not.toHaveBeenCalled();
   });
 
   it("releases the owned epoch and stops renewal when payload read rejects", async () => {
@@ -1108,7 +1098,7 @@ describe("leased execution", () => {
     expect(repo.claimWorkForExecution).toHaveBeenCalledTimes(2);
     expect(execute).toHaveBeenCalledTimes(1);
     expect(repo.markWorkCompleted).toHaveBeenCalledWith(pool, "wi-1", 1);
-    expect(prActorLease.releasePrActorLease).toHaveBeenCalledTimes(2);
+    expect(prActorLease.releasePrActorLease).toHaveBeenCalledTimes(1);
   });
 
   it("does not retry acquire-and-claim twice on repeated deadlock", async () => {

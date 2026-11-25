@@ -5,11 +5,8 @@ import {
   renderTriagePreview,
   renderTriageReport,
 } from "../src/agent/triage/triageRender.ts";
-import {
-  pathsFromUnifiedDiff,
-  previewApprovalSets,
-  remapBulkPayload,
-} from "../src/agent/triage/previewApproval.ts";
+import { previewApprovalSets, remapBulkPayload } from "../src/agent/triage/previewApproval.ts";
+import { pathsFromUnifiedDiff } from "../src/agent/triage/diffPaths.ts";
 import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.ts";
 import {
   TRIAGE_PREVIEW_SENTINEL,
@@ -347,5 +344,43 @@ describe("preview approval", () => {
     expect(pathsFromUnifiedDiff("diff --git a/src/old.ts b/src/app.ts\n+ok\n")).toEqual([
       "src/app.ts",
     ]);
+  });
+
+  it("reads unquoted b/ paths containing spaces", () => {
+    expect(
+      pathsFromUnifiedDiff("diff --git a/docs/setup guide.md b/docs/setup guide.md\n+ok\n"),
+    ).toEqual(["docs/setup guide.md"]);
+  });
+
+  it("reads unquoted rename b/ paths containing spaces", () => {
+    expect(
+      pathsFromUnifiedDiff("diff --git a/docs/setup guide.md b/docs/setup manual.md\n+ok\n"),
+    ).toEqual(["docs/setup manual.md"]);
+  });
+
+  it("decodes quoted octal-escaped b/ paths", () => {
+    expect(
+      pathsFromUnifiedDiff('diff --git "a/h\\303\\251llo.md" "b/h\\303\\251llo.md"\n+ok\n'),
+    ).toEqual(["héllo.md"]);
+  });
+
+  it("decodes mixed quoting in both directions", () => {
+    expect(
+      pathsFromUnifiedDiff('diff --git a/docs/setup manual.md "b/h\\303\\251llo.md"\n+ok\n'),
+    ).toEqual(["héllo.md"]);
+    expect(pathsFromUnifiedDiff('diff --git "a/h\\303\\251llo.md" b/plain.md\n+ok\n')).toEqual([
+      "plain.md",
+    ]);
+  });
+
+  it("decodes the full set of named control escapes", () => {
+    expect(pathsFromUnifiedDiff('diff --git "a/we\\rfile.md" "b/we\\rfile.md"\n+ok\n')).toEqual([
+      "we\rfile.md",
+    ]);
+  });
+
+  it("yields no path for malformed headers", () => {
+    expect(pathsFromUnifiedDiff("diff --git\n+ok\n")).toEqual([]);
+    expect(pathsFromUnifiedDiff("diff --git src/app.ts\n+ok\n")).toEqual([]);
   });
 });

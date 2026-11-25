@@ -7,6 +7,7 @@ import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.ts";
 import type { TriagePayload, TriageVerdict } from "../../review/triageSchema.ts";
 import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.ts";
 import type { TriagePreviewHunk } from "./triageRender.ts";
+import { pathsFromUnifiedDiff } from "./diffPaths.ts";
 import { errorMessage } from "../../errors/errorMessage.ts";
 
 const exec = promisify(execFile);
@@ -37,17 +38,6 @@ export function approvedPreviewHunks(params: {
       (hunk) => params.approvedIds.has(hunk.threadRootCommentId) && previewHunkHasDiff(hunk),
     ),
   );
-}
-
-export function pathsFromUnifiedDiff(diff: string) {
-  const paths: string[] = [];
-  for (const line of diff.split("\n")) {
-    if (!line.startsWith("diff --git ")) continue;
-    const match = /^diff --git a\/(.+) b\/(.+)$/.exec(line);
-    const path = match?.[2];
-    if (path != null && path.length > 0) paths.push(path);
-  }
-  return ((pinnedReturn: readonly string[]) => pinnedReturn)([...new Set(paths)]);
 }
 
 export function remapBulkPayload(params: {

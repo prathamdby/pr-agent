@@ -204,6 +204,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams) {
         streamFn,
         signal: loopSignal,
         thinkingCeiling: params.thinkingPolicy.ceiling,
+        onCompactionProgress: () => activity.markActivity(),
         onCompaction: (reason) =>
           emit({
             kind: "compaction",

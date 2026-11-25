@@ -7,6 +7,7 @@ import {
   CHECK_RUNS_PAGE_SIZE,
   COMMENTS_PAGE_SIZE,
   COMMENT_PAGINATION_MAX_PAGES,
+  OWN_COMMIT_STATUS_CONTEXT,
   REVIEW_SUMMARY_SENTINEL,
 } from "../settings/index.ts";
 
@@ -415,7 +416,7 @@ export async function setReviewCommitStatus(
     repo,
     sha,
     state: params.state,
-    context: "pr-agent/review",
+    context: OWN_COMMIT_STATUS_CONTEXT,
     description: params.description,
     target_url: params.targetUrl,
   });
