@@ -46,7 +46,6 @@ import {
   fetchActiveTriageWorkItem,
   fetchActiveVerificationWorkItem,
 } from "./workItemRepository.ts";
-import { acquireAutoWorkIntakeLock } from "../autoWorkEnqueue.ts";
 
 export type SlashCommandInput = {
   readonly headers: WebhookHeaders;
@@ -447,7 +446,6 @@ async function handleSlashCancel(ctx: SlashIntakeContext) {
 
 async function handleSlashVerify(ctx: SlashIntakeContext) {
   const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
-  await acquireAutoWorkIntakeLock(ctx.client, { kind: "verification", resourceKey });
   const active = await fetchActiveVerificationWorkItem(ctx.client, resourceKey);
   if (active) {
     await enqueueSlashAck(ctx, {
