@@ -1,7 +1,7 @@
 import contentRevision from "../content-revision.json" with { type: "json" };
-import { KNOWLEDGE_QUERY_TEXT } from "@/lib/agentResources";
-import { ALTERNATIVE_ROWS, FAQ_ITEMS, FEATURES } from "@/lib/content";
-import { REPO_URL, SITE_ORIGIN } from "@/lib/site";
+import { KNOWLEDGE_QUERY_TEXT } from "./agentResources.ts";
+import { ALTERNATIVE_ROWS, FAQ_ITEMS, FEATURES } from "./content.ts";
+import { REPO_URL } from "./site.ts";
 
 export const PRODUCT_NAME = "PR Agent";
 
@@ -37,7 +37,7 @@ export const SEO_KEYWORDS = [
   "Docker code review",
 ];
 
-function softwareApplicationJsonLd() {
+function softwareApplicationJsonLd(origin: string) {
   return {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
@@ -46,7 +46,7 @@ function softwareApplicationJsonLd() {
     applicationSubCategory: "AI Code Review",
     operatingSystem: "Linux, Docker",
     description: SEO_DESCRIPTION,
-    url: SITE_ORIGIN,
+    url: origin,
     downloadUrl: REPO_URL,
     softwareVersion: "0.1.0",
     license: "https://opensource.org/licenses/MIT",
@@ -63,7 +63,7 @@ function softwareApplicationJsonLd() {
       url: AUTHOR_URL,
     },
     sameAs: SAME_AS,
-    screenshot: `${SITE_ORIGIN}/og-image.png`,
+    screenshot: `${origin}/og-image.png`,
   };
 }
 
@@ -98,33 +98,35 @@ function itemListJsonLd() {
   };
 }
 
-export const JSON_LD_GRAPHS = [
-  softwareApplicationJsonLd(),
-  {
-    "@context": "https://schema.org",
-    "@type": "WebSite",
-    name: PRODUCT_NAME,
-    alternateName: ["pr-agent", "PR Agent by prathamdby"],
-    description: SEO_DESCRIPTION,
-    url: SITE_ORIGIN,
-    dateModified: contentRevision.landing.revisedAt,
-    sameAs: SAME_AS,
-    potentialAction: {
-      "@type": "SearchAction",
-      target: {
-        "@type": "EntryPoint",
-        urlTemplate: `${SITE_ORIGIN}${KNOWLEDGE_QUERY_TEXT.path}{search_term_string}`,
+export function jsonLdGraphs(origin: string) {
+  return [
+    softwareApplicationJsonLd(origin),
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      name: PRODUCT_NAME,
+      alternateName: ["pr-agent", "PR Agent by prathamdby"],
+      description: SEO_DESCRIPTION,
+      url: origin,
+      dateModified: contentRevision.landing.revisedAt,
+      sameAs: SAME_AS,
+      potentialAction: {
+        "@type": "SearchAction",
+        target: {
+          "@type": "EntryPoint",
+          urlTemplate: `${origin}${KNOWLEDGE_QUERY_TEXT.path}{search_term_string}`,
+        },
+        "query-input": "required name=search_term_string",
       },
-      "query-input": "required name=search_term_string",
     },
-  },
-  {
-    "@context": "https://schema.org",
-    "@type": "Organization",
-    name: "prathamdby",
-    url: AUTHOR_URL,
-    sameAs: SAME_AS,
-  },
-  faqPageJsonLd(),
-  itemListJsonLd(),
-];
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      name: "prathamdby",
+      url: AUTHOR_URL,
+      sameAs: SAME_AS,
+    },
+    faqPageJsonLd(),
+    itemListJsonLd(),
+  ];
+}

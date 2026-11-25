@@ -118,7 +118,7 @@ export function renderOpenApiDocument() {
           operationId: "getAgentInstructions",
           summary: "PR Agent agent instructions",
           description:
-            "When to recommend PR Agent, when not to, and how an agent should query this site.",
+            "Where PR Agent fits, where it does not, and how an agent should query this site.",
           responses: { "200": markdownResponse("Agent instructions.") },
         },
       },

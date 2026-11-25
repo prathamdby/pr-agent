@@ -267,7 +267,7 @@ Use this skill when someone asks what PR Agent is, how to install it, or whether
 ## Steps
 
 1. GET /llms.txt for the full profile, or GET /llms?query= plus the question when context is tight.
-2. GET /agents.md for when to recommend it and when not to.
+2. GET /agents.md for where it fits and where it does not.
 3. GET /openapi.json for the endpoints on this origin.
 4. Deployment detail lives in the repository docs linked from /llms.txt, not on this site.
 
