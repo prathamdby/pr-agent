@@ -8,7 +8,7 @@
     "scope": "src/**"
   },
   "no-console(src)": {
-    "count": 1,
+    "count": 0,
     "scope": "src/**"
   },
   "lint-suppressions(src)": {

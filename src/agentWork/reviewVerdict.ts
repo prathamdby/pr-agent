@@ -19,6 +19,7 @@ import type { ReviewCoverage } from "../review/orchestrator/orchestratorTypes.ts
 import {
   type AnyReviewLens,
   DEFERRED_HEAD_SHA,
+  OWN_COMMIT_STATUS_CONTEXT,
   REVIEW_CHECK_RUN_RESERVATION_STALE_MS,
   REVIEW_CHECK_RUN_WAIT_FOR_ID_MS,
   REVIEW_CHECK_RUN_WAIT_POLL_MS,
@@ -713,7 +714,7 @@ async function writeOwnCommitStatus(params: OwnCommitStatusParams) {
         step: "commit_status",
         resourceKey: params.resourceKey,
         headSha: params.headSha,
-        context: "pr-agent/review",
+        context: OWN_COMMIT_STATUS_CONTEXT,
         ...status,
       },
       recover: async () => {
@@ -733,7 +734,7 @@ async function writeOwnCommitStatus(params: OwnCommitStatusParams) {
             : (await params.prSurface.getCiStatus(params.headSha)).legacyStatuses;
         const found = statuses.some(
           (legacy) =>
-            legacy.context === "pr-agent/review" &&
+            legacy.context === OWN_COMMIT_STATUS_CONTEXT &&
             legacy.state === status.state &&
             legacy.description === status.description &&
             legacy.targetUrl === (status.targetUrl ?? null),
