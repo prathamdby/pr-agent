@@ -14,6 +14,7 @@ type SessionCompactionRuntime = {
   readonly signal: AbortSignal;
   readonly thinkingCeiling: ThinkingLevel;
   readonly onCompaction: (reason: "window" | "overflow") => void;
+  readonly onCompactionProgress?: () => void;
   readonly trace?: SessionTrace;
 };
 
@@ -27,6 +28,7 @@ export function createSessionCompaction(policy: CompactionPolicy, rt: SessionCom
       signal: rt.signal,
       thinkingCeiling: rt.thinkingCeiling,
       trace: rt.trace,
+      ...(rt.onCompactionProgress ? { onStreamEvent: rt.onCompactionProgress } : {}),
     });
     if (!compacted) return undefined;
     rt.onCompaction("window");
@@ -48,6 +50,7 @@ export function createSessionCompaction(policy: CompactionPolicy, rt: SessionCom
         signal: rt.signal,
         thinkingCeiling: rt.thinkingCeiling,
         trace: rt.trace,
+        ...(rt.onCompactionProgress ? { onStreamEvent: rt.onCompactionProgress } : {}),
       });
       if (!compacted) return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
       overflowCompacts += 1;

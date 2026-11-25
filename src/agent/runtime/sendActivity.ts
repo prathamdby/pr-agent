@@ -35,17 +35,25 @@ export function createSendActivity(timeoutMs: number, sendAbort: AbortController
         await work;
         return;
       }
+      let interval: ReturnType<typeof setInterval> | undefined;
       const idle = new Promise<never>((_, reject) => {
         rejectOnIdle = reject;
         markActivity();
         const checkEveryMs = Math.max(1, Math.min(timeoutMs, 1000));
-        timers.push(
-          setInterval(() => {
-            if (Date.now() - lastActivityAt >= timeoutMs) rejectForIdle();
-          }, checkEveryMs),
-        );
+        interval = setInterval(() => {
+          if (Date.now() - lastActivityAt >= timeoutMs) rejectForIdle();
+        }, checkEveryMs);
+        timers.push(interval);
       });
-      await Promise.race([work, idle]);
+      try {
+        await Promise.race([work, idle]);
+      } finally {
+        if (interval !== undefined) {
+          clearInterval(interval);
+          const index = timers.indexOf(interval);
+          if (index >= 0) timers.splice(index, 1);
+        }
+      }
     },
     dispose() {
       for (const timer of timers) clearInterval(timer);

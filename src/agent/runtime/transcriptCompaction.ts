@@ -160,6 +160,7 @@ async function summarizeMessages(
   signal: AbortSignal | undefined,
   thinkingCeiling: ThinkingLevel,
   trace?: SessionTrace,
+  onStreamEvent?: () => void,
 ) {
   const conversationText = serializeForSummary(messages);
   if (conversationText.length === 0)
@@ -195,6 +196,14 @@ async function summarizeMessages(
           : {}),
       },
     );
+    if (onStreamEvent) {
+      void (async () => {
+        for await (const streamEvent of stream) {
+          void streamEvent;
+          onStreamEvent();
+        }
+      })().catch(() => undefined);
+    }
     const response = await stream.result();
     trace?.endCompaction(response);
     if (response.stopReason === "error" || response.stopReason === "aborted") {
@@ -241,6 +250,7 @@ export async function compactAgentMessages(params: {
   readonly streamFn: StreamFn;
   readonly signal?: AbortSignal;
   readonly thinkingCeiling: ThinkingLevel;
+  readonly onStreamEvent?: () => void;
 }) {
   const leadingSystem: AgentMessage[] = [];
   let restStart = 0;
@@ -266,6 +276,7 @@ export async function compactAgentMessages(params: {
     params.signal,
     params.thinkingCeiling,
     params.trace,
+    params.onStreamEvent,
   );
   if (!summary)
     return ((pinnedReturn: (AgentMessage[] | undefined) | Promise<AgentMessage[] | undefined>) =>
@@ -286,6 +297,7 @@ export async function compactIfNeeded(params: {
   readonly streamFn: StreamFn;
   readonly signal?: AbortSignal;
   readonly thinkingCeiling: ThinkingLevel;
+  readonly onStreamEvent?: () => void;
 }) {
   const usage = estimateContextTokens(params.messages);
   if (!contextNeedsCompaction(usage, params.model.contextWindow)) {
