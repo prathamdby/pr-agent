@@ -45,6 +45,7 @@ function releaseSlot() {
 }
 
 function createLease(kind: CodeModeExecutorKind) {
+  let released = false;
   return ((pinnedReturn: ExecutorLease) => pinnedReturn)({
     async run(params) {
       if (useWorkerThreads(kind)) {
@@ -53,6 +54,8 @@ function createLease(kind: CodeModeExecutorKind) {
       return runQuickJsCell(params);
     },
     release() {
+      if (released) return;
+      released = true;
       releaseSlot();
     },
   });
@@ -182,6 +185,7 @@ export async function acquireExecutor(signal: AbortSignal, kind: CodeModeExecuto
       const timer = setTimeout(() => {
         const index = waiters.indexOf(waiter);
         if (index >= 0) waiters.splice(index, 1);
+        signal.removeEventListener("abort", onAbort);
         reject(
           new CodeModeHostHalt("TIMEOUT", "Timed out waiting for an executor", {
             reason: "pool_wait",
