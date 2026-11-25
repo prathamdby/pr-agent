@@ -6,6 +6,7 @@ import { renderPolicySuggestionForDismissed } from "../../review/repoPolicy.ts";
 import { TRIAGE_PREVIEW_SENTINEL, TRIAGE_SUMMARY_SENTINEL } from "../../settings/index.ts";
 import type { CiRollup } from "../../review/ci/ciFacts.ts";
 import { renderCiRollupMarker } from "../../review/ci/ciSummaryCell.ts";
+import { pathsFromUnifiedDiff } from "./diffPaths.ts";
 
 export type TriagePreviewHunk = {
   readonly threadRootCommentId: number;
@@ -26,15 +27,11 @@ function shortSha(sha: string) {
 }
 
 function diffStat(diff: string) {
-  const files = new Set<string>();
+  const files = new Set<string>(pathsFromUnifiedDiff(diff));
   let additions = 0;
   let deletions = 0;
   for (const line of diff.split("\n")) {
-    if (line.startsWith("diff --git ")) {
-      const parts = line.split(" ");
-      const path = parts[3]?.replace(/^b\//, "");
-      if (path) files.add(path);
-    } else if (line.startsWith("+") && !line.startsWith("+++")) {
+    if (line.startsWith("+") && !line.startsWith("+++")) {
       additions++;
     } else if (line.startsWith("-") && !line.startsWith("---")) {
       deletions++;
