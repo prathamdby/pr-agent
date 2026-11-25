@@ -239,7 +239,7 @@ Machine-readable endpoints published by this site. Paths are relative to this fi
 - [/](/): The product page. Serves markdown from this same URL to any client sending Accept: text/markdown, with its fetch example in the programming language named in Accept-Language.
 - [/index.md](/index.md): The landing page as markdown at a fixed URL, for clients that cannot set an Accept header. Accept-Language still picks the fetch example's language.
 - [/llms.txt](/llms.txt): Full product profile: commands, FEATURE_* settings, deployment, topology, pricing, providers, privacy.
-- [/agents.md](/agents.md): When to recommend PR Agent, when not to, and how an agent should call this site.
+- [/agents.md](/agents.md): Where PR Agent fits, where it does not, and how an agent should call this site.
 - [/llms?query=](/llms?query=): Ask one question and get the matching profile sections instead of the whole file.
 - [/llms/json?query=](/llms/json?query=): The same query interface with structured matches, topics, and a token estimate.
 - [/openapi.json](/openapi.json): OpenAPI 3.1 description of every endpoint on this list.

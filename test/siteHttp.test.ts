@@ -1,5 +1,8 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { describe, expect, it } from "vitest";
-import { requestOrigin, SITE_ORIGIN } from "../site/lib/site.ts";
+import { renderRobotsTxt } from "../site/lib/discovery.ts";
+import { jsonLdGraphs } from "../site/lib/seo.ts";
+import { bindPageOrigin, pageOrigin, requestOrigin, SITE_ORIGIN } from "../site/lib/site.ts";
 import {
   AI_CATALOG,
   API_CATALOG,
@@ -40,6 +43,28 @@ function rendered(status: number) {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     }),
   );
+}
+
+function withBrowser(
+  locationHref: string,
+  canonical: { readonly href: string } | null,
+  check: () => void,
+) {
+  const host = globalThis as { window?: unknown };
+  const previous = host.window;
+  host.window = {
+    location: { href: locationHref },
+    document: { querySelector: () => canonical },
+  };
+  try {
+    check();
+  } finally {
+    if (previous === undefined) {
+      delete host.window;
+    } else {
+      host.window = previous;
+    }
+  }
 }
 
 describe("varyOnAccept", () => {
@@ -145,6 +170,15 @@ describe("decorateHtmlResponse", () => {
     expect(response.headers.get("Link")).toBe(HTML_LINK);
   });
 
+  it("applies the report-only security headers", () => {
+    const response = decorateHtmlResponse(rendered(200));
+    expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(response.headers.get("X-Frame-Options")).toBe("DENY");
+    expect(response.headers.get("Content-Security-Policy-Report-Only")).toBe(
+      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+    );
+  });
+
   it("keeps the body the router produced", async () => {
     expect(await decorateHtmlResponse(rendered(200)).text()).toContain("<body>page</body>");
   });
@@ -181,6 +215,11 @@ describe("notFoundResponse", () => {
     expect(response.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
     expect(response.headers.get("Vary")).toBe("Accept");
     expect(response.headers.get("Link")).toBe(HTML_LINK);
+    expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(response.headers.get("X-Frame-Options")).toBe("DENY");
+    expect(response.headers.get("Content-Security-Policy-Report-Only")).toBe(
+      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+    );
     expect(await response.text()).toContain("<body>page</body>");
   });
 
@@ -205,6 +244,8 @@ describe("notFoundResponse", () => {
     const response = notFoundResponse("/missing", "text/markdown", rendered(404));
     expect(response.status).toBe(404);
     expect(response.headers.get("Content-Type")).toBe("text/markdown; charset=utf-8");
+    expect(response.headers.get("X-Frame-Options")).toBeNull();
+    expect(response.headers.get("Content-Security-Policy-Report-Only")).toBeNull();
     expect(await response.text()).toContain("# 404 Not Found");
   });
 
@@ -260,8 +301,8 @@ describe("fixed-format markdown documents", () => {
     expect(response.headers.get("Link")).toBe(MARKDOWN_LINK);
     const body = await response.text();
     expect(body).toContain("# PR Agent agent instructions");
-    expect(body).toContain("## When to recommend PR Agent");
-    expect(body).toContain("## When not to recommend it");
+    expect(body).toContain("## Where PR Agent fits");
+    expect(body).toContain("## Where it does not fit");
   });
 });
 
@@ -347,6 +388,11 @@ describe("content revision validators", () => {
     expect(fresh?.status).toBe(304);
     expect(await fresh?.text()).toBe("");
     expect(fresh?.headers.get("Last-Modified")).toBe(lastModified);
+    expect(fresh?.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(fresh?.headers.get("X-Frame-Options")).toBe("DENY");
+    expect(fresh?.headers.get("Content-Security-Policy-Report-Only")).toContain(
+      "frame-ancestors 'none'",
+    );
     expect(landingHtmlConditional(null, "not-a-date")).toBeNull();
   });
 
@@ -402,6 +448,22 @@ describe("content revision validators", () => {
     await expectFresh304(sitemapResponse, "application/xml; charset=utf-8");
   });
 
+  it("keeps the report-only policy off document and discovery responses", () => {
+    const sniffed = [
+      homeMarkdownResponse(null),
+      llmsProfileResponse(),
+      openApiResponse(),
+      agentInstructionsResponse(),
+    ];
+    for (const response of [...sniffed, sitemapResponse()]) {
+      expect(response.headers.get("X-Frame-Options")).toBeNull();
+      expect(response.headers.get("Content-Security-Policy-Report-Only")).toBeNull();
+    }
+    for (const response of sniffed) {
+      expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    }
+  });
+
   it("304s /agents.md when the client already has that date", async () => {
     const first = agentInstructionsResponse();
     const second = agentInstructionsResponse({
@@ -438,6 +500,93 @@ describe("content revision validators", () => {
     );
     expect(requestOrigin(new Request("https://evil.example/sitemap.xml"))).toBe(SITE_ORIGIN);
     expect(requestOrigin(new Request(`${SITE_ORIGIN}/`))).toBe(new URL(SITE_ORIGIN).origin);
+  });
+
+  it("echoes loopback origins with their scheme and port", () => {
+    expect(requestOrigin(new Request("http://127.0.0.1:3000/robots.txt"))).toBe(
+      "http://127.0.0.1:3000",
+    );
+    expect(requestOrigin(new Request("http://[::1]:3000/sitemap.xml"))).toBe("http://[::1]:3000");
+    expect(requestOrigin(new Request("http://LOCALHOST:8080/robots.txt"))).toBe(
+      "http://localhost:8080",
+    );
+  });
+
+  it("rewrites trusted discovery hosts to https and keeps the port", () => {
+    expect(requestOrigin(new Request("http://foo.vercel.app:8443/robots.txt"))).toBe(
+      "https://foo.vercel.app:8443",
+    );
+    expect(requestOrigin(new Request("http://VerCel.App/sitemap.xml"))).toBe("https://vercel.app");
+    expect(requestOrigin(new Request("http://x.vercel.app.evil.example/"))).toBe(SITE_ORIGIN);
+  });
+
+  it("answers the build origin when no request origin is bound", () => {
+    expect(pageOrigin()).toBe(SITE_ORIGIN);
+  });
+
+  it("ignores a canonical link and reads the browser location through the allowlist", () => {
+    withBrowser("http://127.0.0.1:3000/page", { href: "https://other.example/home" }, () => {
+      expect(pageOrigin()).toBe("http://127.0.0.1:3000");
+    });
+  });
+
+  it("reads a browser location through the allowlist when the canonical link is missing", () => {
+    withBrowser("http://pr-agent-git-preview.vercel.app/robots.txt", null, () => {
+      expect(pageOrigin()).toBe("https://pr-agent-git-preview.vercel.app");
+    });
+  });
+
+  it("ignores a malformed canonical link and keeps an allowed browser location", () => {
+    withBrowser("http://localhost:8080/", { href: "http://[" }, () => {
+      expect(pageOrigin()).toBe("http://localhost:8080");
+    });
+  });
+
+  it("reads the bound request origin on the server", () => {
+    const origins = new AsyncLocalStorage<string>();
+    bindPageOrigin(origins);
+    try {
+      expect(pageOrigin()).toBe(SITE_ORIGIN);
+      expect(origins.run("http://127.0.0.1:3000", () => pageOrigin())).toBe(
+        "http://127.0.0.1:3000",
+      );
+    } finally {
+      bindPageOrigin({ getStore: () => undefined });
+    }
+  });
+
+  it("threads the rendered origin through the JSON-LD graph", () => {
+    const origin = "https://preview.example";
+    const graphs = jsonLdGraphs(origin);
+    expect(graphs[0]).toMatchObject({
+      "@type": "SoftwareApplication",
+      url: origin,
+      screenshot: `${origin}/og-image.png`,
+    });
+    expect(graphs[1]).toMatchObject({
+      "@type": "WebSite",
+      url: origin,
+      potentialAction: {
+        target: { urlTemplate: `${origin}/llms?query={search_term_string}` },
+      },
+    });
+  });
+
+  it("serves https locs to a preview deployment that reports http", async () => {
+    const origin = requestOrigin(new Request("http://pr-agent-git-preview.vercel.app/robots.txt"));
+    expect(origin).toBe("https://pr-agent-git-preview.vercel.app");
+    const sitemap = sitemapResponse({ ifNoneMatch: null, ifModifiedSince: null }, origin);
+    const xml = await sitemap.text();
+    expect(xml).toContain("<loc>https://pr-agent-git-preview.vercel.app/</loc>");
+    expect(xml).not.toContain("<loc>http://");
+  });
+
+  it("serves https robots pointers to a preview deployment that reports http", () => {
+    const origin = requestOrigin(new Request("http://pr-agent-git-preview.vercel.app/robots.txt"));
+    const body = renderRobotsTxt(origin);
+    expect(body).toContain("Sitemap: https://pr-agent-git-preview.vercel.app/sitemap.xml");
+    expect(body).toContain(`Agentmap: https://pr-agent-git-preview.vercel.app${AI_CATALOG.path}`);
+    expect(body).not.toContain("http://");
   });
 
   it("serves /llms.txt with the committed revision rather than a clock", () => {
