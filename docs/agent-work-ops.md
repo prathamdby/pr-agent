@@ -846,3 +846,13 @@ fallback has `workspace_fallback_reason = 'fetch_too_large'`; the byte monitor
 counts regular and temporary files under `.git/objects`, including lazy blob
 backfill during checkout, and a final allocated-bytes measurement remains as a
 post-hoc backstop.
+
+A planned sparse checkout whose changed paths include a name the sparse pattern
+format cannot encode (a newline, or a trailing carriage return) checks out in
+full instead and logs `local_pr_workspace_full_fallback`; telemetry shows
+`workspace_checkout_mode = 'full_fallback'` and
+`workspace_fallback_reason = 'unrepresentable_path'`. A full fetch failure for
+such a pull request does not fall back to sparse: it logs
+`local_pr_workspace_sparse_fallback_refused` and keeps the classified error.
+Workspace paths are byte-exact, so a backslash is part of the filename rather
+than a directory separator.

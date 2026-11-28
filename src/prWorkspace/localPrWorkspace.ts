@@ -243,7 +243,7 @@ async function prepareCheckedOutTree(dir: string, prefix = "") {
           return;
         }
         if (entry.isFile()) {
-          paths.add(rel.replace(/\\/g, "/"));
+          paths.add(rel);
         }
         await chmod(full, 0o444);
       }),
@@ -254,16 +254,28 @@ async function prepareCheckedOutTree(dir: string, prefix = "") {
 }
 
 function sparseCheckoutPattern(path: string) {
-  return ((pinnedReturn: string) => pinnedReturn)(
-    `/${path.replace(/\\/g, "/").replace(/[\\*?[]/g, "\\$&")}`,
-  );
+  if (path.includes("\n") || path.endsWith("\r"))
+    return ((pinnedReturn: string | null) => pinnedReturn)(null);
+  return ((pinnedReturn: string | null) => pinnedReturn)(`/${path.replace(/[\\*?[ ]/g, "\\$&")}`);
 }
 
 function sparseCheckoutPatterns(changedFiles: readonly LocalPrChangedFile[]) {
-  const paths = changedFiles
-    .filter((file) => file.status !== "deleted")
-    .map((file) => sparseCheckoutPattern(file.path));
-  return ((pinnedReturn: string) => pinnedReturn)(paths.length > 0 ? `${paths.join("\n")}\n` : "");
+  const patterns: string[] = [];
+  for (const file of changedFiles) {
+    if (file.status === "deleted") continue;
+    const pattern = sparseCheckoutPattern(file.path);
+    if (pattern == null) return ((pinnedReturn: string | null) => pinnedReturn)(null);
+    patterns.push(pattern);
+  }
+  return ((pinnedReturn: string | null) => pinnedReturn)(
+    patterns.length > 0 ? `${patterns.join("\n")}\n` : "",
+  );
+}
+
+function checkoutModeFor(sparsePatterns: string | null) {
+  return ((pinnedReturn: LocalPrWorkspaceCheckoutMode) => pinnedReturn)(
+    sparsePatterns == null ? "full" : "sparse",
+  );
 }
 
 const PI_AGENT_DIR_PREFIX = "pr-agent-pi-";
@@ -346,7 +358,19 @@ async function finishLocalPrWorkspace(
   const remoteUrl = params.remoteUrlOverride ?? `https://github.com/${owner}/${repo}.git`;
   const changedFiles = prFiles.files.map(mapGithubStatus);
   const changedFileByPath = new Map(changedFiles.map((file) => [file.path, file]));
-  let checkoutMode = recorder.plannedMode;
+  const encodedSparsePatterns = sparseCheckoutPatterns(changedFiles);
+  let sparsePatterns = recorder.plannedMode === "sparse" ? encodedSparsePatterns : null;
+  if (recorder.plannedMode === "sparse" && encodedSparsePatterns == null) {
+    recorder.mode = "full_fallback";
+    recorder.fallbackReason = "unrepresentable_path";
+    logWarn("local_pr_workspace_full_fallback", {
+      owner,
+      repo,
+      pr: prNumber,
+      headSha,
+      fallbackReason: "unrepresentable_path",
+    });
+  }
   const fetchTimeoutMs = params.fetchTimeoutMs ?? LOCAL_WORKSPACE_FETCH_TIMEOUT_MS;
   const maxFetchBytes = params.maxFetchBytes ?? LOCAL_WORKSPACE_MAX_FETCH_BYTES;
   const diffIndex = createCachedPrDiffIndex();
@@ -384,7 +408,7 @@ async function finishLocalPrWorkspace(
       tokenFile: credentials.tokenFile,
       askpass: credentials.askpass,
       workTree: agentCwd,
-      checkoutMode,
+      checkoutMode: checkoutModeFor(sparsePatterns),
       objectStoreByteLimit: {
         objectsDir: join(privateGitDir, "objects"),
         maxBytes: maxFetchBytes,
@@ -396,7 +420,7 @@ async function finishLocalPrWorkspace(
 
   let checkoutPaths = new Set<string>();
   let sortedCheckoutPaths: string[] = [];
-  const isPathInCheckout = (path: string) => checkoutPaths.has(path.replace(/\\/g, "/"));
+  const isPathInCheckout = (path: string) => checkoutPaths.has(path);
   const initPrivateRepository = async () => {
     await mkdir(privateGitDir, { recursive: true });
     await mkdir(agentCwd, { recursive: true });
@@ -426,16 +450,14 @@ async function finishLocalPrWorkspace(
       throw error;
     }
   };
-  const materializePrHead = async (mode: LocalPrWorkspaceCheckoutMode) => {
+  const materializePrHead = async () => {
+    const mode = checkoutModeFor(sparsePatterns);
     try {
       await fetchPrHead(mode);
-      if (mode === "sparse") {
+      if (sparsePatterns != null) {
         await git(["config", "core.sparseCheckout", "true"], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
         await git(["config", "core.sparseCheckoutCone", "false"], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
-        await writeFile(
-          join(privateGitDir, "info", "sparse-checkout"),
-          sparseCheckoutPatterns(changedFiles),
-        );
+        await writeFile(join(privateGitDir, "info", "sparse-checkout"), sparsePatterns);
       }
       await git(["checkout", "-f", PR_HEAD_REF], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
       await enforceObjectStoreByteCap(join(privateGitDir, "objects"), maxFetchBytes);
@@ -447,11 +469,23 @@ async function finishLocalPrWorkspace(
 
   await initPrivateRepository();
   try {
-    await materializePrHead(checkoutMode);
+    await materializePrHead();
   } catch (error) {
-    const fallbackReason = checkoutMode === "full" ? sparseFallbackReason(error) : null;
+    const fallbackReason = sparsePatterns == null ? sparseFallbackReason(error) : null;
     const fullAttempt = recorder.fetchAttempts[0];
     if (fallbackReason == null || fullAttempt == null) throw error;
+    if (encodedSparsePatterns == null) {
+      logWarn("local_pr_workspace_sparse_fallback_refused", {
+        owner,
+        repo,
+        pr: prNumber,
+        headSha,
+        fallbackReason,
+        refusalReason: "unrepresentable_path",
+        ...fetchAttemptContext(fullAttempt),
+      });
+      throw error;
+    }
     logWarn("local_pr_workspace_sparse_fallback", {
       owner,
       repo,
@@ -462,12 +496,12 @@ async function finishLocalPrWorkspace(
     });
     recorder.mode = "sparse_fallback";
     recorder.fallbackReason = fallbackReason;
-    checkoutMode = "sparse";
+    sparsePatterns = encodedSparsePatterns;
     await rm(agentCwd, { recursive: true, force: true });
     await rm(privateGitDir, { recursive: true, force: true });
     await initPrivateRepository();
     try {
-      await materializePrHead(checkoutMode);
+      await materializePrHead();
     } catch (sparseError) {
       throw withFallbackContext(sparseError, fullAttempt);
     }
@@ -496,11 +530,10 @@ async function finishLocalPrWorkspace(
   let symbolIndex: SymbolIndex | null = null;
 
   async function readIndexableFile(path: string) {
-    const normalized = path.replace(/\\/g, "/");
-    if (!isPathInCheckout(normalized) || !isIndexableSourcePath(normalized))
+    if (!isPathInCheckout(path) || !isIndexableSourcePath(path))
       return ((pinnedReturn: (string | null) | Promise<string | null>) => pinnedReturn)(null);
     return ((pinnedReturn: (string | null) | Promise<string | null>) => pinnedReturn)(
-      readRepositorySource(agentCwd, normalized, LOCAL_WORKSPACE_MAX_FILE_BYTES),
+      readRepositorySource(agentCwd, path, LOCAL_WORKSPACE_MAX_FILE_BYTES),
     );
   }
 
@@ -535,7 +568,7 @@ async function finishLocalPrWorkspace(
     headSha,
     checkoutPaths,
     sortedCheckoutPaths,
-    checkoutMode,
+    checkoutMode: checkoutModeFor(sparsePatterns),
     changedFiles,
     changedFileByPath,
     diffIndex,

@@ -12,7 +12,7 @@ describe("evidenceLedger", () => {
   const headSha = "a".repeat(40);
 
   it("normalizes paths consistently with workspace tools", () => {
-    expect(normalizeEvidencePath(".\\src\\a.ts")).toBe("src/a.ts");
+    expect(normalizeEvidencePath("back\\slash")).toBe("back\\slash");
     expect(normalizeEvidencePath("./src/a.ts")).toBe("src/a.ts");
   });
 

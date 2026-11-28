@@ -21,7 +21,7 @@ export function createPathPolicy(
     | { readonly kind: "verification" | "triage" },
 ) {
   const normalize = (path: string) =>
-    profile.kind === "investigation" ? path.replace(/\\/g, "/") : normalizeRepoRelativePath(path);
+    profile.kind === "investigation" ? path : normalizeRepoRelativePath(path);
   const allows = (path: string) => {
     if (profile.kind === "investigation") return pathAllowedForAsk(path, profile.gate);
     const normalized = normalize(path);

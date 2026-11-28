@@ -28,25 +28,23 @@ export function createAskPathGate() {
   return ((pinnedReturn: AskPathGate) => pinnedReturn)({
     prChangedPaths,
     addPaths(paths: Iterable<string>) {
-      for (const p of paths) prChangedPaths.add(p.replace(/\\/g, "/"));
+      for (const p of paths) prChangedPaths.add(p);
     },
   });
 }
 
 export function pathAllowedForAsk(path: string, gate: AskPathGate) {
-  const normalized = path.replace(/\\/g, "/");
-  if (!isSensitivePath(normalized)) return ((pinnedReturn: boolean) => pinnedReturn)(true);
-  return ((pinnedReturn: boolean) => pinnedReturn)(gate.prChangedPaths.has(normalized));
+  if (!isSensitivePath(path)) return ((pinnedReturn: boolean) => pinnedReturn)(true);
+  return ((pinnedReturn: boolean) => pinnedReturn)(gate.prChangedPaths.has(path));
 }
 
 export function assertPathAllowedForAsk(path: string, gate: AskPathGate) {
-  const normalized = path.replace(/\\/g, "/");
-  if (pathAllowedForAsk(normalized, gate)) return;
+  if (pathAllowedForAsk(path, gate)) return;
   throw new AppError({
     domain: "ask",
     kind: "sensitive_path_blocked",
-    message: `getFileContent blocked for sensitive path "${normalized}" (not in this PR's changed files). Ask about files touched by the PR instead.`,
-    context: { path: normalized },
+    message: `getFileContent blocked for sensitive path "${path}" (not in this PR's changed files). Ask about files touched by the PR instead.`,
+    context: { path },
   });
 }
 

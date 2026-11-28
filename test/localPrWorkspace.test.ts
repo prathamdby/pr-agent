@@ -67,6 +67,8 @@ import {
   prepareLocalPrWorkspace,
   workspaceCheckoutTelemetryFromError,
 } from "../src/prWorkspace/localPrWorkspace.ts";
+import { buildWorkspaceTools } from "../src/agent/tools/workspaceToolset.ts";
+import { createEvidenceLedger } from "../src/review/findings/evidenceLedger.ts";
 import {
   assertWorkspacePath,
   buildCheckoutCoverage,
@@ -553,6 +555,308 @@ describe("local PR workspace", () => {
       }
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses the sparse fallback when a changed path cannot be encoded", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-fallback-refused-"));
+    try {
+      const fixture = await makeLargeBlobPrFixture(root, {
+        payloadBytes: 24 * 1024 * 1024,
+        largeInBase: true,
+      });
+      const prFiles: ListPullRequestFilesResult = {
+        ...fixture.prFiles,
+        files: [
+          ...fixture.prFiles.files,
+          {
+            filename: "line\nbreak",
+            status: "added",
+            additions: 1,
+            deletions: 0,
+            changes: 1,
+          },
+        ],
+      };
+      const error = appErrorOf(
+        await rejectionOf(
+          prepareLocalPrWorkspace({
+            owner: "owner",
+            repo: "repo",
+            prNumber: 1,
+            headSha: fixture.headSha,
+            installationToken: "unused",
+            prFiles,
+            remoteUrlOverride: fixture.remote,
+            maxFetchBytes: 1024 * 1024,
+          }),
+        ),
+      );
+      expect(error.code).toBe("pr_workspace.fetch_too_large");
+      const telemetry = workspaceCheckoutTelemetryFromError(error);
+      expect(telemetry).toMatchObject({
+        mode: "full",
+        fallbackReason: null,
+        fetchAttempts: [{ checkoutMode: "full", outcome: "failed" }],
+      });
+      expect(telemetry?.fetchAttempts).toHaveLength(1);
+      fetchProof.unrepresentableSparseFallbackRefused = {
+        errorCode: error.code,
+        telemetry,
+      };
+      await expectAllocatedWorkspaceRootsRemoved();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("materializes every encodable hostile filename byte-exact in a sparse checkout", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-hostile-names-"));
+    const repo = join(root, "repo");
+    const remote = join(root, "remote.git");
+    const nfcCafe = "café-a".normalize("NFC");
+    const nfdCafe = "café-a".normalize("NFD");
+    const nfcResume = "résumé-b".normalize("NFC");
+    const nfdResume = "résumé-b".normalize("NFD");
+    try {
+      await git(root, ["init", repo]);
+      await git(repo, ["config", "user.email", "test@example.com"]);
+      await git(repo, ["config", "user.name", "Test"]);
+      await mkdir(join(repo, "back"), { recursive: true });
+      await mkdir(join(repo, "dir "), { recursive: true });
+      await writeFile(join(repo, "back", "slash"), "decoy slash\n");
+      await writeFile(join(repo, "starX"), "decoy star\n");
+      await writeFile(join(repo, "qX"), "decoy q\n");
+      await writeFile(join(repo, "bra"), "decoy bracket\n");
+      await writeFile(join(repo, nfdCafe), "decoy cafe\n");
+      await writeFile(join(repo, nfcResume), "decoy resume\n");
+      await writeFile(join(repo, "support.txt"), "helper\n");
+      await writeFile(join(repo, "gone.txt"), "gone\n");
+      await writeFile(join(repo, "src.txt"), "one\n");
+      await git(repo, ["add", "-A"]);
+      await git(repo, ["commit", "-m", "base"]);
+
+      const headFiles: Readonly<Record<string, string>> = {
+        "space ": "space-trail\n",
+        "two  ": "two-spaces\n",
+        "dir /nested.txt": "nested\n",
+        "back\\slash": "backslash-needle\n",
+        "endback\\": "endback\n",
+        " lead": "lead-space\n",
+        "!bang": "bang\n",
+        "#hash": "hash\n",
+        "cr\rmid": "cr-mid\n",
+        "tab\t": "tab\n",
+        "star*": "star\n",
+        "q?": "q\n",
+        "br[a]": "bracket\n",
+        [nfcCafe]: "cafe\n",
+        [nfdResume]: "resume\n",
+      };
+      for (const [name, content] of Object.entries(headFiles)) {
+        await writeFile(join(repo, name), content);
+      }
+      await writeFile(join(repo, "src.txt"), "one\ntwo\n");
+      await rm(join(repo, "gone.txt"));
+      await git(repo, ["add", "-A"]);
+      await git(repo, ["commit", "-m", "head"]);
+      const headSha = await git(repo, ["rev-parse", "HEAD"]);
+
+      await git(root, ["init", "--bare", remote]);
+      await git(remote, ["config", "uploadpack.allowFilter", "true"]);
+      await git(remote, ["config", "uploadpack.allowAnySHA1InWant", "true"]);
+      await git(repo, ["remote", "add", "origin", remote]);
+      await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
+
+      const changedPaths = [...Object.keys(headFiles), "src.txt"];
+      const prFiles: ListPullRequestFilesResult = {
+        files: [
+          ...Object.keys(headFiles).map((filename) => ({
+            filename,
+            status: "added",
+            additions: 1,
+            deletions: 0,
+            changes: 1,
+          })),
+          {
+            filename: "src.txt",
+            status: "modified",
+            additions: 1,
+            deletions: 0,
+            changes: 1,
+          },
+          {
+            filename: "gone.txt",
+            status: "removed",
+            additions: 0,
+            deletions: 1,
+            changes: 1,
+          },
+        ],
+        truncated: false,
+        omittedCountLowerBound: 0,
+        totalChanges: changedPaths.length + 1,
+      };
+      const workspace = await prepareLocalPrWorkspace({
+        owner: "owner",
+        repo: "repo",
+        prNumber: 1,
+        headSha,
+        installationToken: "unused",
+        prFiles,
+        repositorySizeKb: LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB + 1,
+        remoteUrlOverride: remote,
+      });
+      try {
+        expect(workspace.reader.checkoutMode).toBe("sparse");
+        expect(workspace.checkoutTelemetry).toMatchObject({
+          mode: "sparse",
+          fallbackReason: null,
+        });
+        const sortedCheckoutPaths = [...workspace.reader.checkoutPaths].toSorted();
+        expect(sortedCheckoutPaths).toEqual([...changedPaths].toSorted());
+        fetchProof.hostileSparsePaths = {
+          telemetry: workspace.checkoutTelemetry,
+          checkoutPaths: sortedCheckoutPaths,
+        };
+
+        const evidenceLedger = createEvidenceLedger(headSha);
+        const { executors } = buildWorkspaceTools(workspace.reader, {
+          evidenceLedger,
+          headSha,
+        });
+        const backslashRead = (await executors.readWorkspaceFile?.({
+          path: "back\\slash",
+        })) as { path?: string; content?: string };
+        expect(backslashRead).toMatchObject({ path: "back\\slash" });
+        expect(backslashRead.content).toContain("backslash-needle");
+        expect(evidenceLedger.covers("back\\slash", 1, 1)).toBe(true);
+        expect(evidenceLedger.covers("back/slash", 1, 1)).toBe(false);
+        const decoyRead = (await executors.readWorkspaceFile?.({
+          path: "back/slash",
+        })) as { refused?: boolean };
+        expect(decoyRead).toMatchObject({ refused: true });
+        const search = (await executors.searchWorkspace?.({
+          query: "backslash-needle",
+        })) as { matches: { path: string }[] };
+        expect(search.matches.map((match) => match.path)).toEqual(["back\\slash"]);
+        const blame = (await executors.getWorkspaceBlame?.({
+          path: "back\\slash",
+        })) as { path?: string; blame?: string | null };
+        expect(blame).toMatchObject({ path: "back\\slash" });
+        expect(blame.blame?.length ?? 0).toBeGreaterThan(0);
+        const spaceRead = (await executors.readWorkspaceFile?.({
+          path: "space ",
+        })) as { content?: string };
+        expect(spaceRead.content).toContain("space-trail");
+      } finally {
+        await workspace.cleanup();
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to a full checkout when a changed path cannot be encoded as a sparse pattern", async () => {
+    const unrepresentableNames = ["line\nbreak", "trail\r"];
+    const unrepresentableProof: {
+      readonly name: string;
+      readonly checkoutPaths: readonly string[];
+    }[] = [];
+    fetchProof.unrepresentableSparseFallback = unrepresentableProof;
+    for (const hostileName of unrepresentableNames) {
+      const root = await mkdtemp(join(tmpdir(), "workspace-unrepresentable-"));
+      const repo = join(root, "repo");
+      const remote = join(root, "remote.git");
+      try {
+        await git(root, ["init", repo]);
+        await git(repo, ["config", "user.email", "test@example.com"]);
+        await git(repo, ["config", "user.name", "Test"]);
+        await writeFile(join(repo, "support.txt"), "helper\n");
+        await writeFile(join(repo, "src.txt"), "one\n");
+        await git(repo, ["add", "-A"]);
+        await git(repo, ["commit", "-m", "base"]);
+
+        await writeFile(join(repo, hostileName), "hostile\n");
+        await writeFile(join(repo, "src.txt"), "one\ntwo\n");
+        await git(repo, ["add", "-A"]);
+        await git(repo, ["commit", "-m", "head"]);
+        const headSha = await git(repo, ["rev-parse", "HEAD"]);
+
+        await git(root, ["init", "--bare", remote]);
+        await git(remote, ["config", "uploadpack.allowFilter", "true"]);
+        await git(remote, ["config", "uploadpack.allowAnySHA1InWant", "true"]);
+        await git(repo, ["remote", "add", "origin", remote]);
+        await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
+
+        const prFiles: ListPullRequestFilesResult = {
+          files: [
+            {
+              filename: hostileName,
+              status: "added",
+              additions: 1,
+              deletions: 0,
+              changes: 1,
+            },
+            {
+              filename: "src.txt",
+              status: "modified",
+              additions: 1,
+              deletions: 0,
+              changes: 1,
+            },
+          ],
+          truncated: false,
+          omittedCountLowerBound: 0,
+          totalChanges: 2,
+        };
+        const workspace = await prepareLocalPrWorkspace({
+          owner: "owner",
+          repo: "repo",
+          prNumber: 1,
+          headSha,
+          installationToken: "unused",
+          prFiles,
+          repositorySizeKb: LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB + 1,
+          remoteUrlOverride: remote,
+        });
+        try {
+          expect(workspace.checkoutTelemetry).toMatchObject({
+            mode: "full_fallback",
+            fallbackReason: "unrepresentable_path",
+            fetchAttempts: [{ checkoutMode: "full", outcome: "succeeded" }],
+          });
+          expect(workspace.checkoutTelemetry.fetchAttempts).toHaveLength(1);
+          expect(workspace.reader.checkoutMode).toBe("full");
+          expect(workspace.reader.checkoutPaths.has(hostileName)).toBe(true);
+          expect(workspace.reader.checkoutPaths.has("support.txt")).toBe(true);
+          const partialCloneFilter = await git(root, [
+            "--git-dir",
+            workspace.privateGitDir,
+            "config",
+            "--get",
+            "remote.origin.partialclonefilter",
+          ]).catch(() => "");
+          expect(partialCloneFilter).toBe("");
+          expect(
+            workspaceCheckoutProperties({
+              telemetry: workspace.checkoutTelemetry,
+              reused: false,
+            }),
+          ).toMatchObject({
+            workspace_checkout_mode: "full_fallback",
+            workspace_fallback_reason: "unrepresentable_path",
+          });
+          unrepresentableProof.push({
+            name: hostileName,
+            checkoutPaths: [...workspace.reader.checkoutPaths].toSorted(),
+          });
+        } finally {
+          await workspace.cleanup();
+        }
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
     }
   });
 
