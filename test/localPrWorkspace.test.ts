@@ -29,7 +29,11 @@ import { retryDispositionFor } from "../src/agentWork/retryPolicy.ts";
 import { annotateExecution, initTraces, startWorkTrace } from "../src/traces/recorder.ts";
 import { workspaceCheckoutProperties } from "../src/prWorkspace/checkoutTelemetry.ts";
 import { runGitProcess } from "../src/prWorkspace/gitProcess.ts";
-import { enforceObjectStoreByteCap } from "../src/prWorkspace/objectStoreBytes.ts";
+import {
+  assertObjectStoreWithinCap,
+  enforceObjectStoreByteCap,
+  objectStoreAllocatedBytes as scanObjectStoreAllocatedBytes,
+} from "../src/prWorkspace/objectStoreBytes.ts";
 import { readBasePolicySnapshot } from "../src/prWorkspace/policySnapshot.ts";
 import { makeTestConfig } from "./helpers/config.ts";
 
@@ -1983,6 +1987,43 @@ describe("workspace git process ownership", () => {
       expect(error.context.objectStoreBytes).toBeUndefined();
     } finally {
       await chmod(objectsDir, 0o700).catch(() => undefined);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("accepts exactly capped and concurrently missing object stores", async () => {
+    expect(() => assertObjectStoreWithinCap(1_024, 1_024)).not.toThrow();
+    let overCapError: unknown;
+    try {
+      assertObjectStoreWithinCap(1_025, 1_024);
+    } catch (error) {
+      overCapError = error;
+    }
+    expect(overCapError).toMatchObject({
+      code: "pr_workspace.fetch_too_large",
+      context: { objectStoreBytes: 1_025, maxFetchBytes: 1_024 },
+    });
+
+    const root = await mkdtemp(join(tmpdir(), "workspace-missing-objects-"));
+    const objectsDir = join(root, "objects");
+    const missingDir = join(root, "missing");
+    try {
+      await mkdir(objectsDir);
+      await writeFile(join(objectsDir, "object"), Buffer.alloc(4_096));
+      const objectStoreBytes = await scanObjectStoreAllocatedBytes(objectsDir);
+      expect(objectStoreBytes).toBeGreaterThan(0);
+      await expect(
+        enforceObjectStoreByteCap(objectsDir, objectStoreBytes),
+      ).resolves.toBeUndefined();
+      await expect(
+        enforceObjectStoreByteCap(objectsDir, objectStoreBytes - 1),
+      ).rejects.toMatchObject({
+        code: "pr_workspace.fetch_too_large",
+        context: { objectStoreBytes, maxFetchBytes: objectStoreBytes - 1 },
+      });
+      await expect(scanObjectStoreAllocatedBytes(missingDir)).resolves.toBe(0);
+      await expect(enforceObjectStoreByteCap(missingDir, 1)).resolves.toBeUndefined();
+    } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
