@@ -6,7 +6,11 @@ import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import { AppError, isAppError } from "../errors/appError.ts";
 import { redactOutboundSecrets } from "../security/redactOutboundSecrets.ts";
-import { runGitProcess, type GitProcessResult } from "./gitProcess.ts";
+import {
+  runGitProcess,
+  type GitObjectStoreByteLimit,
+  type GitProcessResult,
+} from "./gitProcess.ts";
 import type { CachedPrDiffIndex } from "./reviewDiffIndex.ts";
 import {
   createFffWorkspaceSearch,
@@ -279,6 +283,7 @@ export type WorkspaceGitOptions = {
   processCwd?: string;
   maxBufferBytes?: number;
   checkoutMode?: LocalPrWorkspaceCheckoutMode;
+  objectStoreByteLimit?: GitObjectStoreByteLimit;
   redactSecrets?: readonly string[];
 };
 
@@ -295,20 +300,42 @@ export type WorkspaceGitDiagnostics = {
 const WORKSPACE_GIT_OPERATIONS = [
   "add",
   "blame",
+  "cat-file",
   "checkout",
   "commit",
   "config",
-  "count-objects",
   "diff",
   "fetch",
   "grep",
   "init",
+  "ls-tree",
   "push",
   "remote",
   "reset",
   "rev-parse",
   "status",
 ] as const;
+
+const OBJECT_STORE_BYTE_LIMIT_OPERATIONS: ReadonlySet<WorkspaceGitOperation> = new Set([
+  "add",
+  "blame",
+  "cat-file",
+  "checkout",
+  "commit",
+  "diff",
+  "fetch",
+  "grep",
+  "ls-tree",
+]);
+
+function objectStoreByteLimitForOperation(
+  operation: WorkspaceGitOperation,
+  opts: Pick<WorkspaceGitOptions, "objectStoreByteLimit">,
+) {
+  return ((pinnedReturn: GitObjectStoreByteLimit | undefined) => pinnedReturn)(
+    OBJECT_STORE_BYTE_LIMIT_OPERATIONS.has(operation) ? opts.objectStoreByteLimit : undefined,
+  );
+}
 
 const GIT_LOW_SPEED_PATTERN = /Operation too slow|Operation timed out|curl 28\b/i;
 const GIT_AUTH_PATTERN =
@@ -400,7 +427,10 @@ function gitDiagnostics(
 function workspaceGitFailure(
   result: GitProcessResult,
   operation: WorkspaceGitOperation,
-  opts: Pick<WorkspaceGitOptions, "checkoutMode" | "timeoutMs" | "redactSecrets">,
+  opts: Pick<
+    WorkspaceGitOptions,
+    "checkoutMode" | "timeoutMs" | "objectStoreByteLimit" | "redactSecrets"
+  >,
 ) {
   const rawStderr = result.stderr.toString("utf8");
   const redacted = redactGitText(
@@ -417,8 +447,29 @@ function workspaceGitFailure(
     ...(result.outputLimited ? { outputLimited: true } : {}),
     cleanup: result.cleanup,
     ...(result.cleanupErrorCode != null ? { cleanupErrorCode: result.cleanupErrorCode } : {}),
+    ...(result.objectStoreMonitorErrorCode != null
+      ? { objectStoreMonitorErrorCode: result.objectStoreMonitorErrorCode }
+      : {}),
     stderr: stderrDiagnostic(redacted),
   };
+  if (result.byteLimitExceeded && opts.objectStoreByteLimit != null) {
+    const objectStoreBytes = result.objectStoreBytes ?? opts.objectStoreByteLimit.maxBytes + 1;
+    return ((pinnedReturn: AppError) => pinnedReturn)(
+      new AppError({
+        domain: "pr_workspace",
+        kind: "fetch_too_large",
+        message: `PR fetch object store (${objectStoreBytes} bytes) exceeds LOCAL_WORKSPACE_MAX_FETCH_BYTES (${opts.objectStoreByteLimit.maxBytes})`,
+        context: {
+          ...diagnostics,
+          objectStoreBytes,
+          maxFetchBytes: opts.objectStoreByteLimit.maxBytes,
+          cleanup: result.cleanup,
+          ...(result.cleanupErrorCode != null ? { cleanupErrorCode: result.cleanupErrorCode } : {}),
+          stderr: stderrDiagnostic(redacted),
+        },
+      }),
+    );
+  }
   if (result.timedOut && operation === "fetch") {
     return ((pinnedReturn: AppError) => pinnedReturn)(
       new AppError({
@@ -518,6 +569,7 @@ function startWorkspaceGit(args: readonly string[], opts: WorkspaceGitOptions) {
       timeoutMs: opts.timeoutMs,
       maxBufferBytes: opts.maxBufferBytes ?? LOCAL_WORKSPACE_GIT_MAX_BUFFER_BYTES,
       stdin: opts.stdin,
+      objectStoreByteLimit: objectStoreByteLimitForOperation(workspaceGitOperation(args), opts),
     }),
   );
 }
@@ -527,6 +579,8 @@ function isCleanExit(result: GitProcessResult) {
     result.exitCode === 0 &&
       !result.timedOut &&
       !result.outputLimited &&
+      !result.byteLimitExceeded &&
+      result.objectStoreMonitorErrorCode == null &&
       result.spawnErrorCode == null &&
       result.cleanup !== "failed",
   );
@@ -610,7 +664,10 @@ function pathspecChunks(paths?: readonly string[]) {
 
 async function gitGrepWorkspaceChunk(
   workspace: { readonly privateGitDir: string; readonly agentCwd: string },
-  params: GitGrepWorkspaceParams & { readonly timeoutMs: number },
+  params: GitGrepWorkspaceParams & {
+    readonly timeoutMs: number;
+    readonly objectStoreByteLimit?: GitObjectStoreByteLimit;
+  },
   pathspecs: readonly string[],
 ) {
   const args = ["grep", "-nF", "-I", "-z", "-e", params.query, "--", ...pathspecs];
@@ -621,6 +678,7 @@ async function gitGrepWorkspaceChunk(
     workTree: workspace.agentCwd,
     processCwd: workspace.agentCwd,
     maxBufferBytes: params.maxOutputBytes,
+    objectStoreByteLimit: params.objectStoreByteLimit,
   };
   const result = await startWorkspaceGit(args, opts);
   if (isCleanExit(result)) {
@@ -635,6 +693,8 @@ async function gitGrepWorkspaceChunk(
     result.exitCode === 1 &&
     !result.timedOut &&
     !result.outputLimited &&
+    !result.byteLimitExceeded &&
+    result.objectStoreMonitorErrorCode == null &&
     result.spawnErrorCode == null &&
     result.stderr.length === 0
   ) {
@@ -647,6 +707,8 @@ async function gitGrepWorkspaceChunk(
   if (
     result.outputLimited &&
     !result.timedOut &&
+    !result.byteLimitExceeded &&
+    result.objectStoreMonitorErrorCode == null &&
     result.cleanup !== "failed" &&
     !result.stderrLimited
   ) {
@@ -661,7 +723,10 @@ async function gitGrepWorkspaceChunk(
 
 export async function gitGrepWorkspace(
   workspace: { readonly privateGitDir: string; readonly agentCwd: string },
-  params: GitGrepWorkspaceParams & { readonly timeoutMs: number },
+  params: GitGrepWorkspaceParams & {
+    readonly timeoutMs: number;
+    readonly objectStoreByteLimit?: GitObjectStoreByteLimit;
+  },
 ) {
   if (params.paths?.length === 0)
     return ((pinnedReturn: GitGrepWorkspaceResult | Promise<GitGrepWorkspaceResult>) =>
@@ -706,6 +771,7 @@ export function createPinnedRepositoryReader(params: {
   readonly stats: PinnedRepositoryReader["stats"];
   readonly patchByPath: ReadonlyMap<string, string>;
   readonly patchOmittedByCapPaths: ReadonlySet<string>;
+  readonly objectStoreByteLimit?: GitObjectStoreByteLimit;
   readonly symbolIndex: SymbolIndex | null;
 }) {
   const {
@@ -721,6 +787,7 @@ export function createPinnedRepositoryReader(params: {
     stats,
     patchByPath,
     patchOmittedByCapPaths,
+    objectStoreByteLimit,
   } = params;
   let symbolIndex = params.symbolIndex;
   const git = (args: readonly string[]) =>
@@ -729,6 +796,7 @@ export function createPinnedRepositoryReader(params: {
       gitDir: privateGitDir,
       workTree: agentCwd,
       timeoutMs: LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
+      objectStoreByteLimit,
     });
   const blameCache = new Map<string, Promise<string>>();
 
@@ -797,7 +865,7 @@ export function createPinnedRepositoryReader(params: {
     gitGrep: (grepParams) =>
       gitGrepWorkspace(
         { privateGitDir, agentCwd },
-        { ...grepParams, timeoutMs: LOCAL_WORKSPACE_FETCH_TIMEOUT_MS },
+        { ...grepParams, timeoutMs: LOCAL_WORKSPACE_FETCH_TIMEOUT_MS, objectStoreByteLimit },
       ),
   });
   const grepLiteral = (grepParams: GitGrepWorkspaceParams) => fffSearch.search(grepParams);
@@ -879,57 +947,68 @@ function filesystemReader(root: string) {
   });
 }
 
-function workspaceGitOptions(root: string) {
+function workspaceGitOptions(root: string, objectStoreByteLimit?: GitObjectStoreByteLimit) {
   return ((pinnedReturn: WorkspaceGitOptions) => pinnedReturn)({
     cwd: root,
     timeoutMs: LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
+    objectStoreByteLimit,
   });
 }
 
-async function untrackedFileDiff(root: string, rel: string) {
+async function untrackedFileDiff(
+  root: string,
+  rel: string,
+  objectStoreByteLimit?: GitObjectStoreByteLimit,
+) {
   const status = await runWorkspaceGit(
     ["status", "--porcelain", "-z", "--untracked-files=all", "--", rel],
-    workspaceGitOptions(root),
+    workspaceGitOptions(root, objectStoreByteLimit),
   );
   const untracked = status.stdout.split("\0").some((entry) => entry === `?? ${rel}`);
   if (!untracked)
     return ((pinnedReturn: (string | null) | Promise<string | null>) => pinnedReturn)(null);
   const result = await startWorkspaceGit(
     ["diff", "--no-index", "--", "/dev/null", rel],
-    workspaceGitOptions(root),
+    workspaceGitOptions(root, objectStoreByteLimit),
   );
   const usable =
     !result.timedOut &&
     !result.outputLimited &&
+    !result.byteLimitExceeded &&
+    result.objectStoreMonitorErrorCode == null &&
     result.spawnErrorCode == null &&
     result.cleanup !== "failed" &&
     (result.exitCode === 0 || result.exitCode === 1);
-  if (!usable) throw workspaceGitFailure(result, "diff", workspaceGitOptions(root));
+  if (!usable)
+    throw workspaceGitFailure(result, "diff", workspaceGitOptions(root, objectStoreByteLimit));
   return ((pinnedReturn: (string | null) | Promise<string | null>) => pinnedReturn)(
     result.stdout.toString("utf8"),
   );
 }
 
-export function createWritableRepositoryReader(root: string) {
+export function createWritableRepositoryReader(
+  root: string,
+  objectStoreByteLimit?: GitObjectStoreByteLimit,
+) {
   return ((pinnedReturn: RepositoryReader) => pinnedReturn)({
     ...filesystemReader(root),
     agentCwd: root,
     grepLiteral: (params) =>
       gitGrepWorkspace(
         { privateGitDir: resolve(root, ".git"), agentCwd: root },
-        { ...params, timeoutMs: LOCAL_WORKSPACE_FETCH_TIMEOUT_MS },
+        { ...params, timeoutMs: LOCAL_WORKSPACE_FETCH_TIMEOUT_MS, objectStoreByteLimit },
       ),
     getDiffForPath: async (path) => {
       const full = await assertContainedWorkspacePath(root, path);
       const rel = relative(root, full).replace(/\\/g, "/");
       const { stdout } = await runWorkspaceGit(
         ["diff", "HEAD", "--", rel],
-        workspaceGitOptions(root),
+        workspaceGitOptions(root, objectStoreByteLimit),
       );
       if (stdout.length > 0) {
         return { availability: "available", reason: null, diff: stdout };
       }
-      const created = await untrackedFileDiff(root, rel);
+      const created = await untrackedFileDiff(root, rel, objectStoreByteLimit);
       if (created != null) {
         return { availability: "available", reason: null, diff: created };
       }

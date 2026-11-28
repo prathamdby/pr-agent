@@ -64,21 +64,6 @@ export async function ensureWorkspaceFreeSpaceAfterSweep(
   }
 }
 
-export function gitCountObjectsStoreBytes(countObjectsOutput: string) {
-  let sizeKiB = 0;
-  let sizePackKiB = 0;
-  for (const line of countObjectsOutput.split("\n")) {
-    const colon = line.indexOf(":");
-    if (colon <= 0) continue;
-    const key = line.slice(0, colon).trim();
-    const value = Number(line.slice(colon + 1).trim());
-    if (Number.isNaN(value)) continue;
-    if (key === "size") sizeKiB = value;
-    if (key === "size-pack") sizePackKiB = value;
-  }
-  return ((pinnedReturn: number) => pinnedReturn)((sizeKiB + sizePackKiB) * 1024);
-}
-
 export const READONLY_WORKSPACE_ROOT_PREFIX = "pr-agent-workspace-";
 export const WRITABLE_WORKSPACE_ROOT_PREFIX = "pr-agent-triage-";
 

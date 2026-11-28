@@ -8,7 +8,11 @@ import type {
 
 export type WorkspaceCheckoutMode = LocalPrWorkspaceCheckoutMode | "sparse_fallback";
 
-export type WorkspaceFallbackReason = "fetch_timeout" | "git_failed" | "git_low_speed";
+export type WorkspaceFallbackReason =
+  | "fetch_timeout"
+  | "fetch_too_large"
+  | "git_failed"
+  | "git_low_speed";
 
 export type WorkspaceFetchAttempt = {
   readonly checkoutMode: LocalPrWorkspaceCheckoutMode;

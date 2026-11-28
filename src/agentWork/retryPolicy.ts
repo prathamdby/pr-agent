@@ -43,6 +43,8 @@ export function retryDispositionFor(error: unknown) {
   ) {
     return ((pinnedReturn: RetryDisposition) => pinnedReturn)("terminal");
   }
+  if (isAppError(error) && error.code === "pr_workspace.fetch_too_large")
+    return ((pinnedReturn: RetryDisposition) => pinnedReturn)("terminal");
   const gitFailureKind = workspaceGitFailureKind(error);
   if (gitFailureKind === "auth" || gitFailureKind === "missing_ref")
     return ((pinnedReturn: RetryDisposition) => pinnedReturn)("terminal");
