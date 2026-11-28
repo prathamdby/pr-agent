@@ -1900,7 +1900,7 @@ describe("workspace git process ownership", () => {
     }
   });
 
-  it("applies the object-store ceiling to pinned grep execution", async () => {
+  it("applies the object-store ceiling to no-match pinned grep execution", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-pinned-grep-cap-"));
     try {
       await git(root, ["init"]);
@@ -1911,7 +1911,7 @@ describe("workspace git process ownership", () => {
           gitGrepWorkspace(
             { privateGitDir: join(root, ".git"), agentCwd: root },
             {
-              query: "pinned",
+              query: "absent-no-match",
               maxResults: 10,
               timeoutMs: 1_000,
               objectStoreByteLimit: {

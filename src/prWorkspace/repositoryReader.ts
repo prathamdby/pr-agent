@@ -693,6 +693,8 @@ async function gitGrepWorkspaceChunk(
     result.exitCode === 1 &&
     !result.timedOut &&
     !result.outputLimited &&
+    !result.byteLimitExceeded &&
+    result.objectStoreMonitorErrorCode == null &&
     result.spawnErrorCode == null &&
     result.stderr.length === 0
   ) {
