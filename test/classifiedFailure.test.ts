@@ -429,6 +429,18 @@ describe("retryDispositionFor", () => {
       "transient",
     );
   });
+  it("keeps workspace byte-cap rejection terminal", () => {
+    expect(
+      retryDispositionFor(
+        new AppError({
+          domain: "pr_workspace",
+          kind: "fetch_too_large",
+          message: "object store exceeds cap",
+        }),
+      ),
+    ).toBe("terminal");
+  });
+
   it("keeps stale-head replacement exhaustion terminal", () => {
     const error = new AppError({
       domain: "review",

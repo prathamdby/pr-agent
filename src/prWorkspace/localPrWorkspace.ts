@@ -42,6 +42,7 @@ import {
   type WorkspaceFallbackReason,
   type WorkspaceFetchAttempt,
 } from "./checkoutTelemetry.ts";
+import { assertObjectStoreWithinCap } from "./objectStoreBytes.ts";
 import {
   allocateWorkspaceResource,
   READONLY_WORKSPACE_ROOT_PREFIX,
@@ -87,6 +88,10 @@ function sparseFallbackReason(error: unknown) {
     return ((pinnedReturn: WorkspaceFallbackReason | null) => pinnedReturn)(null);
   if (error.context.spawnErrorCode != null || error.context.cleanup === "failed")
     return ((pinnedReturn: WorkspaceFallbackReason | null) => pinnedReturn)(null);
+  if (error.code === "pr_workspace.fetch_too_large")
+    return ((pinnedReturn: WorkspaceFallbackReason | null) => pinnedReturn)("fetch_too_large");
+  if (error.context.operation !== "fetch")
+    return ((pinnedReturn: WorkspaceFallbackReason | null) => pinnedReturn)(null);
   if (error.code === "pr_workspace.fetch_timeout")
     return ((pinnedReturn: WorkspaceFallbackReason | null) => pinnedReturn)("fetch_timeout");
   if (error.code !== "pr_workspace.git_failed")
@@ -121,7 +126,9 @@ function withFallbackContext(error: unknown, fullAttempt: WorkspaceFetchAttempt)
       ? "fetch_timeout"
       : error.code === "pr_workspace.git_failed"
         ? "git_failed"
-        : null;
+        : error.code === "pr_workspace.fetch_too_large"
+          ? "fetch_too_large"
+          : null;
   if (kind == null) return ((pinnedReturn: unknown) => pinnedReturn)(error);
   return ((pinnedReturn: unknown) => pinnedReturn)(
     new AppError({
@@ -131,6 +138,18 @@ function withFallbackContext(error: unknown, fullAttempt: WorkspaceFetchAttempt)
       context: { ...error.context, fallback: fetchAttemptContext(fullAttempt) },
     }),
   );
+}
+
+function replaceSuccessfulFetchAttempt(
+  recorder: CheckoutRecorder,
+  mode: LocalPrWorkspaceCheckoutMode,
+  error: unknown,
+) {
+  if (!isAppError(error) || error.code !== "pr_workspace.fetch_too_large") return;
+  const index = recorder.fetchAttempts.findLastIndex(
+    (attempt) => attempt.checkoutMode === mode && attempt.outcome === "succeeded",
+  );
+  if (index >= 0) recorder.fetchAttempts[index] = failedFetchAttempt(mode, error);
 }
 
 export type LocalPrWorkspace = {
@@ -213,14 +232,7 @@ async function enforceMaxFetchBytes(
 ) {
   const { stdout: countObjectsOut } = await git(["count-objects", "-v"], timeoutMs);
   const objectStoreBytes = gitCountObjectsStoreBytes(countObjectsOut);
-  if (objectStoreBytes > maxFetchBytes) {
-    throw new AppError({
-      domain: "pr_workspace",
-      kind: "fetch_too_large",
-      message: `PR fetch object store (${objectStoreBytes} bytes) exceeds LOCAL_WORKSPACE_MAX_FETCH_BYTES (${maxFetchBytes})`,
-      context: { objectStoreBytes, maxFetchBytes },
-    });
-  }
+  assertObjectStoreWithinCap(objectStoreBytes, maxFetchBytes);
 }
 
 async function prepareCheckedOutTree(dir: string, prefix = "") {
@@ -347,6 +359,7 @@ async function finishLocalPrWorkspace(
   const changedFileByPath = new Map(changedFiles.map((file) => [file.path, file]));
   let checkoutMode = recorder.plannedMode;
   const fetchTimeoutMs = params.fetchTimeoutMs ?? LOCAL_WORKSPACE_FETCH_TIMEOUT_MS;
+  const maxFetchBytes = params.maxFetchBytes ?? LOCAL_WORKSPACE_MAX_FETCH_BYTES;
   const diffIndex = createCachedPrDiffIndex();
   const patchByPath = new Map<string, string>();
   const patchOmittedByCapPaths = new Set<string>();
@@ -383,6 +396,10 @@ async function finishLocalPrWorkspace(
       askpass: credentials.askpass,
       workTree: agentCwd,
       checkoutMode,
+      objectStoreByteLimit: {
+        objectsDir: join(privateGitDir, "objects"),
+        maxBytes: maxFetchBytes,
+      },
       redactSecrets: [params.installationToken],
       stdin: io?.stdin,
       extraEnv: io?.extraEnv,
@@ -420,9 +437,28 @@ async function finishLocalPrWorkspace(
       throw error;
     }
   };
+  const materializePrHead = async (mode: LocalPrWorkspaceCheckoutMode) => {
+    try {
+      await fetchPrHead(mode);
+      if (mode === "sparse") {
+        await git(["config", "core.sparseCheckout", "true"], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
+        await git(["config", "core.sparseCheckoutCone", "false"], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
+        await writeFile(
+          join(privateGitDir, "info", "sparse-checkout"),
+          sparseCheckoutPatterns(changedFiles),
+        );
+      }
+      await git(["checkout", "-f", PR_HEAD_REF], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
+      await enforceMaxFetchBytes(git, maxFetchBytes, LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
+    } catch (error) {
+      replaceSuccessfulFetchAttempt(recorder, mode, error);
+      throw error;
+    }
+  };
+
   await initPrivateRepository();
   try {
-    await fetchPrHead(checkoutMode);
+    await materializePrHead(checkoutMode);
   } catch (error) {
     const fallbackReason = checkoutMode === "full" ? sparseFallbackReason(error) : null;
     const fullAttempt = recorder.fetchAttempts[0];
@@ -442,25 +478,11 @@ async function finishLocalPrWorkspace(
     await rm(privateGitDir, { recursive: true, force: true });
     await initPrivateRepository();
     try {
-      await fetchPrHead(checkoutMode);
+      await materializePrHead(checkoutMode);
     } catch (sparseError) {
       throw withFallbackContext(sparseError, fullAttempt);
     }
   }
-  if (checkoutMode === "sparse") {
-    await git(["config", "core.sparseCheckout", "true"], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
-    await git(["config", "core.sparseCheckoutCone", "false"], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
-    await writeFile(
-      join(privateGitDir, "info", "sparse-checkout"),
-      sparseCheckoutPatterns(changedFiles),
-    );
-  }
-  await git(["checkout", "-f", PR_HEAD_REF], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
-  await enforceMaxFetchBytes(
-    git,
-    params.maxFetchBytes ?? LOCAL_WORKSPACE_MAX_FETCH_BYTES,
-    LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
-  );
   const { stdout: fetchedHead } = await git(["rev-parse", "HEAD"]);
   if (fetchedHead.trim().toLowerCase() !== headSha.toLowerCase()) {
     throw new AppError({
@@ -474,9 +496,9 @@ async function finishLocalPrWorkspace(
   const policySnapshot = await readBasePolicySnapshot({
     baseSha: params.baseSha,
     git,
-    maxFetchBytes: params.maxFetchBytes ?? LOCAL_WORKSPACE_MAX_FETCH_BYTES,
     timeoutMs: fetchTimeoutMs,
   });
+  await enforceMaxFetchBytes(git, maxFetchBytes, LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
 
   await credentials.cleanup();
   checkoutPaths = await prepareCheckedOutTree(agentCwd);
@@ -530,6 +552,10 @@ async function finishLocalPrWorkspace(
     diffIndex,
     patchByPath,
     patchOmittedByCapPaths,
+    objectStoreByteLimit: {
+      objectsDir: join(privateGitDir, "objects"),
+      maxBytes: maxFetchBytes,
+    },
     symbolIndex,
     stats: {
       truncated: prFiles.truncated,

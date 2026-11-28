@@ -2,11 +2,18 @@ import { spawn } from "node:child_process";
 import { performance } from "node:perf_hooks";
 import {
   LOCAL_WORKSPACE_GIT_GROUP_POLL_MS,
+  LOCAL_WORKSPACE_OBJECT_STORE_CAP_POLL_MS,
   LOCAL_WORKSPACE_GIT_KILL_CONFIRM_MS,
   LOCAL_WORKSPACE_GIT_KILL_GRACE_MS,
 } from "../settings/index.ts";
+import { objectStoreAllocatedBytes } from "./objectStoreBytes.ts";
 
 export type GitGroupCleanup = "not_needed" | "complete" | "failed";
+
+export type GitObjectStoreByteLimit = {
+  readonly objectsDir: string;
+  readonly maxBytes: number;
+};
 
 export type GitProcessResult = {
   readonly stdout: Buffer;
@@ -16,6 +23,9 @@ export type GitProcessResult = {
   readonly signal: NodeJS.Signals | null;
   readonly timedOut: boolean;
   readonly outputLimited: boolean;
+  readonly byteLimitExceeded: boolean;
+  readonly objectStoreBytes: number | null;
+  readonly objectStoreMonitorErrorCode: string | null;
   readonly killed: boolean;
   readonly spawnErrorCode: string | null;
   readonly cleanup: GitGroupCleanup;
@@ -29,6 +39,7 @@ export type GitProcessOptions = {
   readonly timeoutMs: number;
   readonly maxBufferBytes: number;
   readonly stdin?: Buffer | string;
+  readonly objectStoreByteLimit?: GitObjectStoreByteLimit;
 };
 
 type SignalOutcome = "delivered" | "gone" | { readonly errorCode: string };
@@ -68,6 +79,9 @@ export function runGitProcess(args: readonly string[], options: GitProcessOption
       let closed = false;
       let timedOut = false;
       let outputLimited = false;
+      let byteLimitExceeded = false;
+      let objectStoreBytes: number | null = null;
+      let objectStoreMonitorErrorCode: string | null = null;
       let killed = false;
       let spawnErrorCode: string | null = null;
       let termination: "idle" | "running" | GitGroupCleanup = "idle";
@@ -111,6 +125,9 @@ export function runGitProcess(args: readonly string[], options: GitProcessOption
           signal: exitSignal,
           timedOut,
           outputLimited,
+          byteLimitExceeded,
+          objectStoreBytes,
+          objectStoreMonitorErrorCode,
           killed,
           spawnErrorCode,
           cleanup: termination === "idle" || termination === "running" ? "not_needed" : termination,
@@ -174,7 +191,8 @@ export function runGitProcess(args: readonly string[], options: GitProcessOption
         termination = "running";
         clearTimers();
         if (!signalRunningGroup(pgid, "SIGTERM")) return;
-        killed = timedOut || outputLimited;
+        killed =
+          timedOut || outputLimited || byteLimitExceeded || objectStoreMonitorErrorCode != null;
         schedule(LOCAL_WORKSPACE_GIT_GROUP_POLL_MS, () =>
           pollGroupExit(performance.now() + LOCAL_WORKSPACE_GIT_KILL_GRACE_MS, "grace"),
         );
@@ -236,6 +254,35 @@ export function runGitProcess(args: readonly string[], options: GitProcessOption
           if (settled || termination !== "idle") return;
           timedOut = true;
           terminate();
+        });
+      }
+
+      const pollObjectStoreByteLimit = async () => {
+        const limit = options.objectStoreByteLimit;
+        if (limit == null) return;
+        try {
+          if (settled || termination !== "idle") return;
+          const bytes = await objectStoreAllocatedBytes(limit.objectsDir);
+          objectStoreBytes = Math.max(objectStoreBytes ?? 0, bytes);
+          if (bytes > limit.maxBytes && !settled && termination === "idle") {
+            byteLimitExceeded = true;
+            terminate();
+          }
+        } catch (error) {
+          objectStoreMonitorErrorCode = systemErrorCode(error);
+          if (!settled && termination === "idle") terminate();
+        } finally {
+          if (!settled && termination === "idle") {
+            schedule(LOCAL_WORKSPACE_OBJECT_STORE_CAP_POLL_MS, () => {
+              void pollObjectStoreByteLimit();
+            });
+          }
+        }
+      };
+
+      if (options.objectStoreByteLimit != null) {
+        schedule(0, () => {
+          void pollObjectStoreByteLimit();
         });
       }
     }),

@@ -1,4 +1,5 @@
 import { execFile as execFileCb } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import {
   lstat,
   mkdir,
@@ -17,11 +18,13 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const credentialHooks = { failAfterWrite: false };
+const allocatedWorkspaceRoots: string[] = [];
 vi.mock("../src/prWorkspace/gitCredentials.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/prWorkspace/gitCredentials.ts")>();
   return {
     ...actual,
     async createGitCredentialFiles(rootDir: string, token: string) {
+      allocatedWorkspaceRoots.push(rootDir);
       const created = await actual.createGitCredentialFiles(rootDir, token);
       if (credentialHooks.failAfterWrite) {
         throw new Error("injected credential setup failure");
@@ -70,8 +73,59 @@ async function makeRemote() {
   return { root, repo, remote, headSha };
 }
 
+async function objectStoreAllocatedBytes(objectsDir: string) {
+  const entries = await readdir(objectsDir, { withFileTypes: true }).catch((error: unknown) => {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error.code === "ENOENT" || error.code === "ENOTDIR")
+    ) {
+      return null;
+    }
+    throw error;
+  });
+  if (entries == null) return 0;
+  let total = 0;
+  for (const entry of entries) {
+    const full = join(objectsDir, entry.name);
+    if (entry.isDirectory()) {
+      total += await objectStoreAllocatedBytes(full);
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    const info = await lstat(full).catch(() => null);
+    if (info != null) total += info.blocks > 0 ? info.blocks * 512 : info.size;
+  }
+  return total;
+}
+
+function watchWorkspaceObjectStores() {
+  let highWater = 0;
+  let stopped = false;
+  const loop = (async () => {
+    while (true) {
+      if (stopped) break;
+      for (const rootDir of allocatedWorkspaceRoots) {
+        const bytes = await objectStoreAllocatedBytes(
+          join(rootDir, "checkout", ".git", "objects"),
+        ).catch(() => 0);
+        highWater = Math.max(highWater, bytes);
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 5));
+    }
+  })();
+  return {
+    highWater: () => highWater,
+    stop: async () => {
+      stopped = true;
+      await loop;
+    },
+  };
+}
+
 afterEach(() => {
   credentialHooks.failAfterWrite = false;
+  allocatedWorkspaceRoots.length = 0;
 });
 
 describe("writable PR checkout", () => {
@@ -109,6 +163,64 @@ describe("writable PR checkout", () => {
       expect(author).toBe("pr-agent[bot] <123+pr-agent[bot]@users.noreply.github.com>");
       expect(committer).toBe("pr-agent[bot] <123+pr-agent[bot]@users.noreply.github.com>");
       expect(message).not.toContain("Co-authored-by:");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("terminates oversized fetches at the byte ceiling and removes the checkout", async () => {
+    const root = await mkdtemp(join(tmpdir(), "writable-checkout-fetch-cap-"));
+    const repo = join(root, "repo");
+    const remote = join(root, "remote.git");
+    try {
+      await git(root, ["init", repo]);
+      await git(repo, ["config", "user.email", "test@example.com"]);
+      await git(repo, ["config", "user.name", "Test"]);
+      await writeFile(join(repo, "src.txt"), "one\n");
+      await writeFile(join(repo, "huge.bin"), randomBytes(24 * 1024 * 1024));
+      await git(repo, ["add", "."]);
+      await git(repo, ["commit", "-m", "oversized head"]);
+      await git(root, ["init", "--bare", remote]);
+      await git(repo, ["remote", "add", "origin", remote]);
+      await git(repo, ["push", "origin", "HEAD:refs/heads/main"]);
+      const headSha = await git(repo, ["rev-parse", "HEAD"]);
+
+      const watcher = watchWorkspaceObjectStores();
+      let error: unknown;
+      try {
+        try {
+          await withWritablePrCheckout(
+            {
+              owner: "owner",
+              repo: "repo",
+              headRef: "main",
+              headSha,
+              installationToken: "unused",
+              botIdentity: { userId: 123, login: "pr-agent[bot]" },
+              remoteUrlOverride: remote,
+              maxFetchBytes: 1024 * 1024,
+            },
+            async () => undefined,
+          );
+          throw new Error("expected rejection");
+        } catch (caught) {
+          error = caught;
+        }
+      } finally {
+        await watcher.stop();
+      }
+
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).code).toBe("pr_workspace.fetch_too_large");
+      expect(watcher.highWater()).toBeGreaterThan(0);
+      expect(watcher.highWater()).toBeLessThan(8 * 1024 * 1024);
+      expect(watcher.highWater()).toBeLessThan(12 * 1024 * 1024);
+      expect(allocatedWorkspaceRoots).not.toEqual([]);
+      await Promise.all(
+        allocatedWorkspaceRoots.map((rootDir) =>
+          expect(stat(rootDir)).rejects.toMatchObject({ code: "ENOENT" }),
+        ),
+      );
     } finally {
       await rm(root, { recursive: true, force: true });
     }

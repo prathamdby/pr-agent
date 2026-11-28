@@ -689,6 +689,7 @@ Writing policy is computed once per description run from workspace size stats (`
 | `LOCAL_WORKSPACE_GIT_KILL_GRACE_MS`              | 2000                   |
 | `LOCAL_WORKSPACE_GIT_KILL_CONFIRM_MS`            | 1000                   |
 | `LOCAL_WORKSPACE_GIT_GROUP_POLL_MS`              | 50                     |
+| `LOCAL_WORKSPACE_OBJECT_STORE_CAP_POLL_MS`       | 25                     |
 | `LOCAL_WORKSPACE_GIT_MAX_BUFFER_BYTES`           | 20971520               |
 | `LOCAL_WORKSPACE_GIT_STDERR_DIAGNOSTIC_CHARS`    | 1000                   |
 | `LOCAL_WORKSPACE_SEARCH_MAX_FILES`               | 500                    |
@@ -711,6 +712,8 @@ Writing policy is computed once per description run from workspace size stats (`
 | `LOCAL_WORKSPACE_READ_MAX_PATH_SUGGESTIONS`      | 5                      |
 | `LOCAL_WORKSPACE_PATH_SUGGESTION_MIN_SIMILARITY` | 0.6                    |
 | `READ_SPILL_FILENAME_PREFIX`                     | `pr-agent-read-spill-` |
+
+`LOCAL_WORKSPACE_MAX_FETCH_BYTES` is enforced while workspace Git commands write objects, including temporary object-transfer files and lazy blob backfill, not only after checkout. The object-store scanner polls at `LOCAL_WORKSPACE_OBJECT_STORE_CAP_POLL_MS`; when allocated object-store bytes cross the cap, the worker terminates the Git process group and reports `pr_workspace.fetch_too_large`. The same total ceiling applies to read-only full and sparse checkouts, base-policy object fetches, writable triage checkouts, and later pinned Git object reads. A full-checkout cap hit may use the existing sparse fallback once; a sparse cap hit is terminal.
 
 Pinned searches run on the fff host with `git grep` for the remainder; writable triage searches use `git grep` alone. The `LOCAL_WORKSPACE_FFF_*` constants bound the host: scan and request deadlines, the paging budget, the indexed-file cap above which a checkout skips fff, live indexes per host, the file size fff reads, and the respawn backoff after a host dies. Both paths apply `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES` to the result and the tool `maxResults` after parse. A buffer cut returns partial results with `truncated: true`, not proof of absence. Those limits do not use Git 2.40 `--max-count`. Debian bookworm Git 2.39.x in the application image is enough.
 

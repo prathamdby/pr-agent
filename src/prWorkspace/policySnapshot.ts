@@ -7,7 +7,7 @@ import {
   MAX_AGENT_INSTRUCTION_FILE_BYTES,
   MAX_REPO_POLICY_FILE_BYTES,
 } from "../settings/index.ts";
-import { gitCountObjectsStoreBytes } from "./workspaceResource.ts";
+import { isAppError } from "../errors/appError.ts";
 import { workspaceGitFailureKind } from "./repositoryReader.ts";
 
 const POLICY_BASE_REF = "refs/pr-agent/policy-base";
@@ -30,7 +30,6 @@ export type PolicySnapshotDrop = {
 export type PolicySnapshotUnavailableReason =
   | "missing_base_sha"
   | "fetch_failed"
-  | "object_store_cap"
   | "blob_read_failed";
 
 export type PolicySnapshot =
@@ -173,7 +172,6 @@ const POLICY_FETCH_FLAGS = [
 export async function readBasePolicySnapshot(params: {
   readonly baseSha: string | undefined;
   readonly git: WorkspaceGit;
-  readonly maxFetchBytes: number;
   readonly timeoutMs: number;
 }) {
   const requested = params.baseSha;
@@ -198,6 +196,7 @@ export async function readBasePolicySnapshot(params: {
       params.timeoutMs,
     );
   } catch (error) {
+    if (isAppError(error) && error.code === "pr_workspace.fetch_too_large") throw error;
     return ((pinnedReturn: PolicySnapshot | Promise<PolicySnapshot>) => pinnedReturn)(
       unavailable("fetch_failed", baseSha, error),
     );
@@ -239,12 +238,6 @@ export async function readBasePolicySnapshot(params: {
       );
     }
 
-    const counted = await params.git(["count-objects", "-v"], params.timeoutMs);
-    if (gitCountObjectsStoreBytes(counted.stdout) > params.maxFetchBytes) {
-      return ((pinnedReturn: PolicySnapshot | Promise<PolicySnapshot>) => pinnedReturn)(
-        unavailable("object_store_cap", baseSha),
-      );
-    }
     if (allowlisted === 0)
       return ((pinnedReturn: PolicySnapshot | Promise<PolicySnapshot>) => pinnedReturn)({
         kind: "absent",
@@ -307,6 +300,7 @@ export async function readBasePolicySnapshot(params: {
       drops,
     });
   } catch (error) {
+    if (isAppError(error) && error.code === "pr_workspace.fetch_too_large") throw error;
     return ((pinnedReturn: PolicySnapshot | Promise<PolicySnapshot>) => pinnedReturn)(
       unavailable("blob_read_failed", baseSha, error),
     );

@@ -1,6 +1,17 @@
 import { ChildProcess, execFile as execFileCb, execFileSync, spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -71,6 +82,103 @@ async function expectAllocatedWorkspaceRootsRemoved() {
       expect(stat(rootDir)).rejects.toMatchObject({ code: "ENOENT" }),
     ),
   );
+}
+
+async function objectStoreAllocatedBytes(objectsDir: string) {
+  const entries = await readdir(objectsDir, { withFileTypes: true }).catch((error: unknown) => {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error.code === "ENOENT" || error.code === "ENOTDIR")
+    ) {
+      return null;
+    }
+    throw error;
+  });
+  if (entries == null) return 0;
+  let total = 0;
+  for (const entry of entries) {
+    const full = join(objectsDir, entry.name);
+    if (entry.isDirectory()) {
+      total += await objectStoreAllocatedBytes(full);
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    const info = await lstat(full).catch((error: unknown) => {
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        (error.code === "ENOENT" || error.code === "ENOTDIR")
+      ) {
+        return null;
+      }
+      throw error;
+    });
+    if (info == null) continue;
+    total += info.blocks > 0 ? info.blocks * 512 : info.size;
+  }
+  return total;
+}
+
+function watchWorkspaceObjectStores(objectsDirForRoot: (rootDir: string) => string) {
+  let highWater = 0;
+  let stopped = false;
+  const loop = (async () => {
+    while (true) {
+      if (stopped) break;
+      for (const rootDir of allocatedWorkspaceRoots) {
+        const bytes = await objectStoreAllocatedBytes(objectsDirForRoot(rootDir)).catch(() => 0);
+        highWater = Math.max(highWater, bytes);
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 5));
+    }
+  })();
+  return {
+    highWater: () => highWater,
+    stop: async () => {
+      stopped = true;
+      await loop;
+    },
+  };
+}
+
+async function makeLargeBlobPrFixture(
+  root: string,
+  options: { readonly payloadBytes: number; readonly largeInBase: boolean },
+) {
+  const repo = join(root, "repo");
+  const remote = join(root, "remote.git");
+  await git(root, ["init", repo]);
+  await git(repo, ["config", "user.email", "test@example.com"]);
+  await git(repo, ["config", "user.name", "Test"]);
+  await writeFile(join(repo, "src.txt"), "one\n");
+  if (options.largeInBase)
+    await writeFile(join(repo, "huge.bin"), randomBytes(options.payloadBytes));
+  await git(repo, ["add", "."]);
+  await git(repo, ["commit", "-m", "base"]);
+  const baseSha = await git(repo, ["rev-parse", "HEAD"]);
+
+  if (!options.largeInBase) {
+    await writeFile(join(repo, "huge.bin"), randomBytes(options.payloadBytes));
+  }
+  await writeFile(join(repo, "src.txt"), "one\ntwo\n");
+  await git(repo, ["add", "."]);
+  await git(repo, ["commit", "-m", "head"]);
+  const headSha = await git(repo, ["rev-parse", "HEAD"]);
+
+  await git(root, ["init", "--bare", remote]);
+  await git(remote, ["config", "uploadpack.allowFilter", "true"]);
+  await git(remote, ["config", "uploadpack.allowAnySHA1InWant", "true"]);
+  await git(repo, ["remote", "add", "origin", remote]);
+  await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
+
+  return {
+    repo,
+    remote,
+    baseSha,
+    headSha,
+    prFiles: await buildPrFilesFromRepo(repo, baseSha, headSha),
+  };
 }
 
 async function buildPrFilesFromRepo(repo: string, baseSha: string, headSha: string) {
@@ -345,87 +453,149 @@ describe("local PR workspace", () => {
     }
   });
 
-  it("rejects oversized fetches before checkout and cleans up the workspace", async () => {
+  it("terminates oversized full fetches at the byte ceiling and cleans up the workspace", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-fetch-cap-"));
-    const repo = join(root, "repo");
-    const remote = join(root, "remote.git");
     try {
-      await git(root, ["init", repo]);
-      await git(repo, ["config", "user.email", "test@example.com"]);
-      await git(repo, ["config", "user.name", "Test"]);
-      await writeFile(join(repo, "src.txt"), "one\n");
-      await git(repo, ["add", "."]);
-      await git(repo, ["commit", "-m", "base"]);
-      const baseSha = await git(repo, ["rev-parse", "HEAD"]);
+      const payloadBytes = 24 * 1024 * 1024;
+      const capBytes = 1024 * 1024;
+      const fixture = await makeLargeBlobPrFixture(root, { payloadBytes, largeInBase: false });
+      const watcher = watchWorkspaceObjectStores((rootDir) => join(rootDir, "private", "objects"));
+      let error: AppError;
+      try {
+        error = appErrorOf(
+          await rejectionOf(
+            prepareLocalPrWorkspace({
+              owner: "owner",
+              repo: "repo",
+              prNumber: 1,
+              headSha: fixture.headSha,
+              installationToken: "unused",
+              prFiles: fixture.prFiles,
+              remoteUrlOverride: fixture.remote,
+              maxFetchBytes: capBytes,
+            }),
+          ),
+        );
+      } finally {
+        await watcher.stop();
+      }
 
-      await writeFile(join(repo, "src.txt"), "one\ntwo\n");
-      await git(repo, ["add", "."]);
-      await git(repo, ["commit", "-m", "head"]);
-      const headSha = await git(repo, ["rev-parse", "HEAD"]);
-
-      await git(root, ["init", "--bare", remote]);
-      await git(repo, ["remote", "add", "origin", remote]);
-      await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
-
-      const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
-
-      await expect(
-        prepareLocalPrWorkspace({
-          owner: "owner",
-          repo: "repo",
-          prNumber: 1,
-          headSha,
-          installationToken: "unused",
-          prFiles,
-          remoteUrlOverride: remote,
-          maxFetchBytes: 1,
-        }),
-      ).rejects.toThrow(/LOCAL_WORKSPACE_MAX_FETCH_BYTES/);
-
+      expect(error.code).toBe("pr_workspace.fetch_too_large");
+      expect(watcher.highWater()).toBeGreaterThan(0);
+      expect(watcher.highWater()).toBeLessThan(8 * 1024 * 1024);
+      expect(watcher.highWater()).toBeLessThan(payloadBytes / 2);
+      expect(workspaceCheckoutTelemetryFromError(error)).toMatchObject({
+        mode: "sparse_fallback",
+        fallbackReason: "fetch_too_large",
+        fetchAttempts: [
+          { checkoutMode: "full", outcome: "failed", errorCode: "pr_workspace.fetch_too_large" },
+          { checkoutMode: "sparse", outcome: "failed", errorCode: "pr_workspace.fetch_too_large" },
+        ],
+      });
+      expect(retryDispositionFor(error)).toBe("terminal");
+      fetchProof.fullFetchByteCap = {
+        transport: "local-path",
+        payloadBytes,
+        capBytes,
+        highWaterBytes: watcher.highWater(),
+        errorCode: error.code,
+        telemetry: workspaceCheckoutTelemetryFromError(error),
+      };
       await expectAllocatedWorkspaceRootsRemoved();
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  it("rejects oversized sparse checkouts after blob hydration", async () => {
-    const root = await mkdtemp(join(tmpdir(), "workspace-sparse-fetch-cap-"));
-    const repo = join(root, "repo");
-    const remote = join(root, "remote.git");
+  it("uses sparse fallback when a full fetch crosses the byte ceiling for unselected blobs", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-fetch-cap-fallback-"));
     try {
-      await git(root, ["init", repo]);
-      await git(repo, ["config", "user.email", "test@example.com"]);
-      await git(repo, ["config", "user.name", "Test"]);
-      await writeFile(join(repo, "src.txt"), "one\n");
-      await git(repo, ["add", "."]);
-      await git(repo, ["commit", "-m", "base"]);
-      const baseSha = await git(repo, ["rev-parse", "HEAD"]);
+      const fixture = await makeLargeBlobPrFixture(root, {
+        payloadBytes: 24 * 1024 * 1024,
+        largeInBase: true,
+      });
+      const workspace = await prepareLocalPrWorkspace({
+        owner: "owner",
+        repo: "repo",
+        prNumber: 1,
+        headSha: fixture.headSha,
+        installationToken: "unused",
+        prFiles: fixture.prFiles,
+        remoteUrlOverride: fixture.remote,
+        maxFetchBytes: 1024 * 1024,
+      });
+      try {
+        expect(workspace.checkoutTelemetry).toMatchObject({
+          mode: "sparse_fallback",
+          fallbackReason: "fetch_too_large",
+          fetchAttempts: [
+            { checkoutMode: "full", outcome: "failed", errorCode: "pr_workspace.fetch_too_large" },
+            { checkoutMode: "sparse", outcome: "succeeded" },
+          ],
+        });
+        expect(workspace.reader.checkoutMode).toBe("sparse");
+        expect(await readFile(join(workspace.agentCwd, "src.txt"), "utf8")).toContain("two");
+        await expect(readFile(join(workspace.agentCwd, "huge.bin"))).rejects.toThrow();
+        expect(workspace.reader.checkoutPaths.has("huge.bin")).toBe(false);
+        fetchProof.fullCapSparseFallback = {
+          telemetry: workspace.checkoutTelemetry,
+          coverage: workspace.reader.getCoverage(),
+        };
+      } finally {
+        await workspace.cleanup();
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 
-      await writeFile(join(repo, "src.txt"), "one\ntwo\n");
-      await git(repo, ["add", "."]);
-      await git(repo, ["commit", "-m", "head"]);
-      const headSha = await git(repo, ["rev-parse", "HEAD"]);
+  it("terminates sparse checkout blob backfill at the byte ceiling", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-sparse-fetch-cap-"));
+    try {
+      const payloadBytes = 24 * 1024 * 1024;
+      const capBytes = 1024 * 1024;
+      const fixture = await makeLargeBlobPrFixture(root, { payloadBytes, largeInBase: false });
+      const watcher = watchWorkspaceObjectStores((rootDir) => join(rootDir, "private", "objects"));
+      let error: AppError;
+      try {
+        error = appErrorOf(
+          await rejectionOf(
+            prepareLocalPrWorkspace({
+              owner: "owner",
+              repo: "repo",
+              prNumber: 1,
+              headSha: fixture.headSha,
+              installationToken: "unused",
+              prFiles: fixture.prFiles,
+              repositorySizeKb: LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB + 1,
+              remoteUrlOverride: fixture.remote,
+              maxFetchBytes: capBytes,
+            }),
+          ),
+        );
+      } finally {
+        await watcher.stop();
+      }
 
-      await git(root, ["init", "--bare", remote]);
-      await git(repo, ["remote", "add", "origin", remote]);
-      await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
-
-      const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
-
-      await expect(
-        prepareLocalPrWorkspace({
-          owner: "owner",
-          repo: "repo",
-          prNumber: 1,
-          headSha,
-          installationToken: "unused",
-          prFiles,
-          repositorySizeKb: LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB + 1,
-          remoteUrlOverride: remote,
-          maxFetchBytes: 1,
-        }),
-      ).rejects.toThrow(/LOCAL_WORKSPACE_MAX_FETCH_BYTES/);
-
+      expect(error.code).toBe("pr_workspace.fetch_too_large");
+      expect(watcher.highWater()).toBeGreaterThan(0);
+      expect(watcher.highWater()).toBeLessThan(8 * 1024 * 1024);
+      expect(watcher.highWater()).toBeLessThan(payloadBytes / 2);
+      expect(workspaceCheckoutTelemetryFromError(error)).toMatchObject({
+        mode: "sparse",
+        fallbackReason: null,
+        fetchAttempts: [
+          { checkoutMode: "sparse", outcome: "failed", errorCode: "pr_workspace.fetch_too_large" },
+        ],
+      });
+      fetchProof.sparseBackfillByteCap = {
+        transport: "local-path",
+        payloadBytes,
+        capBytes,
+        highWaterBytes: watcher.highWater(),
+        errorCode: error.code,
+        telemetry: workspaceCheckoutTelemetryFromError(error),
+      };
       await expectAllocatedWorkspaceRootsRemoved();
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -682,38 +852,21 @@ describe("local PR workspace", () => {
       };
     };
 
-    const overCap = await readBasePolicySnapshot({
-      baseSha,
-      maxFetchBytes: 1,
-      timeoutMs: 1_000,
-      git: git((command) => {
-        if (command === "fetch" || command === "prefetch" || command === "ls-tree") {
-          return { stdout: command === "ls-tree" ? tree : "" };
-        }
-        if (command === "count-objects") return { stdout: "size: 2\nsize-pack: 0\n" };
-        throw new Error(command);
-      }),
-    });
-    expect(overCap).toEqual({ kind: "unavailable", reason: "object_store_cap", baseSha });
-
     const absentCalls: string[] = [];
     const absent = await readBasePolicySnapshot({
       baseSha,
-      maxFetchBytes: 1_000_000,
       timeoutMs: 1_000,
       git: git((command) => {
         absentCalls.push(command);
         if (command === "fetch" || command === "ls-tree") return { stdout: "" };
-        if (command === "count-objects") return { stdout: "size: 0\nsize-pack: 0\n" };
         throw new Error(command);
       }),
     });
     expect(absent).toEqual({ kind: "absent", baseSha });
-    expect(absentCalls).toEqual(["fetch", "ls-tree", "count-objects"]);
+    expect(absentCalls).toEqual(["fetch", "ls-tree"]);
 
     const failedFetch = await readBasePolicySnapshot({
       baseSha,
-      maxFetchBytes: 1_000_000,
       timeoutMs: 1_000,
       git: git((command) => {
         if (command === "fetch") throw new Error("fetch failed");
@@ -724,7 +877,6 @@ describe("local PR workspace", () => {
 
     const failedPrefetch = await readBasePolicySnapshot({
       baseSha,
-      maxFetchBytes: 1_000_000,
       timeoutMs: 1_000,
       git: git((command) => {
         if (command === "fetch") return { stdout: "" };
@@ -736,12 +888,10 @@ describe("local PR workspace", () => {
 
     const failed = await readBasePolicySnapshot({
       baseSha,
-      maxFetchBytes: 1_000_000,
       timeoutMs: 1_000,
       git: git((command) => {
         if (command === "fetch" || command === "prefetch") return { stdout: "" };
         if (command === "ls-tree") return { stdout: tree };
-        if (command === "count-objects") return { stdout: "size: 0\nsize-pack: 0\n" };
         throw new Error("cat-file failed");
       }),
     });
@@ -774,7 +924,6 @@ describe("local PR workspace", () => {
     }> = [];
     const snapshot = await readBasePolicySnapshot({
       baseSha,
-      maxFetchBytes: 1_000_000,
       timeoutMs: 1_000,
       git: async (args, _timeoutMs, io) => {
         const command = args.includes("fetch")
@@ -800,7 +949,6 @@ describe("local PR workspace", () => {
           expect(io?.stdin).toBe(`${[sharedSha, smallSha, overSha, utfSha].join("\n")}\n`);
           return { stdout: "" };
         }
-        if (command === "count-objects") return { stdout: "size: 0\nsize-pack: 0\n" };
         if (command === "cat-file" && args.some((arg) => arg.startsWith("--batch-check="))) {
           expect(io?.extraEnv).toEqual({ GIT_NO_LAZY_FETCH: "1" });
           return {
@@ -853,7 +1001,6 @@ describe("local PR workspace", () => {
     const commands: string[] = [];
     const snapshot = await readBasePolicySnapshot({
       baseSha,
-      maxFetchBytes: 1_000_000,
       timeoutMs: 1_000,
       git: async (args) => {
         const command = args.includes("fetch")
@@ -866,7 +1013,6 @@ describe("local PR workspace", () => {
         if (command === "ls-tree") {
           return { stdout: `120000 blob ${blobSha}\t.pr-agent/link.mdc\0` };
         }
-        if (command === "count-objects") return { stdout: "size: 0\nsize-pack: 0\n" };
         throw new Error(command);
       },
     });
@@ -876,7 +1022,7 @@ describe("local PR workspace", () => {
       files: [],
       drops: [{ path: ".pr-agent/link.mdc", reason: "non_regular_mode" }],
     });
-    expect(commands).toEqual(["fetch", "ls-tree", "count-objects"]);
+    expect(commands).toEqual(["fetch", "ls-tree"]);
   });
 });
 
@@ -1212,6 +1358,68 @@ describe("workspace git fetch over HTTP", () => {
       }
     } finally {
       await server.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("terminates an oversized smart-http fetch at the byte ceiling", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-http-fetch-cap-"));
+    try {
+      const payloadBytes = 24 * 1024 * 1024;
+      const capBytes = 1024 * 1024;
+      const fixture = await makeLargeBlobPrFixture(root, { payloadBytes, largeInBase: false });
+      const server = await startGitHttpServer(root, () => "serve");
+      const watcher = watchWorkspaceObjectStores((rootDir) => join(rootDir, "private", "objects"));
+      let error: AppError;
+      try {
+        error = appErrorOf(
+          await rejectionOf(
+            prepareLocalPrWorkspace({
+              owner: "owner",
+              repo: "repo",
+              prNumber: 1,
+              headSha: fixture.headSha,
+              installationToken: "unused-token",
+              prFiles: fixture.prFiles,
+              remoteUrlOverride: server.url,
+              maxFetchBytes: capBytes,
+            }),
+          ),
+        );
+      } finally {
+        await watcher.stop();
+        await server.close();
+      }
+
+      expect(error.code).toBe("pr_workspace.fetch_too_large");
+      expect(watcher.highWater()).toBeGreaterThan(0);
+      expect(watcher.highWater()).toBeLessThan(8 * 1024 * 1024);
+      expect(watcher.highWater()).toBeLessThan(payloadBytes / 2);
+      expect(workspaceCheckoutTelemetryFromError(error)).toMatchObject({
+        mode: "sparse_fallback",
+        fallbackReason: "fetch_too_large",
+        fetchAttempts: [
+          { checkoutMode: "full", outcome: "failed", errorCode: "pr_workspace.fetch_too_large" },
+          { checkoutMode: "sparse", outcome: "failed", errorCode: "pr_workspace.fetch_too_large" },
+        ],
+      });
+      const fetches = fetchInvocations();
+      expect(fetches).toHaveLength(2);
+      expect(fetches[0]).not.toContain("--filter=blob:none");
+      expect(fetches[1]).toContain("--filter=blob:none");
+      fetchProof.smartHttpByteCap = {
+        transport: "smart-http",
+        payloadBytes,
+        capBytes,
+        highWaterBytes: watcher.highWater(),
+        errorCode: error.code,
+        telemetry: workspaceCheckoutTelemetryFromError(error),
+        fetchInvocations: fetches.map((line) =>
+          line.includes("--filter=blob:none") ? "sparse" : "full",
+        ),
+      };
+      await expectAllocatedWorkspaceRootsRemoved();
+    } finally {
       await rm(root, { recursive: true, force: true });
     }
   });

@@ -33,6 +33,7 @@ import {
   normalizeRepoRelativePath,
 } from "../agent/triage/triageWritePolicy.ts";
 import { cleanupStaleLocalPrWorkspaces, stripWorkspaceSymlinks } from "./localPrWorkspace.ts";
+import { assertObjectStoreWithinCap } from "./objectStoreBytes.ts";
 import {
   allocateWorkspaceResource,
   WRITABLE_WORKSPACE_ROOT_PREFIX,
@@ -83,6 +84,7 @@ type WritablePrCheckoutParams = {
   readonly beforeCommit?: () => Promise<void>;
   readonly beforePush?: () => Promise<void>;
   readonly remoteUrlOverride?: string;
+  readonly maxFetchBytes?: number;
 };
 
 function gitPersonHasForbiddenChars(value: string) {
@@ -450,6 +452,7 @@ export async function withWritablePrCheckout<T>(
     const credentials = resource.credentials;
     const dir = join(rootDir, "checkout");
     const remoteUrl = params.remoteUrlOverride ?? `https://github.com/${owner}/${repo}.git`;
+    const maxFetchBytes = params.maxFetchBytes ?? LOCAL_WORKSPACE_MAX_FETCH_BYTES;
     const committed: { sha: string; subject: string; diff: string }[] = [];
     const defaultAttribution =
       params.commitAttribution ?? buildTriageCommitAttribution({ botIdentity, triggerer: null });
@@ -466,6 +469,10 @@ export async function withWritablePrCheckout<T>(
         askpass: credentials.askpass,
         tokenFile: credentials.tokenFile,
         extraEnv,
+        objectStoreByteLimit: {
+          objectsDir: join(dir, ".git", "objects"),
+          maxBytes: maxFetchBytes,
+        },
         redactSecrets: [installationToken],
       });
 
@@ -487,15 +494,13 @@ export async function withWritablePrCheckout<T>(
       ["count-objects", "-v"],
       LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
     );
-    if (gitCountObjectsStoreBytes(objectStats) > LOCAL_WORKSPACE_MAX_FETCH_BYTES) {
-      throw new AppError({
-        domain: "pr_workspace",
-        kind: "fetch_too_large",
-        message: `PR fetch object store exceeds LOCAL_WORKSPACE_MAX_FETCH_BYTES (${LOCAL_WORKSPACE_MAX_FETCH_BYTES})`,
-        context: { maxFetchBytes: LOCAL_WORKSPACE_MAX_FETCH_BYTES },
-      });
-    }
+    assertObjectStoreWithinCap(gitCountObjectsStoreBytes(objectStats), maxFetchBytes);
     await git(["checkout", "-f", "FETCH_HEAD"], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
+    const { stdout: checkedOutObjectStats } = await git(
+      ["count-objects", "-v"],
+      LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
+    );
+    assertObjectStoreWithinCap(gitCountObjectsStoreBytes(checkedOutObjectStats), maxFetchBytes);
     const { stdout: fetchedHead } = await git(["rev-parse", "HEAD"]);
     if (fetchedHead.trim().toLowerCase() !== headSha.toLowerCase()) {
       throw new AppError({
@@ -510,7 +515,10 @@ export async function withWritablePrCheckout<T>(
     await git(["config", "user.email", botPerson.email], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
     const checkout: WritablePrCheckout = {
       dir,
-      reader: createWritableRepositoryReader(dir),
+      reader: createWritableRepositoryReader(dir, {
+        objectsDir: join(dir, ".git", "objects"),
+        maxBytes: maxFetchBytes,
+      }),
       headRef,
       baseSha: headSha,
       commit: async (args) => {
