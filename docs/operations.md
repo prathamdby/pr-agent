@@ -367,6 +367,9 @@ legacy statuses cannot produce passing/no-CI claims; known failures remain with
 a partial-view notice. Confirmed denials stop self-scheduled denied-source/write
 loops. A fresh restored grant forces a listing even on a previously terminal
 head. Only a successful complete source read clears restoration state.
+Migration 045 rewrites CI fact keys and marks non-empty pre-fix heads for one
+repair listing. Mixed-version and rollback constraints are in
+[the queue runbook](agent-work-ops.md#ci-projection-delivery-attribution).
 Applicable pending verdicts can then repair independently. Deliberately skipped
 surfaces are not fake acceptance receipts. Exact summary receipts are checked
 before new output admission; optional cleanup cannot invalidate proven completion.

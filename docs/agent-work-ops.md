@@ -494,9 +494,9 @@ Audit-write failure rolls back intake and returns `503`, rather than acknowledgi
 
 Install additive migration `033_webhook_delivery_duplicates.sql` before upgraded web intake or worker retention runs. The normal startup migration runner does this. Upgrade all web instances to establish complete coverage; there is no historical backfill. A code-only rollback leaves the table intact but stops new evidence and its cleanup until upgraded code returns. Do not drop retained evidence as an automatic rollback.
 
-Migration `045_source_qualified_ci_facts.sql` rewrites `pr_head_ci_state.checks` keys to source-qualified identities and installs a database trigger that rejects non-canonical fact-map mutations. Deploy upgraded web and worker instances together: during a mixed-version window, pre-fix writers fail CI fact writes rather than silently collapsing same-named check runs and legacy statuses. Prefer a forward fix over rollback. A rollback to pre-fix code cannot represent both namespaces; keeping the trigger makes those writers fail closed, while removing it or downgrading keys reopens the collision defect and is lossy for rows that contain both namespaces.
-
 ## CI projection delivery attribution
+
+Migration `045_source_qualified_ci_facts.sql` rewrites `pr_head_ci_state.checks` keys to source-qualified identities, marks non-empty pre-fix heads `unknown` with projection repair pending so a fresh listing can recover facts lost by the old writer, and installs a database trigger that rejects non-canonical fact-map mutations. The migration briefly locks `pr_head_ci_state` so a mixed-version writer cannot slip a legacy row between the rewrite and trigger installation. Deploy upgraded web and worker instances together: during a mixed-version window, pre-fix writers fail CI fact writes rather than silently collapsing same-named check runs and legacy statuses. Prefer a forward fix over rollback. A rollback to pre-fix code cannot represent both namespaces; keeping the trigger makes those writers fail closed, while removing it or downgrading keys reopens the collision defect and is lossy for rows that contain both namespaces.
 
 Accepted CI projection intake retains `{webhookEventId, delivery}` pairs in the
 job's `data.correlations` array. A single delivery appears once. On debounce

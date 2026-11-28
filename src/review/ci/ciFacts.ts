@@ -96,7 +96,7 @@ export function canonicalizeCiCheckFacts(current: Readonly<Record<string, CiChec
   return ((pinnedReturn: Record<string, CiCheckFact>) => pinnedReturn)(checks);
 }
 
-export function ciCheckFactDisplayName(fact: CiCheckFact, facts: readonly CiCheckFact[]) {
+function ciCheckFactDisplayName(fact: CiCheckFact, facts: readonly CiCheckFact[]) {
   const collides = facts.some(
     (other) => other !== fact && other.name === fact.name && other.source !== fact.source,
   );
@@ -104,6 +104,28 @@ export function ciCheckFactDisplayName(fact: CiCheckFact, facts: readonly CiChec
   return ((pinnedReturn: string) => pinnedReturn)(
     `${fact.name} (${fact.source === "check_run" ? "check run" : "commit status"})`,
   );
+}
+
+export function ciCheckFactDisplayNames(facts: readonly CiCheckFact[]) {
+  const ordered = [...facts].toSorted((left, right) => {
+    const leftKey = ciCheckFactStorageKey(left);
+    const rightKey = ciCheckFactStorageKey(right);
+    return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+  });
+  const used = new Set<string>();
+  const names = new Map<CiCheckFact, string>();
+  for (const fact of ordered) {
+    const base = ciCheckFactDisplayName(fact, facts);
+    let name = base;
+    let suffix = 2;
+    while (used.has(name)) {
+      name = `${base} (${suffix})`;
+      suffix += 1;
+    }
+    used.add(name);
+    names.set(fact, name);
+  }
+  return ((pinnedReturn: ReadonlyMap<CiCheckFact, string>) => pinnedReturn)(names);
 }
 
 export type OwnCheckIdentity = {
@@ -463,9 +485,10 @@ function summarizeCiFactList(
       });
     case "failing": {
       const failures = params.failures ?? [];
+      const displayNames = ciCheckFactDisplayNames(facts);
       const failingNames = facts
         .filter(isCheckFactFailing)
-        .map((fact) => ciCheckFactDisplayName(fact, facts));
+        .map((fact) => displayNames.get(fact) ?? fact.name);
       const uniqueNames = [...new Set(failingNames)];
       const nameList = uniqueNames.slice(0, 3).join(", ");
       const more = uniqueNames.length > 3 ? ` (+${uniqueNames.length - 3} more)` : "";

@@ -431,6 +431,30 @@ describe("classifySnapshot and applyCiCheckFact", () => {
     expect(result.rollup).toBe("failing");
   });
 
+  it("keeps the incoming and newest colliding namespaces when evicting overflow", () => {
+    const result = applyCiCheckFact(
+      {
+        filler: checkFact("filler", "completed", "success", "2026-01-01T00:00:01.000Z"),
+        check: checkFact("lint", "completed", "success", "2026-01-01T00:00:03.000Z"),
+        status: statusFact("lint", "pending", "2026-01-01T00:00:04.000Z"),
+      },
+      checkFact("test", "completed", "failure", "2026-01-01T00:00:05.000Z"),
+      3,
+    );
+    const facts = Object.values(result.checks);
+    expect(result.accepted).toBe(true);
+    expect(result.truncated).toBe(true);
+    expect(facts).toHaveLength(3);
+    expect(facts.find((fact) => fact.name === "test")?.conclusion).toBe("failure");
+    expect(
+      facts.find((fact) => fact.name === "lint" && fact.source === "check_run")?.conclusion,
+    ).toBe("success");
+    expect(facts.find((fact) => fact.name === "lint" && fact.source === "status")?.status).toBe(
+      "pending",
+    );
+    expect(facts.find((fact) => fact.name === "filler")).toBeUndefined();
+  });
+
   it("accepts a newer observation and evicts the oldest other name on overflow", () => {
     const current = {
       old: checkFact("old", "completed", "success", "2026-01-01T00:00:01.000Z"),

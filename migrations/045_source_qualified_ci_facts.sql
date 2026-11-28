@@ -1,10 +1,17 @@
 -- 045_source_qualified_ci_facts
+LOCK TABLE pr_head_ci_state IN ACCESS EXCLUSIVE MODE;
+
 UPDATE pr_head_ci_state AS state
    SET checks = COALESCE((
      SELECT jsonb_object_agg((fact.value->>'source') || E'\n' || (fact.value->>'name'), fact.value)
        FROM jsonb_each(state.checks) AS fact(key, value)
    ), '{}'::jsonb)
  WHERE state.checks <> '{}'::jsonb;
+
+UPDATE pr_head_ci_state
+   SET rollup = 'unknown',
+       projection_repair_pending = true
+ WHERE checks <> '{}'::jsonb;
 
 CREATE OR REPLACE FUNCTION pr_head_ci_state_checks_source_qualified()
 RETURNS trigger
@@ -15,7 +22,7 @@ DECLARE
 BEGIN
   FOR fact IN SELECT key, value FROM jsonb_each(NEW.checks)
   LOOP
-    IF fact.key <> (fact.value->>'source') || E'\n' || (fact.value->>'name') THEN
+    IF fact.key IS DISTINCT FROM (fact.value->>'source') || E'\n' || (fact.value->>'name') THEN
       RAISE EXCEPTION 'pr_head_ci_state checks keys must be source-qualified';
     END IF;
   END LOOP;

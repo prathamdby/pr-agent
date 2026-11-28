@@ -1,6 +1,7 @@
 import { createPublishContext } from "../../src/agentWork/publishOnce.ts";
 import { randomUUID } from "node:crypto";
 import { readdirSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
@@ -13,6 +14,7 @@ import { makeTestConfig } from "../helpers/config.ts";
 import { claimSummaryCommentCreation } from "../../src/agentWork/publishRecordRepository.ts";
 import { persistOperationIntent } from "../../src/agentWork/operationIntentRepository.ts";
 import { runMigrations } from "../../src/db/migrations.ts";
+import { ciCheckFactStorageKey, type CiCheckFact } from "../../src/review/ci/ciFacts.ts";
 import { hasDatabase, integrationPool } from "./db.ts";
 
 const MIGRATIONS_DIR = join(import.meta.dirname, "../../migrations");
@@ -399,6 +401,58 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
     expect(repairCol.rows[0]?.column_default).toContain("false");
   });
 
+  it("upgrades legacy head CI rows and marks them for projection repair", async () => {
+    const fact: CiCheckFact = {
+      name: "lint",
+      source: "check_run",
+      status: "completed",
+      conclusion: "success",
+      url: "https://example.com/check",
+      external_id: null,
+      app_id: null,
+      check_run_id: 1,
+      observed_at: "2026-01-01T00:00:00.000Z",
+    };
+    const headSha = `legacy-${randomUUID()}`;
+    await pool.query(
+      "ALTER TABLE pr_head_ci_state DISABLE TRIGGER pr_head_ci_state_checks_source_qualified",
+    );
+    try {
+      await pool.query(
+        `INSERT INTO pr_head_ci_state (owner, repo, head_sha, checks, rollup, version, seeded_at)
+         VALUES ('migration-shape-it', 'app', $1, $2::jsonb, 'passing', 1, now()),
+                ('migration-shape-it', 'app', $3, '{}'::jsonb, 'none', 1, now())`,
+        [headSha, JSON.stringify({ lint: fact }), `${headSha}-empty`],
+      );
+      const sql = await readFile(join(MIGRATIONS_DIR, "045_source_qualified_ci_facts.sql"), "utf8");
+      await pool.query(sql);
+    } finally {
+      await pool.query(
+        "ALTER TABLE pr_head_ci_state ENABLE TRIGGER pr_head_ci_state_checks_source_qualified",
+      );
+    }
+
+    const { rows } = await pool.query<{
+      head_sha: string;
+      checks: Record<string, CiCheckFact>;
+      rollup: string;
+      projection_repair_pending: boolean;
+    }>(
+      `SELECT head_sha, checks, rollup, projection_repair_pending
+         FROM pr_head_ci_state
+        WHERE owner = 'migration-shape-it' AND head_sha = ANY($1::text[])`,
+      [[headSha, `${headSha}-empty`]],
+    );
+    const upgraded = rows.find((row) => row.head_sha === headSha);
+    const empty = rows.find((row) => row.head_sha === `${headSha}-empty`);
+    expect(upgraded?.checks).toEqual({ [ciCheckFactStorageKey(fact)]: fact });
+    expect(upgraded?.rollup).toBe("unknown");
+    expect(upgraded?.projection_repair_pending).toBe(true);
+    expect(empty?.checks).toEqual({});
+    expect(empty?.rollup).toBe("none");
+    expect(empty?.projection_repair_pending).toBe(false);
+  });
+
   it("rejects head CI fact maps whose keys are not source-qualified", async () => {
     const fact = {
       name: "lint",
@@ -416,6 +470,13 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
         `INSERT INTO pr_head_ci_state (owner, repo, head_sha, checks, rollup, version)
          VALUES ('migration-shape-it', 'app', 'head', $1::jsonb, 'passing', 1)`,
         [JSON.stringify({ lint: fact })],
+      ),
+    ).rejects.toThrow(/source-qualified/);
+    await expect(
+      pool.query(
+        `INSERT INTO pr_head_ci_state (owner, repo, head_sha, checks, rollup, version)
+         VALUES ('migration-shape-it', 'app', 'malformed-head', $1::jsonb, 'passing', 1)`,
+        [JSON.stringify({ lint: {} })],
       ),
     ).rejects.toThrow(/source-qualified/);
   });

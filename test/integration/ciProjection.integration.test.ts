@@ -168,7 +168,7 @@ function ciStateFact(overrides: Partial<CiCheckFact> = {}) {
 function stubCiAuthor(calls: unknown[]) {
   return ((pinnedReturn: CiSummaryAuthor) => pinnedReturn)(async (input) => {
     calls.push(input);
-    const name = input.failingNames[0] ?? "lint";
+    const name = input.checks.find((check) => check.failing)?.name ?? "lint";
     return {
       headline: `❌ authored ${name}`,
       failures: [{ name, reason: "oxfmt failed", fixHint: "run oxfmt" }],
@@ -2757,6 +2757,75 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     );
     const afterRepeat = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
     expect(afterRepeat?.version).toBe(again?.version);
+  });
+
+  it("repairs a migrated unknown head by refreshing both namespaces", async () => {
+    const headSha = "bd".repeat(20);
+    const workItemId = await insertReviewWorkItem(headSha);
+    await insertSeededHead(
+      headSha,
+      {
+        lint: ciStateFact({
+          conclusion: "success",
+          observed_at: "2026-09-13T00:00:02.000Z",
+        }),
+      },
+      "unknown",
+      1,
+    );
+    await pool.query(
+      `UPDATE pr_head_ci_state
+          SET projection_repair_pending = true
+        WHERE owner = $1 AND repo = $2 AND head_sha = $3`,
+      [OWNER, REPO, headSha],
+    );
+    const fake = createFakePrSurface({ owner: OWNER, repo: REPO, prNumber: PR_NUMBER });
+    fake.controls.setPullsForHead(headSha, [{ number: PR_NUMBER }]);
+    fake.controls.setCiStatus(headSha, {
+      checkRuns: [
+        checkRunSnapshot({
+          id: 92,
+          name: "lint",
+          startedAt: "2026-09-13T00:00:01.000Z",
+          completedAt: "2026-09-13T00:00:10.000Z",
+        }),
+      ],
+      checkRunsComplete: true,
+      legacyStatuses: [
+        {
+          context: "lint",
+          state: "failure",
+          description: null,
+          targetUrl: "https://example.com/status",
+          updatedAt: "2026-09-13T00:00:09.000Z",
+        },
+      ],
+    });
+    fake.controls.setProgressComment(
+      REVIEW_SUMMARY_SENTINEL,
+      reviewCommentBody(headSha, 1, workItemId, { actionPhrase: "CI is pending" }),
+      502,
+    );
+
+    await executeCiProjectionJob(
+      cfg,
+      pool,
+      boss,
+      {
+        kind: "ci_projection",
+        installationId: 9001,
+        owner: OWNER,
+        repo: REPO,
+        headSha,
+      },
+      { createSurface: async () => fake.surface, author: stubCiAuthor([]) },
+    );
+
+    const row = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(factIn(row?.checks, "lint", "check_run")?.conclusion).toBe("success");
+    expect(factIn(row?.checks, "lint", "status")?.status).toBe("failure");
+    expect(row?.rollup).toBe("failing");
+    expect(row?.projectionRepairPending).toBe(false);
   });
 
   it("seeds same-named check-run and legacy-status facts as one failing rollup", async () => {
