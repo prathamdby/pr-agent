@@ -394,6 +394,12 @@ describe("local PR workspace", () => {
         ]).catch(() => "");
         expect(fullPartialCloneFilter).toBe("");
         expect(() => assertWorkspacePath(fullWorkspace.agentCwd, "../escape")).toThrow(/traversal/);
+        expect(assertWorkspacePath(fullWorkspace.agentCwd, "..\\escape")).toBe(
+          join(fullWorkspace.agentCwd, "..\\escape"),
+        );
+        expect(assertWorkspacePath(fullWorkspace.agentCwd, "\\etc\\passwd")).toBe(
+          join(fullWorkspace.agentCwd, "\\etc\\passwd"),
+        );
         expect(fullWorkspace.reader.getCoverage()).toMatchObject({
           mode: "full",
           changeSetTruncated: false,
@@ -749,6 +755,20 @@ describe("local PR workspace", () => {
           path: "space ",
         })) as { content?: string };
         expect(spaceRead.content).toContain("space-trail");
+
+        const verification = buildWorkspaceTools({
+          profile: "verification",
+          reader: workspace.reader,
+        });
+        const verificationRead = (await verification.executors.readWorkspaceFile({
+          path: "back\\slash",
+        })) as { path?: string; content?: string };
+        expect(verificationRead).toMatchObject({ path: "back\\slash" });
+        expect(verificationRead.content).toContain("backslash-needle");
+        const verificationSearch = (await verification.executors.searchWorkspace({
+          query: "backslash-needle",
+        })) as { matches: { path: string }[] };
+        expect(verificationSearch.matches.map((match) => match.path)).toEqual(["back\\slash"]);
       } finally {
         await workspace.cleanup();
       }

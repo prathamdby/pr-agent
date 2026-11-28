@@ -854,5 +854,6 @@ full instead and logs `local_pr_workspace_full_fallback`; telemetry shows
 `workspace_fallback_reason = 'unrepresentable_path'`. A full fetch failure for
 such a pull request does not fall back to sparse: it logs
 `local_pr_workspace_sparse_fallback_refused` and keeps the classified error.
-Workspace paths are byte-exact, so a backslash is part of the filename rather
-than a directory separator.
+Review and verification workspace paths are byte-exact, so a backslash is part
+of the filename rather than a directory separator; triage write paths still
+treat a backslash as a separator.

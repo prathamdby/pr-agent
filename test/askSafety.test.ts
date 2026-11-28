@@ -4,6 +4,7 @@ import {
   classifyAskQuestionIntent,
   createAskPathGate,
   isSensitivePath,
+  pathAllowedForAsk,
 } from "../src/agent/ask/askSafety.ts";
 import { redactOutboundSecrets } from "../src/security/redactOutboundSecrets.ts";
 import { sanitizeAskAnswerText } from "../src/agent/ask/formatAskReply.ts";
@@ -75,6 +76,15 @@ describe("isSensitivePath and path gate", () => {
     const gate = createAskPathGate();
     gate.addPaths([".env"]);
     expect(() => assertPathAllowedForAsk(".env", gate)).not.toThrow();
+  });
+
+  it("keeps a backslash-sensitive PR path distinct from its folded spelling", () => {
+    const gate = createAskPathGate();
+    gate.addPaths(["secrets\\.env"]);
+    expect(pathAllowedForAsk("secrets\\.env", gate)).toBe(true);
+    expect(pathAllowedForAsk("secrets/.env", gate)).toBe(false);
+    expect(() => assertPathAllowedForAsk("secrets/.env", gate)).toThrow(/sensitive path/);
+    expect(pathAllowedForAsk("back\\slash", gate)).toBe(true);
   });
 });
 

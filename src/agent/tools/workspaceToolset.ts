@@ -3,7 +3,6 @@ import { createPathPolicy } from "./pathPolicy.ts";
 import {
   assertContainedWorkspacePath,
   type CheckoutCoverage,
-  type GitGrepWorkspaceResult,
   type PathPolicy,
   type PinnedRepositoryReader,
   type RepositoryReader,
@@ -1055,11 +1054,6 @@ function buildVerificationTools(workspace: PinnedRepositoryReader) {
                 maxOutputBytes: LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
                 paths: allowedPaths,
               });
-      const matches: GitGrepWorkspaceResult["matches"] = result.matches.map((match) => ({
-        path: normalizeRepoRelativePath(match.path),
-        line: match.line,
-        text: match.text,
-      }));
       if (filteredCount > 0) {
         logDebug("verification_search_matches_filtered", {
           filteredCount,
@@ -1067,8 +1061,8 @@ function buildVerificationTools(workspace: PinnedRepositoryReader) {
         });
       }
       return {
-        matches: matches.slice(0, maxResults),
-        truncated: result.truncated || matches.length > maxResults,
+        matches: result.matches.slice(0, maxResults),
+        truncated: result.truncated || result.matches.length > maxResults,
         ...(filteredCount > 0 ? { filtered: true } : {}),
       };
     },
