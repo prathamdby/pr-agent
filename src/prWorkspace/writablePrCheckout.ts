@@ -33,7 +33,7 @@ import {
   normalizeRepoRelativePath,
 } from "../agent/triage/triageWritePolicy.ts";
 import { cleanupStaleLocalPrWorkspaces, stripWorkspaceSymlinks } from "./localPrWorkspace.ts";
-import { assertObjectStoreWithinCap, objectStoreAllocatedBytes } from "./objectStoreBytes.ts";
+import { enforceObjectStoreByteCap } from "./objectStoreBytes.ts";
 import {
   allocateWorkspaceResource,
   WRITABLE_WORKSPACE_ROOT_PREFIX,
@@ -489,15 +489,9 @@ export async function withWritablePrCheckout<T>(
       ],
       LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
     );
-    assertObjectStoreWithinCap(
-      await objectStoreAllocatedBytes(join(dir, ".git", "objects")),
-      maxFetchBytes,
-    );
+    await enforceObjectStoreByteCap(join(dir, ".git", "objects"), maxFetchBytes);
     await git(["checkout", "-f", "FETCH_HEAD"], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
-    assertObjectStoreWithinCap(
-      await objectStoreAllocatedBytes(join(dir, ".git", "objects")),
-      maxFetchBytes,
-    );
+    await enforceObjectStoreByteCap(join(dir, ".git", "objects"), maxFetchBytes);
     const { stdout: fetchedHead } = await git(["rev-parse", "HEAD"]);
     if (fetchedHead.trim().toLowerCase() !== headSha.toLowerCase()) {
       throw new AppError({

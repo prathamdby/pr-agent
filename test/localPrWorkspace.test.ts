@@ -29,6 +29,7 @@ import { retryDispositionFor } from "../src/agentWork/retryPolicy.ts";
 import { annotateExecution, initTraces, startWorkTrace } from "../src/traces/recorder.ts";
 import { workspaceCheckoutProperties } from "../src/prWorkspace/checkoutTelemetry.ts";
 import { runGitProcess } from "../src/prWorkspace/gitProcess.ts";
+import { enforceObjectStoreByteCap } from "../src/prWorkspace/objectStoreBytes.ts";
 import { readBasePolicySnapshot } from "../src/prWorkspace/policySnapshot.ts";
 import { makeTestConfig } from "./helpers/config.ts";
 
@@ -860,7 +861,11 @@ describe("local PR workspace", () => {
           ? args.includes("--stdin")
             ? "prefetch"
             : "fetch"
-          : (args[0] ?? "");
+          : args[0] === "cat-file"
+            ? args.some((arg) => arg.startsWith("--batch-check"))
+              ? "cat-file-check"
+              : "cat-file-batch"
+            : (args[0] ?? "");
         return script(command, args, io);
       };
     };
@@ -912,6 +917,31 @@ describe("local PR workspace", () => {
           if (command === "fetch") return { stdout: "" };
           if (command === "ls-tree") return { stdout: tree };
           if (command === "prefetch") throw capError();
+          throw new Error(command);
+        }),
+      }),
+    ).rejects.toMatchObject({ code: "pr_workspace.fetch_too_large" });
+    await expect(
+      readBasePolicySnapshot({
+        baseSha,
+        timeoutMs: 1_000,
+        git: git((command) => {
+          if (command === "fetch" || command === "prefetch") return { stdout: "" };
+          if (command === "ls-tree") return { stdout: tree };
+          if (command === "cat-file-check") throw capError();
+          throw new Error(command);
+        }),
+      }),
+    ).rejects.toMatchObject({ code: "pr_workspace.fetch_too_large" });
+    await expect(
+      readBasePolicySnapshot({
+        baseSha,
+        timeoutMs: 1_000,
+        git: git((command) => {
+          if (command === "fetch" || command === "prefetch") return { stdout: "" };
+          if (command === "ls-tree") return { stdout: tree };
+          if (command === "cat-file-check") return { stdout: `${blobSha} blob 3\n` };
+          if (command === "cat-file-batch") throw capError();
           throw new Error(command);
         }),
       }),
@@ -1951,6 +1981,22 @@ describe("workspace git process ownership", () => {
         objectStoreMonitorErrorCode: "EACCES",
       });
       expect(error.context.objectStoreBytes).toBeUndefined();
+    } finally {
+      await chmod(objectsDir, 0o700).catch(() => undefined);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("wraps post-hoc object-store measurement failures in workspace Git errors", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-posthoc-measure-error-"));
+    const objectsDir = join(root, "objects");
+    try {
+      await mkdir(objectsDir);
+      await chmod(objectsDir, 0);
+      await expect(enforceObjectStoreByteCap(objectsDir, 1)).rejects.toMatchObject({
+        code: "pr_workspace.git_failed",
+        context: { objectStoreMonitorErrorCode: "EACCES", maxFetchBytes: 1 },
+      });
     } finally {
       await chmod(objectsDir, 0o700).catch(() => undefined);
       await rm(root, { recursive: true, force: true });

@@ -42,7 +42,7 @@ import {
   type WorkspaceFallbackReason,
   type WorkspaceFetchAttempt,
 } from "./checkoutTelemetry.ts";
-import { assertObjectStoreWithinCap, objectStoreAllocatedBytes } from "./objectStoreBytes.ts";
+import { enforceObjectStoreByteCap } from "./objectStoreBytes.ts";
 import {
   allocateWorkspaceResource,
   READONLY_WORKSPACE_ROOT_PREFIX,
@@ -221,13 +221,6 @@ export function selectLocalPrWorkspaceCheckoutMode(repositorySizeKb?: number) {
     repositorySizeKb != null && repositorySizeKb > LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB
       ? "sparse"
       : "full",
-  );
-}
-
-async function enforceMaxFetchBytes(privateGitDir: string, maxFetchBytes: number) {
-  assertObjectStoreWithinCap(
-    await objectStoreAllocatedBytes(join(privateGitDir, "objects")),
-    maxFetchBytes,
   );
 }
 
@@ -445,7 +438,7 @@ async function finishLocalPrWorkspace(
         );
       }
       await git(["checkout", "-f", PR_HEAD_REF], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
-      await enforceMaxFetchBytes(privateGitDir, maxFetchBytes);
+      await enforceObjectStoreByteCap(join(privateGitDir, "objects"), maxFetchBytes);
     } catch (error) {
       replaceSuccessfulFetchAttempt(recorder, mode, error);
       throw error;
@@ -494,7 +487,7 @@ async function finishLocalPrWorkspace(
     git,
     timeoutMs: fetchTimeoutMs,
   });
-  await enforceMaxFetchBytes(privateGitDir, maxFetchBytes);
+  await enforceObjectStoreByteCap(join(privateGitDir, "objects"), maxFetchBytes);
 
   await credentials.cleanup();
   checkoutPaths = await prepareCheckedOutTree(agentCwd);

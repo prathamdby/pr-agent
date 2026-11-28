@@ -68,3 +68,26 @@ export function assertObjectStoreWithinCap(objectStoreBytes: number, maxFetchByt
     context: { objectStoreBytes, maxFetchBytes },
   });
 }
+
+function systemErrorCode(error: unknown) {
+  if (typeof error === "object" && error !== null && "code" in error) {
+    const code = error.code;
+    if (typeof code === "string") return ((pinnedReturn: string) => pinnedReturn)(code);
+  }
+  return ((pinnedReturn: string) => pinnedReturn)("UNKNOWN");
+}
+
+export async function enforceObjectStoreByteCap(objectsDir: string, maxFetchBytes: number) {
+  const objectStoreBytes = await objectStoreAllocatedBytes(objectsDir).catch((error: unknown) => {
+    throw new AppError({
+      domain: "pr_workspace",
+      kind: "git_failed",
+      message: "PR fetch object store measurement failed",
+      context: {
+        objectStoreMonitorErrorCode: systemErrorCode(error),
+        maxFetchBytes,
+      },
+    });
+  });
+  assertObjectStoreWithinCap(objectStoreBytes, maxFetchBytes);
+}

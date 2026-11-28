@@ -49,6 +49,7 @@ import {
 import { spillTextToSessionFile } from "../src/agent/tools/readWorkspaceTextFile.ts";
 import { replayPreviewHunks } from "../src/agent/triage/previewApproval.ts";
 import { cleanupStaleLocalPrWorkspaces } from "../src/prWorkspace/localPrWorkspace.ts";
+import { createWritableRepositoryReader } from "../src/prWorkspace/repositoryReader.ts";
 
 const execFile = promisify(execFileCb);
 async function git(cwd: string, args: readonly string[]) {
@@ -221,6 +222,34 @@ describe("writable PR checkout", () => {
           expect(stat(rootDir)).rejects.toMatchObject({ code: "ENOENT" }),
         ),
       );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects writable grep and untracked diffs when the object-store ceiling is crossed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "writable-reader-cap-"));
+    try {
+      await git(root, ["init"]);
+      await git(root, ["config", "user.email", "test@example.com"]);
+      await git(root, ["config", "user.name", "Test"]);
+      await writeFile(join(root, "tracked.txt"), "tracked\n");
+      await git(root, ["add", "tracked.txt"]);
+      await git(root, ["commit", "-m", "base"]);
+      await writeFile(join(root, "untracked.txt"), "untracked\n");
+      const reader = createWritableRepositoryReader(root, {
+        objectsDir: join(root, ".git", "objects"),
+        maxBytes: 1,
+      });
+
+      await expect(reader.grepLiteral({ query: "absent", maxResults: 1 })).rejects.toMatchObject({
+        code: "pr_workspace.fetch_too_large",
+        context: expect.objectContaining({ operation: "grep", maxFetchBytes: 1 }),
+      });
+      await expect(reader.getDiffForPath("untracked.txt")).rejects.toMatchObject({
+        code: "pr_workspace.fetch_too_large",
+        context: expect.objectContaining({ operation: "diff", maxFetchBytes: 1 }),
+      });
     } finally {
       await rm(root, { recursive: true, force: true });
     }

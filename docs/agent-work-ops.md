@@ -844,5 +844,5 @@ also fails, `context.fallback` on the error holds the first attempt. In PostHog,
 fallback runs; `fallback_git_timeout_source` says which deadline fired. A cap
 fallback has `workspace_fallback_reason = 'fetch_too_large'`; the byte monitor
 counts regular and temporary files under `.git/objects`, including lazy blob
-backfill during checkout, and the final `git count-objects` check remains a
+backfill during checkout, and a final allocated-bytes measurement remains as a
 post-hoc backstop.
