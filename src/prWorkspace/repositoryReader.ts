@@ -304,7 +304,6 @@ const WORKSPACE_GIT_OPERATIONS = [
   "checkout",
   "commit",
   "config",
-  "count-objects",
   "diff",
   "fetch",
   "grep",
@@ -971,6 +970,8 @@ async function untrackedFileDiff(
   const usable =
     !result.timedOut &&
     !result.outputLimited &&
+    !result.byteLimitExceeded &&
+    result.objectStoreMonitorErrorCode == null &&
     result.spawnErrorCode == null &&
     result.cleanup !== "failed" &&
     (result.exitCode === 0 || result.exitCode === 1);

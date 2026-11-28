@@ -42,7 +42,7 @@ import {
   type WorkspaceFallbackReason,
   type WorkspaceFetchAttempt,
 } from "./checkoutTelemetry.ts";
-import { assertObjectStoreWithinCap } from "./objectStoreBytes.ts";
+import { assertObjectStoreWithinCap, objectStoreAllocatedBytes } from "./objectStoreBytes.ts";
 import {
   allocateWorkspaceResource,
   READONLY_WORKSPACE_ROOT_PREFIX,
@@ -50,7 +50,6 @@ import {
   assertGitSha,
   assertGitRepoPart,
   ensureWorkspaceFreeSpaceAfterSweep,
-  gitCountObjectsStoreBytes,
   statIfPresent,
   type WorkspaceResource,
 } from "./workspaceResource.ts";
@@ -225,14 +224,11 @@ export function selectLocalPrWorkspaceCheckoutMode(repositorySizeKb?: number) {
   );
 }
 
-async function enforceMaxFetchBytes(
-  git: (args: readonly string[], timeoutMs?: number) => Promise<{ stdout: string }>,
-  maxFetchBytes: number,
-  timeoutMs: number,
-) {
-  const { stdout: countObjectsOut } = await git(["count-objects", "-v"], timeoutMs);
-  const objectStoreBytes = gitCountObjectsStoreBytes(countObjectsOut);
-  assertObjectStoreWithinCap(objectStoreBytes, maxFetchBytes);
+async function enforceMaxFetchBytes(privateGitDir: string, maxFetchBytes: number) {
+  assertObjectStoreWithinCap(
+    await objectStoreAllocatedBytes(join(privateGitDir, "objects")),
+    maxFetchBytes,
+  );
 }
 
 async function prepareCheckedOutTree(dir: string, prefix = "") {
@@ -449,7 +445,7 @@ async function finishLocalPrWorkspace(
         );
       }
       await git(["checkout", "-f", PR_HEAD_REF], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
-      await enforceMaxFetchBytes(git, maxFetchBytes, LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
+      await enforceMaxFetchBytes(privateGitDir, maxFetchBytes);
     } catch (error) {
       replaceSuccessfulFetchAttempt(recorder, mode, error);
       throw error;
@@ -498,7 +494,7 @@ async function finishLocalPrWorkspace(
     git,
     timeoutMs: fetchTimeoutMs,
   });
-  await enforceMaxFetchBytes(git, maxFetchBytes, LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
+  await enforceMaxFetchBytes(privateGitDir, maxFetchBytes);
 
   await credentials.cleanup();
   checkoutPaths = await prepareCheckedOutTree(agentCwd);

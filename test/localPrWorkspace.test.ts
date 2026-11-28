@@ -65,6 +65,7 @@ import {
 import {
   assertWorkspacePath,
   buildCheckoutCoverage,
+  gitGrepWorkspace,
   runWorkspaceGit,
 } from "../src/prWorkspace/repositoryReader.ts";
 import * as symbolIndexModule from "../src/prWorkspace/symbolIndex.ts";
@@ -579,6 +580,11 @@ describe("local PR workspace", () => {
       }
 
       expect(error.code).toBe("pr_workspace.fetch_too_large");
+      expect(error.context).toMatchObject({
+        operation: "checkout",
+        signal: "SIGTERM",
+        killed: true,
+      });
       expect(watcher.highWater()).toBeGreaterThan(0);
       expect(watcher.highWater()).toBeLessThan(8 * 1024 * 1024);
       expect(watcher.highWater()).toBeLessThan(payloadBytes / 2);
@@ -586,7 +592,13 @@ describe("local PR workspace", () => {
         mode: "sparse",
         fallbackReason: null,
         fetchAttempts: [
-          { checkoutMode: "sparse", outcome: "failed", errorCode: "pr_workspace.fetch_too_large" },
+          {
+            checkoutMode: "sparse",
+            outcome: "failed",
+            errorCode: "pr_workspace.fetch_too_large",
+            signal: "SIGTERM",
+            killed: true,
+          },
         ],
       });
       fetchProof.sparseBackfillByteCap = {
@@ -1883,6 +1895,35 @@ describe("workspace git process ownership", () => {
         maxFetchBytes: 1,
       });
       expect(Number(error.context.objectStoreBytes)).toBeGreaterThan(1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("applies the object-store ceiling to pinned grep execution", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-pinned-grep-cap-"));
+    try {
+      await git(root, ["init"]);
+      await writeFile(join(root, "new.txt"), "pinned grep\n");
+      await git(root, ["add", "new.txt"]);
+      const error = appErrorOf(
+        await rejectionOf(
+          gitGrepWorkspace(
+            { privateGitDir: join(root, ".git"), agentCwd: root },
+            {
+              query: "pinned",
+              maxResults: 10,
+              timeoutMs: 1_000,
+              objectStoreByteLimit: {
+                objectsDir: join(root, ".git", "objects"),
+                maxBytes: 1,
+              },
+            },
+          ),
+        ),
+      );
+      expect(error.code).toBe("pr_workspace.fetch_too_large");
+      expect(error.context).toMatchObject({ operation: "grep", maxFetchBytes: 1 });
     } finally {
       await rm(root, { recursive: true, force: true });
     }

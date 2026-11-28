@@ -33,14 +33,13 @@ import {
   normalizeRepoRelativePath,
 } from "../agent/triage/triageWritePolicy.ts";
 import { cleanupStaleLocalPrWorkspaces, stripWorkspaceSymlinks } from "./localPrWorkspace.ts";
-import { assertObjectStoreWithinCap } from "./objectStoreBytes.ts";
+import { assertObjectStoreWithinCap, objectStoreAllocatedBytes } from "./objectStoreBytes.ts";
 import {
   allocateWorkspaceResource,
   WRITABLE_WORKSPACE_ROOT_PREFIX,
   assertGitSha,
   assertGitRepoPart,
   ensureWorkspaceFreeSpaceAfterSweep,
-  gitCountObjectsStoreBytes,
 } from "./workspaceResource.ts";
 
 export type CommitArgs = {
@@ -490,17 +489,15 @@ export async function withWritablePrCheckout<T>(
       ],
       LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
     );
-    const { stdout: objectStats } = await git(
-      ["count-objects", "-v"],
-      LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
+    assertObjectStoreWithinCap(
+      await objectStoreAllocatedBytes(join(dir, ".git", "objects")),
+      maxFetchBytes,
     );
-    assertObjectStoreWithinCap(gitCountObjectsStoreBytes(objectStats), maxFetchBytes);
     await git(["checkout", "-f", "FETCH_HEAD"], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
-    const { stdout: checkedOutObjectStats } = await git(
-      ["count-objects", "-v"],
-      LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
+    assertObjectStoreWithinCap(
+      await objectStoreAllocatedBytes(join(dir, ".git", "objects")),
+      maxFetchBytes,
     );
-    assertObjectStoreWithinCap(gitCountObjectsStoreBytes(checkedOutObjectStats), maxFetchBytes);
     const { stdout: fetchedHead } = await git(["rev-parse", "HEAD"]);
     if (fetchedHead.trim().toLowerCase() !== headSha.toLowerCase()) {
       throw new AppError({
