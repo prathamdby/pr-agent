@@ -8,6 +8,7 @@ import {
 } from "../ask/askSafety.ts";
 import { isTriageControlPath, normalizeRepoRelativePath } from "../triage/triageWritePolicy.ts";
 import { AppError } from "../../errors/appError.ts";
+import { normalizeEvidencePath } from "../../review/findings/evidenceLedger.ts";
 import {
   assertContainedWorkspacePath,
   assertWorkspacePath,
@@ -21,7 +22,7 @@ export function createPathPolicy(
     | { readonly kind: "verification" | "triage" },
 ) {
   const normalize = (path: string) =>
-    profile.kind === "investigation" ? path.replace(/\\/g, "/") : normalizeRepoRelativePath(path);
+    profile.kind === "triage" ? normalizeRepoRelativePath(path) : normalizeEvidencePath(path);
   const allows = (path: string) => {
     if (profile.kind === "investigation") return pathAllowedForAsk(path, profile.gate);
     const normalized = normalize(path);
@@ -59,14 +60,13 @@ async function isAllowedTriageSearchPath(root: string, realRoot: string, path: s
     return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
 
   try {
-    const fullPath = assertWorkspacePath(root, normalized);
+    const fullPath = assertWorkspacePath(root, path);
     const realCandidate = await realpath(fullPath);
     if (realCandidate !== realRoot && !realCandidate.startsWith(realRoot + sep)) {
       return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
     }
-    const resolvedPath = normalizeRepoRelativePath(relative(realRoot, realCandidate));
     return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(
-      !isTriageControlPath(resolvedPath),
+      !isTriageControlPath(relative(realRoot, realCandidate)),
     );
   } catch {
     return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);

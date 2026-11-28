@@ -109,16 +109,15 @@ function classifyPinnedPrDiff(input: {
   readonly patchOmittedByCapPaths: ReadonlySet<string>;
   readonly truncated: boolean;
 }) {
-  const normalized = input.path.replace(/\\/g, "/");
-  if (input.changedFileByPath.has(normalized)) {
-    if (input.patchOmittedByCapPaths.has(normalized)) {
+  if (input.changedFileByPath.has(input.path)) {
+    if (input.patchOmittedByCapPaths.has(input.path)) {
       return ((pinnedReturn: WorkspacePathDiff) => pinnedReturn)({
         availability: "unavailable",
         reason: "patch_byte_cap",
         diff: PATCH_BYTE_CAP_DIFF,
       });
     }
-    const patch = input.patchByPath.get(normalized);
+    const patch = input.patchByPath.get(input.path);
     if (patch == null) {
       return ((pinnedReturn: WorkspacePathDiff) => pinnedReturn)({
         availability: "unavailable",
@@ -147,7 +146,7 @@ function classifyPinnedPrDiff(input: {
     });
   }
   const renamed = input.changedFiles.find(
-    (file) => file.status === "renamed" && file.oldPath === normalized,
+    (file) => file.status === "renamed" && file.oldPath === input.path,
   );
   if (renamed) {
     return ((pinnedReturn: WorkspacePathDiff) => pinnedReturn)({
@@ -216,8 +215,7 @@ type GitGrepWorkspaceMatch = {
 };
 
 export function assertWorkspacePath(root: string, requestedPath: string) {
-  const normalized = requestedPath.replace(/\\/g, "/");
-  if (normalized.startsWith("/") || normalized.split("/").includes("..")) {
+  if (requestedPath.startsWith("/") || requestedPath.split("/").includes("..")) {
     throw new AppError({
       domain: "pr_workspace",
       kind: "path_traversal",
@@ -225,7 +223,7 @@ export function assertWorkspacePath(root: string, requestedPath: string) {
       context: { path: requestedPath },
     });
   }
-  const resolved = resolve(root, normalized);
+  const resolved = resolve(root, requestedPath);
   if (!resolved.startsWith(root + sep) && resolved !== root) {
     throw new AppError({
       domain: "pr_workspace",
@@ -801,7 +799,7 @@ export function createPinnedRepositoryReader(params: {
   const blameCache = new Map<string, Promise<string>>();
 
   function isPathInCheckout(path: string) {
-    return ((pinnedReturn: boolean) => pinnedReturn)(checkoutPaths.has(path.replace(/\\/g, "/")));
+    return ((pinnedReturn: boolean) => pinnedReturn)(checkoutPaths.has(path));
   }
 
   function getCoverage() {
@@ -832,28 +830,27 @@ export function createPinnedRepositoryReader(params: {
   }
 
   async function getBlameForPath(path: string) {
-    const normalized = path.replace(/\\/g, "/");
-    const changed = changedFileByPath.get(normalized);
+    const changed = changedFileByPath.get(path);
     if (changed?.status === "deleted") {
       return ((pinnedReturn: string | Promise<string>) => pinnedReturn)("");
     }
-    if (!isPathInCheckout(normalized)) {
+    if (!isPathInCheckout(path)) {
       return ((pinnedReturn: string | Promise<string>) => pinnedReturn)("");
     }
-    const cached = blameCache.get(normalized);
+    const cached = blameCache.get(path);
     if (cached !== undefined)
       return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(cached);
     const pending = (async () => {
-      const { stdout } = await git(["blame", "--line-porcelain", headSha, "--", normalized]);
+      const { stdout } = await git(["blame", "--line-porcelain", headSha, "--", path]);
       return stdout.length > LOCAL_WORKSPACE_MAX_DIFF_BYTES
         ? `${stdout.slice(0, LOCAL_WORKSPACE_MAX_DIFF_BYTES)}\n...[blame truncated]`
         : stdout;
     })();
-    blameCache.set(normalized, pending);
+    blameCache.set(path, pending);
     try {
       return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(await pending);
     } catch (error) {
-      if (blameCache.get(normalized) === pending) blameCache.delete(normalized);
+      if (blameCache.get(path) === pending) blameCache.delete(path);
       throw error;
     }
   }
@@ -924,7 +921,7 @@ export type RepositoryReader = {
 };
 
 export async function readRepositorySource(root: string, path: string, maxFileBytes: number) {
-  const safePath = assertWorkspacePath(root, path.replace(/\\/g, "/"));
+  const safePath = assertWorkspacePath(root, path);
   const info = await stat(safePath).catch(() => null);
   if (!info?.isFile() || info.size > maxFileBytes)
     return ((pinnedReturn: (string | null) | Promise<string | null>) => pinnedReturn)(null);
@@ -1000,7 +997,7 @@ export function createWritableRepositoryReader(
       ),
     getDiffForPath: async (path) => {
       const full = await assertContainedWorkspacePath(root, path);
-      const rel = relative(root, full).replace(/\\/g, "/");
+      const rel = relative(root, full);
       const { stdout } = await runWorkspaceGit(
         ["diff", "HEAD", "--", rel],
         workspaceGitOptions(root, objectStoreByteLimit),

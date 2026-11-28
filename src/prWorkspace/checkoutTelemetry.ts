@@ -6,13 +6,17 @@ import type {
   WorkspaceGitTimeoutSource,
 } from "./repositoryReader.ts";
 
-export type WorkspaceCheckoutMode = LocalPrWorkspaceCheckoutMode | "sparse_fallback";
+export type WorkspaceCheckoutMode =
+  | LocalPrWorkspaceCheckoutMode
+  | "sparse_fallback"
+  | "full_fallback";
 
 export type WorkspaceFallbackReason =
   | "fetch_timeout"
   | "fetch_too_large"
   | "git_failed"
-  | "git_low_speed";
+  | "git_low_speed"
+  | "unrepresentable_path";
 
 export type WorkspaceFetchAttempt = {
   readonly checkoutMode: LocalPrWorkspaceCheckoutMode;

@@ -42,7 +42,7 @@ export type EvidenceRead = {
 export const OPENED_PATH_MAX_CHARS = 4096;
 
 export function normalizeEvidencePath(path: string) {
-  return ((pinnedReturn: string) => pinnedReturn)(path.replace(/\\/g, "/").replace(/^\.\//, ""));
+  return ((pinnedReturn: string) => pinnedReturn)(path.replace(/^\.\//, ""));
 }
 
 export function persistedOpenedPath(path: string) {
