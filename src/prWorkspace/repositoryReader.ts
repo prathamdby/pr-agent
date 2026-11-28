@@ -707,6 +707,8 @@ async function gitGrepWorkspaceChunk(
   if (
     result.outputLimited &&
     !result.timedOut &&
+    !result.byteLimitExceeded &&
+    result.objectStoreMonitorErrorCode == null &&
     result.cleanup !== "failed" &&
     !result.stderrLimited
   ) {
