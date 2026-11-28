@@ -4,6 +4,7 @@ import * as v from "valibot";
 import { isRecord } from "../util/typeGuards.ts";
 import {
   applyCiCheckFact,
+  canonicalizeCiCheckFacts,
   ciCheckFactSchema,
   classifySnapshot,
   isCheckFactPending,
@@ -128,7 +129,9 @@ const checkMapSchema = v.record(v.string(), ciCheckFactSchema);
 function asCheckMap(value: unknown) {
   if (!isRecord(value)) return ((pinnedReturn: Record<string, CiCheckFact>) => pinnedReturn)({});
   v.assert(checkMapSchema, value);
-  return ((pinnedReturn: Record<string, CiCheckFact>) => pinnedReturn)(value);
+  return ((pinnedReturn: Record<string, CiCheckFact>) => pinnedReturn)(
+    canonicalizeCiCheckFacts(value),
+  );
 }
 
 export async function applyPrHeadCiFact(client: PoolClient, input: ApplyPrHeadCiFactInput) {

@@ -15,6 +15,7 @@ export type AskCiState = {
   readonly version: number;
   readonly checks: readonly {
     readonly name: string;
+    readonly source: "check_run" | "status";
     readonly status: string;
     readonly conclusion: string | null;
   }[];

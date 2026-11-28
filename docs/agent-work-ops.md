@@ -494,6 +494,8 @@ Audit-write failure rolls back intake and returns `503`, rather than acknowledgi
 
 Install additive migration `033_webhook_delivery_duplicates.sql` before upgraded web intake or worker retention runs. The normal startup migration runner does this. Upgrade all web instances to establish complete coverage; there is no historical backfill. A code-only rollback leaves the table intact but stops new evidence and its cleanup until upgraded code returns. Do not drop retained evidence as an automatic rollback.
 
+Migration `045_source_qualified_ci_facts.sql` rewrites `pr_head_ci_state.checks` keys to source-qualified identities and installs a database trigger that rejects non-canonical fact-map mutations. Deploy upgraded web and worker instances together: during a mixed-version window, pre-fix writers fail CI fact writes rather than silently collapsing same-named check runs and legacy statuses. Prefer a forward fix over rollback. A rollback to pre-fix code cannot represent both namespaces; keeping the trigger makes those writers fail closed, while removing it or downgrading keys reopens the collision defect and is lossy for rows that contain both namespaces.
+
 ## CI projection delivery attribution
 
 Accepted CI projection intake retains `{webhookEventId, delivery}` pairs in the
@@ -501,7 +503,7 @@ job's `data.correlations` array. A single delivery appears once. On debounce
 absorption, intake atomically appends the incoming pair to the exact next-slot
 job in the same transaction as the event and any CI facts. The job's original
 top-level pair stays unchanged, and worker logs still use that primary identity.
-The projector reads `pr_head_ci_state`, not the correlation list, for CI output.
+The projector reads `pr_head_ci_state`, not the correlation list, for CI output. Fact keys are source-qualified; never infer identity from the display-name part alone when diagnosing a row.
 
 Bind `agent-work-ci-projection`, owner, repository, head SHA, and delivery ID to
 `$1` through `$5`. Never interpolate webhook headers into SQL.

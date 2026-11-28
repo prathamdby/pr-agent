@@ -44,6 +44,7 @@ async function loadAskCiState(
     version: row.version,
     checks: Object.values(row.checks).map((fact) => ({
       name: fact.name,
+      source: fact.source,
       status: fact.status,
       conclusion: fact.conclusion,
     })),

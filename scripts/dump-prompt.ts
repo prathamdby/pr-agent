@@ -585,8 +585,8 @@ function dumpUsers() {
           rollup: "failing",
           version: 2,
           checks: [
-            { name: "build", status: "completed", conclusion: "failure" },
-            { name: "lint", status: "in_progress", conclusion: null },
+            { name: "build", source: "check_run", status: "completed", conclusion: "failure" },
+            { name: "lint", source: "check_run", status: "in_progress", conclusion: null },
           ],
         },
       }),

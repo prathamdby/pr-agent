@@ -62,6 +62,7 @@ const EXPECTED_MIGRATIONS = [
   "042_pr_review_approvals_workflow_start_admits.sql",
   "043_index_usage.sql",
   "044_agent_feedback.sql",
+  "045_source_qualified_ci_facts.sql",
 ].toSorted();
 
 function migrationFilesOnDisk() {
@@ -396,6 +397,27 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
     );
     expect(repairCol.rows).toHaveLength(1);
     expect(repairCol.rows[0]?.column_default).toContain("false");
+  });
+
+  it("rejects head CI fact maps whose keys are not source-qualified", async () => {
+    const fact = {
+      name: "lint",
+      source: "check_run",
+      status: "completed",
+      conclusion: "success",
+      url: null,
+      external_id: null,
+      app_id: null,
+      check_run_id: 1,
+      observed_at: "2026-01-01T00:00:00.000Z",
+    };
+    await expect(
+      pool.query(
+        `INSERT INTO pr_head_ci_state (owner, repo, head_sha, checks, rollup, version)
+         VALUES ('migration-shape-it', 'app', 'head', $1::jsonb, 'passing', 1)`,
+        [JSON.stringify({ lint: fact })],
+      ),
+    ).rejects.toThrow(/source-qualified/);
   });
 
   it("is idempotent under concurrent runs (advisory lock)", async () => {

@@ -7,7 +7,7 @@ export const ciGateRowContract = [
   "## CI gate row contract",
   "You are given a <ci_context> block with server-fetched check status and condensed logs.",
   "The row tells the author, or a coding agent acting for them, why CI is red and what to do next.",
-  "- Check conclusions and job names come from the block; status and names are the server's facts.",
+  "- Check conclusions and job names come from the block; status and names are the server's facts. A parenthesized check-run or commit-status qualifier is part of the exact fact name.",
   "- Failing: a concise reason and fixHint per failing check (what broke, where, what to run or fix), one or two sentences each. The real failure (test/lint/type/build) matters more than runner deprecation warnings.",
   "- Passing: one short confirmation and empty failures.",
   "- Pending or none: say which, since there is nothing yet to diagnose.",

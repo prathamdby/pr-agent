@@ -76,7 +76,7 @@ recover before admission. `reviewVerdict(...).close` selects immutable check/sta
 output with independent applicability and repair. See
 [review reliability](operations.md#review-reliability-rollout).
 
-`check_run` and `status` facts commit with intake. PR-open/head-change and completed
+`check_run` and `status` facts commit with intake under `(source, name)` identity, so same display names in the two GitHub namespaces remain separate facts. PR-open/head-change and completed
 workflow events request `ci-projection`; ack, ticks, and publish request it after
 comment writes when a seed or newer revision is needed. `requestHeadCiProjection`
 owns enqueue. Projection joins shared facts with installation-scoped source access;

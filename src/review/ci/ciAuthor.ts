@@ -19,6 +19,7 @@ import { logDebug, logWarn } from "../../evlog.ts";
 import type { PrSurface } from "../../github/prSurface.ts";
 import { redactReviewText } from "../findings/reviewPublicOutput.ts";
 import {
+  ciCheckFactDisplayName,
   isCheckFactFailing,
   type CiCheckFact,
   type CiFailureDetail,
@@ -420,9 +421,11 @@ export function ciAuthorInputFromFacts(
   const failing = facts.filter(isCheckFactFailing);
   return ((pinnedReturn: CiAuthorInput) => pinnedReturn)({
     status: "failing",
-    checkNames: facts.map((fact) => fact.name),
-    failingNames: failing.map((fact) => fact.name),
-    failingUrls: new Map(failing.map((fact) => [fact.name, fact.url ?? undefined])),
+    checkNames: facts.map((fact) => ciCheckFactDisplayName(fact, facts)),
+    failingNames: failing.map((fact) => ciCheckFactDisplayName(fact, facts)),
+    failingUrls: new Map(
+      failing.map((fact) => [ciCheckFactDisplayName(fact, facts), fact.url ?? undefined]),
+    ),
     condensedLogs,
   });
 }

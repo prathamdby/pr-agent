@@ -52,6 +52,7 @@ import type {
 } from "../../src/agentWork/types.ts";
 import type { CiSummaryAuthor } from "../../src/review/ci/ciAuthor.ts";
 import {
+  canonicalizeCiCheckFacts,
   hashCiFacts,
   parseCiAuthoredCache,
   observedAtFromGithub,
@@ -167,9 +168,10 @@ function ciStateFact(overrides: Partial<CiCheckFact> = {}) {
 function stubCiAuthor(calls: unknown[]) {
   return ((pinnedReturn: CiSummaryAuthor) => pinnedReturn)(async (input) => {
     calls.push(input);
+    const name = input.failingNames[0] ?? "lint";
     return {
-      headline: "❌ authored lint",
-      failures: [{ name: "lint", reason: "oxfmt failed", fixHint: "run oxfmt" }],
+      headline: `❌ authored ${name}`,
+      failures: [{ name, reason: "oxfmt failed", fixHint: "run oxfmt" }],
     };
   });
 }
@@ -335,7 +337,11 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
         OWNER,
         REPO,
         headSha,
-        JSON.stringify({ lint: ciStateFact({ status: "in_progress", conclusion: null }) }),
+        JSON.stringify(
+          canonicalizeCiCheckFacts({
+            lint: ciStateFact({ status: "in_progress", conclusion: null }),
+          }),
+        ),
       ],
     );
     const scope = { installationId: 9001, owner: OWNER, repo: REPO };
@@ -656,6 +662,16 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     expect((await loadGithubCiSourceAvailability(pool, scope)).generation).toBe(2);
   });
 
+  function factIn(
+    checks: Readonly<Record<string, CiCheckFact>> | undefined,
+    name: string,
+    source?: CiCheckFact["source"],
+  ) {
+    return Object.values(checks ?? {}).find(
+      (fact) => fact.name === name && (source == null || fact.source === source),
+    );
+  }
+
   async function insertSeededHead(
     headSha: string,
     checks: Record<string, CiCheckFact>,
@@ -665,7 +681,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     await pool.query(
       `INSERT INTO pr_head_ci_state (owner, repo, head_sha, checks, rollup, version, seeded_at)
        VALUES ($1, $2, $3, $4::jsonb, $5, $6, now())`,
-      [OWNER, REPO, headSha, JSON.stringify(checks), rollup, version],
+      [OWNER, REPO, headSha, JSON.stringify(canonicalizeCiCheckFacts(checks)), rollup, version],
     );
   }
 
@@ -1058,7 +1074,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     expect(row).not.toBeNull();
     expect(row?.version).toBe(1);
     expect(row?.rollup).toBe("failing");
-    expect(row?.checks.lint?.conclusion).toBe("failure");
+    expect(factIn(row?.checks, "lint")?.conclusion).toBe("failure");
 
     const { rows: events } = await pool.query<{ id: string; processing_decision: string }>(
       "SELECT id, processing_decision FROM webhook_events WHERE delivery_id = $1",
@@ -1077,6 +1093,53 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       delivery,
       correlations: [{ webhookEventId: events[0].id, delivery }],
     });
+  });
+
+  it.each([
+    ["check_run", "status"],
+    ["status", "check_run"],
+  ] as const)("retains same-named facts when %s arrives before %s", async (first, second) => {
+    const headSha = randomUUID().replaceAll("-", "");
+    const facts = {
+      check_run: ciStateFact({
+        name: "lint",
+        conclusion: "success",
+        observed_at: "2026-09-13T00:00:02.000Z",
+      }),
+      status: ciStateFact({
+        name: "lint",
+        source: "status",
+        status: "failure",
+        conclusion: null,
+        url: null,
+        external_id: null,
+        app_id: null,
+        check_run_id: null,
+        observed_at: "2026-09-13T00:00:01.000Z",
+      }),
+    };
+    for (const source of [first, second]) {
+      await applyCiStateIntake(
+        boss,
+        pool,
+        headers(source, `ci-collision-${source}-${randomUUID().slice(0, 8)}`),
+        {
+          installationId: 9001,
+          owner: OWNER,
+          repo: REPO,
+          headSha,
+          fact: facts[source],
+        },
+        intakeLog(),
+      );
+    }
+
+    const row = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    const lintFacts = Object.values(row?.checks ?? {}).filter((fact) => fact.name === "lint");
+    expect(lintFacts).toHaveLength(2);
+    expect(factIn(row?.checks, "lint", "check_run")?.conclusion).toBe("success");
+    expect(factIn(row?.checks, "lint", "status")?.status).toBe("failure");
+    expect(row?.rollup).toBe("failing");
   });
 
   it("retains both coalesced fact deliveries and renders the actual absorbing job", async () => {
@@ -1177,8 +1240,8 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       expect(jobs.find((job) => job.id === setupJob.id)?.data).toEqual(setupJob.data);
       const row = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
       expect(row?.version).toBe(2);
-      expect(row?.checks.lint?.conclusion).toBe("failure");
-      expect(row?.checks.test?.conclusion).toBe("success");
+      expect(factIn(row?.checks, "lint")?.conclusion).toBe("failure");
+      expect(factIn(row?.checks, "test")?.conclusion).toBe("success");
       const events = await pool.query<{ id: string; delivery_id: string }>(
         "SELECT id, delivery_id FROM webhook_events WHERE delivery_id = ANY($1::text[])",
         [deliveries],
@@ -1207,8 +1270,8 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       });
       const projected = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
       expect(projected?.version).toBe(3);
-      expect(projected?.checks.lint?.conclusion).toBe("failure");
-      expect(projected?.checks.test?.conclusion).toBe("success");
+      expect(factIn(projected?.checks, "lint")?.conclusion).toBe("failure");
+      expect(factIn(projected?.checks, "test")?.conclusion).toBe("success");
       expect(authored).toHaveLength(1);
       const body = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)?.body ?? "";
       expect(parseCiSummaryMarkerVersion(body)).toBe(3);
@@ -1795,7 +1858,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
 
     const row = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
     expect(row?.version).toBe(1);
-    expect(row?.checks.lint?.conclusion).toBe("failure");
+    expect(factIn(row?.checks, "lint")?.conclusion).toBe("failure");
     await expect(boss.findJobs(CI_PROJECTION_QUEUE, {})).resolves.toHaveLength(1);
   });
 
@@ -2696,6 +2759,56 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     expect(afterRepeat?.version).toBe(again?.version);
   });
 
+  it("seeds same-named check-run and legacy-status facts as one failing rollup", async () => {
+    const headSha = "bc".repeat(20);
+    await insertReviewWorkItem(headSha);
+    const fake = createFakePrSurface({ owner: OWNER, repo: REPO, prNumber: PR_NUMBER });
+    fake.controls.setPullsForHead(headSha, [{ number: PR_NUMBER }]);
+    fake.controls.setCiStatus(headSha, {
+      checkRuns: [
+        checkRunSnapshot({
+          id: 91,
+          name: "lint",
+          startedAt: "2026-09-13T00:00:01.000Z",
+          completedAt: "2026-09-13T00:00:10.000Z",
+        }),
+      ],
+      checkRunsComplete: true,
+      legacyStatuses: [
+        {
+          context: "lint",
+          state: "failure",
+          description: null,
+          targetUrl: "https://example.com/status",
+          updatedAt: "2026-09-13T00:00:09.000Z",
+        },
+      ],
+    });
+
+    await executeCiProjectionJob(
+      cfg,
+      pool,
+      boss,
+      {
+        kind: "ci_projection",
+        installationId: 9001,
+        owner: OWNER,
+        repo: REPO,
+        headSha,
+      },
+      { createSurface: async () => fake.surface, author: stubCiAuthor([]) },
+    );
+
+    const row = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(Object.values(row?.checks ?? {}).filter((fact) => fact.name === "lint")).toHaveLength(2);
+    expect(factIn(row?.checks, "lint", "check_run")?.conclusion).toBe("success");
+    expect(factIn(row?.checks, "lint", "status")?.status).toBe("failure");
+    expect(row?.rollup).toBe("failing");
+    const claim = await loadRenderableHeadCi(pool, OWNER, REPO, headSha);
+    expect(claim.summary.status).toBe("failing");
+    expect(claim.summary.headline).toContain("commit status");
+  });
+
   it("advances version on first seed even when pre-seed facts are identical", async () => {
     const headSha = "cc".repeat(20);
     await insertReviewWorkItem(headSha);
@@ -3198,9 +3311,11 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     const row = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
     expect(row?.rollup).toBe("passing");
     expect(row?.version).toBe(2);
-    expect(row?.checks.GitGuardian?.status).toBe("completed");
-    expect(row?.checks.GitGuardian?.conclusion).toBe("success");
-    expect(row?.checks.GitGuardian?.observed_at).toBe(observedAtFromGithub(completedAt, startedAt));
+    expect(factIn(row?.checks, "GitGuardian")?.status).toBe("completed");
+    expect(factIn(row?.checks, "GitGuardian")?.conclusion).toBe("success");
+    expect(factIn(row?.checks, "GitGuardian")?.observed_at).toBe(
+      observedAtFromGithub(completedAt, startedAt),
+    );
     expect(getCiStatusCount(fake.controls.events)).toBe(1);
     const body = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)?.body ?? "";
     expect(body).not.toMatch(/CI is pending/i);
@@ -3257,8 +3372,8 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     );
 
     const row = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
-    expect(row?.checks.lint?.status).toBe("completed");
-    expect(row?.checks.test?.conclusion).toBe("failure");
+    expect(factIn(row?.checks, "lint")?.status).toBe("completed");
+    expect(factIn(row?.checks, "test")?.conclusion).toBe("failure");
     expect(row?.rollup).toBe("failing");
     expect(row?.version).toBe(2);
     expect(getCiStatusCount(fake.controls.events)).toBe(1);
@@ -3336,7 +3451,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     expect(getCiStatusCount(fake.controls.events)).toBe(3);
   });
 
-  it("skips a cross-source same name and excludes the own check from pending refresh", async () => {
+  it("refreshes same-named namespaces independently and excludes the own check", async () => {
     const headSha = "f4".repeat(20);
     await insertReviewWorkItem(headSha);
     const pending = ciStateFact({
@@ -3391,11 +3506,11 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     );
 
     const row = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
-    expect(row?.version).toBe(1);
-    expect(row?.checks.lint?.source).toBe("check_run");
-    expect(row?.checks.lint?.status).toBe("in_progress");
-    expect(row?.checks["PR Agent Review"]).toBeUndefined();
-    expect(row?.checks["pr-agent/review"]).toBeUndefined();
+    expect(row?.version).toBe(2);
+    expect(factIn(row?.checks, "lint", "check_run")?.status).toBe("in_progress");
+    expect(factIn(row?.checks, "lint", "status")?.status).toBe("success");
+    expect(factIn(row?.checks, "PR Agent Review")).toBeUndefined();
+    expect(factIn(row?.checks, "pr-agent/review")).toBeUndefined();
     expect(row?.rollup).toBe("pending");
     expect(getCiStatusCount(fake.controls.events)).toBe(1);
   });
@@ -3436,7 +3551,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
 
     await executeCiProjectionJob(cfg, pool, boss, job, options);
     const afterFirst = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
-    expect(afterFirst?.checks.lint?.status).toBe("completed");
+    expect(factIn(afterFirst?.checks, "lint")?.status).toBe("completed");
     expect(afterFirst?.rollup).toBe("unknown");
     expect(getCiStatusCount(fake.controls.events)).toBe(1);
 
@@ -3524,7 +3639,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     const row = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
     expect(row?.version).toBe(1);
     expect(row?.rollup).toBe("pending");
-    expect(row?.checks.lint?.status).toBe("in_progress");
+    expect(factIn(row?.checks, "lint")?.status).toBe("in_progress");
     const body = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)?.body ?? "";
     expect(body).toContain("<!-- pr-agent:ci-summary");
     expect(body).toContain("CI is pending");
@@ -3563,7 +3678,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
               SET checks = $4::jsonb,
                   rollup = 'passing'
             WHERE owner = $1 AND repo = $2 AND head_sha = $3`,
-          [OWNER, REPO, headSha, JSON.stringify({ lint: terminal })],
+          [OWNER, REPO, headSha, JSON.stringify(canonicalizeCiCheckFacts({ lint: terminal }))],
         );
         return {
           checkRuns: [
@@ -3596,8 +3711,8 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
 
     const row = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
     expect(row?.version).toBe(1);
-    expect(row?.checks.lint?.status).toBe("completed");
-    expect(row?.checks.lint?.observed_at).toBe("2026-09-13T00:00:30.000Z");
+    expect(factIn(row?.checks, "lint")?.status).toBe("completed");
+    expect(factIn(row?.checks, "lint")?.observed_at).toBe("2026-09-13T00:00:30.000Z");
     expect(row?.rollup).toBe("passing");
   });
 
@@ -3649,9 +3764,9 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     );
 
     const row = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
-    expect(row?.checks.lint?.status).toBe("completed");
-    expect(row?.checks.keeper?.conclusion).toBe("success");
-    expect(row?.checks.keeper?.observed_at).toBe("2026-09-13T00:00:01.000Z");
+    expect(factIn(row?.checks, "lint")?.status).toBe("completed");
+    expect(factIn(row?.checks, "keeper")?.conclusion).toBe("success");
+    expect(factIn(row?.checks, "keeper")?.observed_at).toBe("2026-09-13T00:00:01.000Z");
     expect(row?.version).toBe(2);
     expect(getCiStatusCount(fake.controls.events)).toBe(1);
   });
@@ -3686,7 +3801,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     expect(getCiStatusCount(fake.controls.events)).toBe(0);
     const afterSecond = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
     expect(afterSecond?.version).toBe(1);
-    expect(afterSecond?.checks.late).toBeUndefined();
+    expect(factIn(afterSecond?.checks, "late")).toBeUndefined();
   });
 });
 

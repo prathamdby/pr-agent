@@ -12,6 +12,7 @@ import {
   mergeCiSummaryWithFacts,
   ciSummaryLlmSchema,
   fetchCiAuthorContext,
+  ciAuthorInputFromFacts,
 } from "../src/review/ci/ciAuthor.ts";
 import { buildCiContextUserMessage, ciGateRowContract } from "../src/prompts/ci/prompt.ts";
 import { createFakePrSurface } from "../src/github/prSurface.ts";
@@ -332,6 +333,47 @@ describe("ciSummarySchema and author prompt", () => {
     });
     expect(message).toContain("(no logs available)");
     expect(message).toContain('<ci_context untrusted="true">');
+  });
+});
+
+describe("ciAuthorInputFromFacts", () => {
+  it("keeps same-named failing namespaces distinct", () => {
+    const input = ciAuthorInputFromFacts(
+      {
+        check: {
+          name: "lint",
+          source: "check_run",
+          status: "completed",
+          conclusion: "failure",
+          url: "https://example.com/check",
+          external_id: null,
+          app_id: 1,
+          check_run_id: 11,
+          observed_at: "2026-01-01T00:00:00.000Z",
+        },
+        status: {
+          name: "lint",
+          source: "status",
+          status: "failure",
+          conclusion: null,
+          url: "https://example.com/status",
+          external_id: null,
+          app_id: null,
+          check_run_id: null,
+          observed_at: "2026-01-01T00:00:00.000Z",
+        },
+      },
+      "",
+    );
+    expect(input.checkNames).toEqual(
+      expect.arrayContaining(["lint (check run)", "lint (commit status)"]),
+    );
+    expect(input.failingNames).toEqual(
+      expect.arrayContaining(["lint (check run)", "lint (commit status)"]),
+    );
+    expect(input.failingNames).toHaveLength(2);
+    expect(input.failingUrls.get("lint (check run)")).toBe("https://example.com/check");
+    expect(input.failingUrls.get("lint (commit status)")).toBe("https://example.com/status");
   });
 });
 
