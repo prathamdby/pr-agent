@@ -581,6 +581,7 @@ function isCleanExit(result: GitProcessResult) {
       !result.timedOut &&
       !result.outputLimited &&
       !result.byteLimitExceeded &&
+      result.objectStoreMonitorErrorCode == null &&
       result.spawnErrorCode == null &&
       result.cleanup !== "failed",
   );

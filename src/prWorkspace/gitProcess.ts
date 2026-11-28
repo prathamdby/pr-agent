@@ -117,23 +117,36 @@ export function runGitProcess(args: readonly string[], options: GitProcessOption
         child.stdin?.destroy();
         child.stdout?.destroy();
         child.stderr?.destroy();
-        resolve({
-          stdout: Buffer.concat(stdoutChunks),
-          stderr: Buffer.concat(stderrChunks),
-          stderrLimited,
-          exitCode,
-          signal: exitSignal,
-          timedOut,
-          outputLimited,
-          byteLimitExceeded,
-          objectStoreBytes,
-          objectStoreMonitorErrorCode,
-          killed,
-          spawnErrorCode,
-          cleanup: termination === "idle" || termination === "running" ? "not_needed" : termination,
-          cleanupErrorCode,
-          elapsedMs: Math.round(performance.now() - startedAt),
-        });
+        void (async () => {
+          const limit = options.objectStoreByteLimit;
+          if (limit != null && !byteLimitExceeded && objectStoreMonitorErrorCode == null) {
+            try {
+              const bytes = await objectStoreAllocatedBytes(limit.objectsDir);
+              objectStoreBytes = Math.max(objectStoreBytes ?? 0, bytes);
+              if (bytes > limit.maxBytes) byteLimitExceeded = true;
+            } catch (error) {
+              objectStoreMonitorErrorCode = systemErrorCode(error);
+            }
+          }
+          resolve({
+            stdout: Buffer.concat(stdoutChunks),
+            stderr: Buffer.concat(stderrChunks),
+            stderrLimited,
+            exitCode,
+            signal: exitSignal,
+            timedOut,
+            outputLimited,
+            byteLimitExceeded,
+            objectStoreBytes,
+            objectStoreMonitorErrorCode,
+            killed,
+            spawnErrorCode,
+            cleanup:
+              termination === "idle" || termination === "running" ? "not_needed" : termination,
+            cleanupErrorCode,
+            elapsedMs: Math.round(performance.now() - startedAt),
+          });
+        })();
       };
 
       const maybeSettle = () => {

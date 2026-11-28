@@ -2,6 +2,7 @@ import { ChildProcess, execFile as execFileCb, execFileSync, spawn } from "node:
 import { randomBytes } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import {
+  chmod,
   lstat,
   mkdir,
   mkdtemp,
@@ -22,7 +23,7 @@ import {
   isAllowlistedPolicyPath,
   LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB,
 } from "../src/settings/index.ts";
-import { type AppError, isAppError, serializeAppError } from "../src/errors/appError.ts";
+import { AppError, isAppError, serializeAppError } from "../src/errors/appError.ts";
 import { classifyFailure } from "../src/errors/classifiedFailure.ts";
 import { retryDispositionFor } from "../src/agentWork/retryPolicy.ts";
 import { annotateExecution, initTraces, startWorkTrace } from "../src/traces/recorder.ts";
@@ -827,7 +828,7 @@ describe("local PR workspace", () => {
     }
   });
 
-  it("marks an over-cap object store, an empty allowlist, and a failed blob read", async () => {
+  it("marks an empty allowlist and failed blob reads while cap errors stay fatal", async () => {
     const baseSha = "a".repeat(40);
     const blobSha = "b".repeat(40);
     const tree = `100644 blob ${blobSha}\t.pr-agent/ok.mdc\0`;
@@ -874,6 +875,35 @@ describe("local PR workspace", () => {
       }),
     });
     expect(failedFetch).toEqual({ kind: "unavailable", reason: "fetch_failed", baseSha });
+
+    const capError = () =>
+      new AppError({
+        domain: "pr_workspace",
+        kind: "fetch_too_large",
+        message: "object store exceeds cap",
+      });
+    await expect(
+      readBasePolicySnapshot({
+        baseSha,
+        timeoutMs: 1_000,
+        git: git((command) => {
+          if (command === "fetch") throw capError();
+          throw new Error(command);
+        }),
+      }),
+    ).rejects.toMatchObject({ code: "pr_workspace.fetch_too_large" });
+    await expect(
+      readBasePolicySnapshot({
+        baseSha,
+        timeoutMs: 1_000,
+        git: git((command) => {
+          if (command === "fetch") return { stdout: "" };
+          if (command === "ls-tree") return { stdout: tree };
+          if (command === "prefetch") throw capError();
+          throw new Error(command);
+        }),
+      }),
+    ).rejects.toMatchObject({ code: "pr_workspace.fetch_too_large" });
 
     const failedPrefetch = await readBasePolicySnapshot({
       baseSha,
@@ -1826,6 +1856,62 @@ describe("workspace git process ownership", () => {
         helperLiveAfterSettlement: isLiveProcess(helperPid),
       };
     } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a quick object write that finishes between monitor polls", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-quick-write-cap-"));
+    try {
+      await git(root, ["init"]);
+      await writeFile(join(root, "new.txt"), "quick write\n");
+      const error = appErrorOf(
+        await rejectionOf(
+          runWorkspaceGit(["add", "new.txt"], {
+            cwd: root,
+            timeoutMs: 1_000,
+            objectStoreByteLimit: {
+              objectsDir: join(root, ".git", "objects"),
+              maxBytes: 1,
+            },
+          }),
+        ),
+      );
+      expect(error.code).toBe("pr_workspace.fetch_too_large");
+      expect(error.context).toMatchObject({
+        operation: "add",
+        maxFetchBytes: 1,
+      });
+      expect(Number(error.context.objectStoreBytes)).toBeGreaterThan(1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed when the object-store monitor cannot scan", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-monitor-error-"));
+    const objectsDir = join(root, "objects");
+    try {
+      await mkdir(objectsDir);
+      await chmod(objectsDir, 0);
+      const error = appErrorOf(
+        await rejectionOf(
+          runWorkspaceGit(["grep", "definitely-not-present"], {
+            cwd: process.cwd(),
+            timeoutMs: 1_000,
+            objectStoreByteLimit: { objectsDir, maxBytes: 1 },
+          }),
+        ),
+      );
+      expect(error.code).toBe("pr_workspace.git_failed");
+      expect(error.code).not.toBe("pr_workspace.fetch_too_large");
+      expect(error.context).toMatchObject({
+        operation: "grep",
+        objectStoreMonitorErrorCode: "EACCES",
+      });
+      expect(error.context.objectStoreBytes).toBeUndefined();
+    } finally {
+      await chmod(objectsDir, 0o700).catch(() => undefined);
       await rm(root, { recursive: true, force: true });
     }
   });
