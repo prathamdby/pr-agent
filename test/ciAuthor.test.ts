@@ -12,6 +12,7 @@ import {
   mergeCiSummaryWithFacts,
   ciSummaryLlmSchema,
   fetchCiAuthorContext,
+  ciAuthorInputFromFacts,
 } from "../src/review/ci/ciAuthor.ts";
 import { buildCiContextUserMessage, ciGateRowContract } from "../src/prompts/ci/prompt.ts";
 import { createFakePrSurface } from "../src/github/prSurface.ts";
@@ -238,9 +239,15 @@ describe("ciSummarySchema and author prompt", () => {
     const merged = mergeCiSummaryWithFacts(
       {
         status: "failing",
-        checkNames: ["lint", "unit"],
-        failingNames: ["lint"],
-        failingUrls: new Map([["lint", "https://example.com/lint"]]),
+        checks: [
+          {
+            key: "check-run-lint",
+            name: "lint",
+            failing: true,
+            url: "https://example.com/lint",
+          },
+          { key: "check-run-unit", name: "unit", failing: false },
+        ],
         condensedLogs: "Format issues",
       },
       {
@@ -272,9 +279,7 @@ describe("ciSummarySchema and author prompt", () => {
       failures: [{ name: "lint", reason: "x", fixHint: "y" }],
     };
     const base = {
-      checkNames: ["lint"] as const,
-      failingNames: [] as const,
-      failingUrls: new Map<string, string | undefined>(),
+      checks: [{ key: "check-run-lint", name: "lint", failing: false }] as const,
       condensedLogs: "",
     };
     expect(mergeCiSummaryWithFacts({ ...base, status: "passing" }, llm)).toEqual({
@@ -332,6 +337,127 @@ describe("ciSummarySchema and author prompt", () => {
     });
     expect(message).toContain("(no logs available)");
     expect(message).toContain('<ci_context untrusted="true">');
+  });
+});
+
+describe("ciAuthorInputFromFacts", () => {
+  it("keeps same-named failing namespaces distinct", () => {
+    const input = ciAuthorInputFromFacts(
+      {
+        check: {
+          name: "lint",
+          source: "check_run",
+          status: "completed",
+          conclusion: "failure",
+          url: "https://example.com/check",
+          external_id: null,
+          app_id: 1,
+          check_run_id: 11,
+          observed_at: "2026-01-01T00:00:00.000Z",
+        },
+        status: {
+          name: "lint",
+          source: "status",
+          status: "failure",
+          conclusion: null,
+          url: "https://example.com/status",
+          external_id: null,
+          app_id: null,
+          check_run_id: null,
+          observed_at: "2026-01-01T00:00:00.000Z",
+        },
+      },
+      "",
+    );
+    const names = input.checks.map((check) => check.name);
+    const failing = input.checks.filter((check) => check.failing);
+    expect(names).toEqual(expect.arrayContaining(["lint (check run)", "lint (commit status)"]));
+    expect(failing.map((check) => check.name)).toEqual(
+      expect.arrayContaining(["lint (check run)", "lint (commit status)"]),
+    );
+    expect(failing).toHaveLength(2);
+    expect(failing.find((check) => check.name === "lint (check run)")?.url).toBe(
+      "https://example.com/check",
+    );
+    expect(failing.find((check) => check.name === "lint (commit status)")?.url).toBe(
+      "https://example.com/status",
+    );
+  });
+
+  it("keeps a single-namespace failing name unqualified", () => {
+    const input = ciAuthorInputFromFacts(
+      {
+        check: {
+          name: "lint",
+          source: "check_run",
+          status: "completed",
+          conclusion: "failure",
+          url: "https://example.com/check",
+          external_id: null,
+          app_id: 1,
+          check_run_id: 11,
+          observed_at: "2026-01-01T00:00:00.000Z",
+        },
+      },
+      "",
+    );
+    expect(input.checks).toHaveLength(1);
+    expect(input.checks[0]?.name).toBe("lint");
+    expect(input.checks[0]?.failing).toBe(true);
+    expect(input.checks[0]?.url).toBe("https://example.com/check");
+  });
+
+  it("keeps display labels unique when a literal name matches a qualifier", () => {
+    const fact = (name: string, url: string) => ({
+      name,
+      source: "check_run" as const,
+      status: "completed",
+      conclusion: "failure" as const,
+      url,
+      external_id: null,
+      app_id: 1,
+      check_run_id: 11,
+      observed_at: "2026-01-01T00:00:00.000Z",
+    });
+    const input = ciAuthorInputFromFacts(
+      {
+        literal: fact("lint (check run)", "https://example.com/literal"),
+        check: fact("lint", "https://example.com/check"),
+        status: {
+          ...fact("lint", "https://example.com/status"),
+          source: "status",
+          status: "failure",
+          conclusion: null,
+          app_id: null,
+          check_run_id: null,
+        },
+      },
+      "",
+    );
+    const names = input.checks.map((check) => check.name);
+    expect(new Set(names).size).toBe(3);
+    for (const check of input.checks) {
+      if (check.name === "lint (commit status)") {
+        expect(check.url).toBe("https://example.com/status");
+      }
+    }
+    expect(input.checks.find((check) => check.url === "https://example.com/literal")).toBeDefined();
+    expect(input.checks.find((check) => check.url === "https://example.com/check")).toBeDefined();
+
+    const merged = mergeCiSummaryWithFacts(input, {
+      headline: "model headline",
+      failures: input.checks.map((check) => ({
+        name: check.name,
+        reason: `reason for ${check.name}`,
+        fixHint: `fix ${check.name}`,
+      })),
+    });
+    expect(merged.failures).toHaveLength(3);
+    for (const failure of merged.failures) {
+      const check = input.checks.find((candidate) => candidate.name === failure.name);
+      expect(failure.url).toBe(check?.url);
+      expect(failure.reason).toBe(`reason for ${failure.name}`);
+    }
   });
 });
 

@@ -496,12 +496,14 @@ Install additive migration `033_webhook_delivery_duplicates.sql` before upgraded
 
 ## CI projection delivery attribution
 
+Migration `045_source_qualified_ci_facts.sql` rewrites `pr_head_ci_state.checks` keys to source-qualified identities, marks non-empty pre-fix heads `unknown` with projection repair pending so a fresh listing can recover facts lost by the old writer, and installs a database trigger that rejects non-canonical fact-map mutations. The migration briefly locks `pr_head_ci_state` so a mixed-version writer cannot slip a legacy row between the rewrite and trigger installation. Deploy upgraded web and worker instances together: during a mixed-version window, pre-fix writers fail CI fact writes rather than silently collapsing same-named check runs and legacy statuses. Prefer a forward fix over rollback. A rollback to pre-fix code cannot represent both namespaces; keeping the trigger makes those writers fail closed, while removing it or downgrading keys reopens the collision defect and is lossy for rows that contain both namespaces.
+
 Accepted CI projection intake retains `{webhookEventId, delivery}` pairs in the
 job's `data.correlations` array. A single delivery appears once. On debounce
 absorption, intake atomically appends the incoming pair to the exact next-slot
 job in the same transaction as the event and any CI facts. The job's original
 top-level pair stays unchanged, and worker logs still use that primary identity.
-The projector reads `pr_head_ci_state`, not the correlation list, for CI output.
+The projector reads `pr_head_ci_state`, not the correlation list, for CI output. Fact keys are source-qualified; never infer identity from the display-name part alone when diagnosing a row.
 
 Bind `agent-work-ci-projection`, owner, repository, head SHA, and delivery ID to
 `$1` through `$5`. Never interpolate webhook headers into SQL.

@@ -104,13 +104,15 @@ describe("buildAskUserContent discussion", () => {
         ciState: {
           rollup: "failing",
           version: 3,
-          checks: [{ name: "lint", status: "completed", conclusion: "failure" }],
+          checks: [
+            { name: "lint", source: "check_run", status: "completed", conclusion: "failure" },
+          ],
         },
       }),
     );
     expect(content).toContain('<ci_state untrusted="true">');
     expect(content).toContain("rollup: failing");
-    expect(content).toContain("- lint: completed/failure");
+    expect(content).toContain("- lint [check_run]: completed/failure");
   });
 
   it("omits ci_state when facts were not loaded", () => {

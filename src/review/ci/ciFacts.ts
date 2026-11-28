@@ -82,6 +82,52 @@ export const ciCheckFactSchema = v.object({
 
 export type CiCheckFact = Readonly<v.InferOutput<typeof ciCheckFactSchema>>;
 
+export function ciCheckFactStorageKey(fact: Pick<CiCheckFact, "name" | "source">) {
+  return ((pinnedReturn: string) => pinnedReturn)(`${fact.source}\n${fact.name}`);
+}
+
+export function canonicalizeCiCheckFacts(current: Readonly<Record<string, CiCheckFact>>) {
+  const checks: Record<string, CiCheckFact> = {};
+  for (const fact of Object.values(current)) {
+    const key = ciCheckFactStorageKey(fact);
+    const existing = checks[key];
+    if (existing == null || fact.observed_at > existing.observed_at) checks[key] = fact;
+  }
+  return ((pinnedReturn: Record<string, CiCheckFact>) => pinnedReturn)(checks);
+}
+
+function ciCheckFactDisplayName(fact: CiCheckFact, facts: readonly CiCheckFact[]) {
+  const collides = facts.some(
+    (other) => other !== fact && other.name === fact.name && other.source !== fact.source,
+  );
+  if (!collides) return ((pinnedReturn: string) => pinnedReturn)(fact.name);
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `${fact.name} (${fact.source === "check_run" ? "check run" : "commit status"})`,
+  );
+}
+
+export function ciCheckFactDisplayNames(facts: readonly CiCheckFact[]) {
+  const ordered = [...facts].toSorted((left, right) => {
+    const leftKey = ciCheckFactStorageKey(left);
+    const rightKey = ciCheckFactStorageKey(right);
+    return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+  });
+  const used = new Set<string>();
+  const names = new Map<CiCheckFact, string>();
+  for (const fact of ordered) {
+    const base = ciCheckFactDisplayName(fact, facts);
+    let name = base;
+    let suffix = 2;
+    while (used.has(name)) {
+      name = `${base} (${suffix})`;
+      suffix += 1;
+    }
+    used.add(name);
+    names.set(fact, name);
+  }
+  return ((pinnedReturn: ReadonlyMap<CiCheckFact, string>) => pinnedReturn)(names);
+}
+
 export type OwnCheckIdentity = {
   readonly githubAppId: string;
   readonly workItemId?: string;
@@ -205,24 +251,26 @@ export function applyCiCheckFact(
   incoming: CiCheckFact,
   maxChecks: number,
 ) {
-  const existing = current[incoming.name];
+  const canonical = canonicalizeCiCheckFacts(current);
+  const incomingKey = ciCheckFactStorageKey(incoming);
+  const existing = canonical[incomingKey];
   if (existing != null && existing.observed_at >= incoming.observed_at) {
     return ((pinnedReturn: {
       readonly checks: Record<string, CiCheckFact>;
       readonly accepted: boolean;
       readonly truncated: boolean;
-    }) => pinnedReturn)({ checks: { ...current }, accepted: false, truncated: false });
+    }) => pinnedReturn)({ checks: canonical, accepted: false, truncated: false });
   }
-  const next: Record<string, CiCheckFact> = { ...current, [incoming.name]: incoming };
+  const next: Record<string, CiCheckFact> = { ...canonical, [incomingKey]: incoming };
   let truncated = false;
   while (Object.keys(next).length > maxChecks) {
     truncated = true;
     let evict: string | undefined;
     let oldest = "";
-    for (const [name, fact] of Object.entries(next)) {
-      if (name === incoming.name) continue;
+    for (const [key, fact] of Object.entries(next)) {
+      if (key === incomingKey) continue;
       if (evict == null || fact.observed_at < oldest) {
-        evict = name;
+        evict = key;
         oldest = fact.observed_at;
       }
     }
@@ -255,7 +303,7 @@ export function isMaterialCiFactChange(previous: CiCheckFact | undefined, next: 
   );
 }
 
-export function pickSnapshotFactForName(
+export function pickSnapshotFactForIdentity(
   facts: readonly CiCheckFact[],
   stored: CiCheckFact | undefined,
 ) {
@@ -315,7 +363,7 @@ export function mergeGithubSnapshotIntoChecks(input: {
     input.identity,
     input.mode === "pending-refresh" ? "github" : "epoch",
   );
-  let checks = { ...input.stored };
+  let checks = canonicalizeCiCheckFacts(input.stored);
   let truncated = input.storedTruncated;
   let materialChange = false;
 
@@ -327,17 +375,17 @@ export function mergeGithubSnapshotIntoChecks(input: {
       truncated = truncated || merged.truncated;
     }
   } else {
-    const factsByName = new Map<string, CiCheckFact[]>();
+    const factsByIdentity = new Map<string, CiCheckFact[]>();
     for (const fact of facts) {
-      const list = factsByName.get(fact.name) ?? [];
+      const key = ciCheckFactStorageKey(fact);
+      const list = factsByIdentity.get(key) ?? [];
       list.push(fact);
-      factsByName.set(fact.name, list);
+      factsByIdentity.set(key, list);
     }
-    for (const [name, nameFacts] of factsByName) {
-      const incoming = pickSnapshotFactForName(nameFacts, input.stored[name]);
+    for (const [key, identityFacts] of factsByIdentity) {
+      const incoming = pickSnapshotFactForIdentity(identityFacts, checks[key]);
       if (incoming == null) continue;
-      const existing = checks[name];
-      if (existing != null && existing.source !== incoming.source) continue;
+      const existing = checks[key];
       const merged = applyCiCheckFact(checks, incoming, input.maxChecks);
       if (!merged.accepted) continue;
       if (isMaterialCiFactChange(existing, incoming)) materialChange = true;
@@ -362,14 +410,6 @@ export function mergeGithubSnapshotIntoChecks(input: {
   });
 }
 
-function isCheckFailing(run: CiCheckRunSnapshot) {
-  return ((pinnedReturn: boolean) => pinnedReturn)(isCheckFactFailing(checkRunSnapshotToFact(run)));
-}
-
-function isLegacyFailing(status: CiLegacyStatus) {
-  return ((pinnedReturn: boolean) => pinnedReturn)(isCheckFactFailing(legacyStatusToFact(status)));
-}
-
 function unavailableSummary(headline: string) {
   return ((pinnedReturn: CiSummary) => pinnedReturn)({
     status: "unavailable",
@@ -384,15 +424,16 @@ function withPartialCiView(headline: string) {
   );
 }
 
-export function summarizeCiSnapshot(params: {
-  readonly checks: readonly CiCheckRunSnapshot[];
-  readonly statuses: readonly CiLegacyStatus[];
-  readonly failures?: CiSummary["failures"];
-  readonly checkRunsComplete?: boolean;
-  readonly legacyStatusesComplete?: boolean;
-  readonly sourceAvailability?: CiSourceAvailability;
-}) {
-  const state = classifyGithubSnapshot(params.checks, params.statuses);
+function summarizeCiFactList(
+  facts: readonly CiCheckFact[],
+  params: {
+    readonly failures?: CiSummary["failures"];
+    readonly checkRunsComplete?: boolean;
+    readonly legacyStatusesComplete?: boolean;
+    readonly sourceAvailability?: CiSourceAvailability;
+  },
+) {
+  const state = classifySnapshot(facts);
   const unavailableSources =
     params.sourceAvailability == null
       ? []
@@ -444,10 +485,10 @@ export function summarizeCiSnapshot(params: {
       });
     case "failing": {
       const failures = params.failures ?? [];
-      const failingNames = [
-        ...params.checks.filter(isCheckFailing).map((run) => run.name),
-        ...params.statuses.filter(isLegacyFailing).map((status) => status.context),
-      ];
+      const displayNames = ciCheckFactDisplayNames(facts);
+      const failingNames = facts
+        .filter(isCheckFactFailing)
+        .map((fact) => displayNames.get(fact) ?? fact.name);
       const uniqueNames = [...new Set(failingNames)];
       const nameList = uniqueNames.slice(0, 3).join(", ");
       const more = uniqueNames.length > 3 ? ` (+${uniqueNames.length - 3} more)` : "";
@@ -473,6 +514,21 @@ export function summarizeCiSnapshot(params: {
   }
 }
 
+export function summarizeCiSnapshot(params: {
+  readonly checks: readonly CiCheckRunSnapshot[];
+  readonly statuses: readonly CiLegacyStatus[];
+  readonly failures?: CiSummary["failures"];
+  readonly checkRunsComplete?: boolean;
+  readonly legacyStatusesComplete?: boolean;
+  readonly sourceAvailability?: CiSourceAvailability;
+}) {
+  const facts = [
+    ...params.checks.map((run) => checkRunSnapshotToFact(run)),
+    ...params.statuses.map((status) => legacyStatusToFact(status)),
+  ];
+  return ((pinnedReturn: CiSummary) => pinnedReturn)(summarizeCiFactList(facts, params));
+}
+
 export function summarizeCiFacts(
   checks: Readonly<Record<string, CiCheckFact>>,
   options?: {
@@ -480,34 +536,8 @@ export function summarizeCiFacts(
     readonly sourceAvailability?: CiSourceAvailability;
   },
 ) {
-  const checkRuns: CiCheckRunSnapshot[] = [];
-  const statuses: CiLegacyStatus[] = [];
-  for (const fact of Object.values(checks)) {
-    if (fact.source === "status") {
-      statuses.push({
-        context: fact.name,
-        state: fact.status,
-        description: null,
-        targetUrl: fact.url,
-      });
-    } else {
-      checkRuns.push({
-        id: fact.check_run_id ?? 0,
-        name: fact.name,
-        externalId: fact.external_id,
-        status: fact.status,
-        conclusion: fact.conclusion,
-        htmlUrl: fact.url,
-        outputTitle: null,
-        outputSummary: null,
-        outputText: null,
-      });
-    }
-  }
   return ((pinnedReturn: CiSummary) => pinnedReturn)(
-    summarizeCiSnapshot({
-      checks: checkRuns,
-      statuses,
+    summarizeCiFactList(Object.values(checks), {
       checkRunsComplete: options?.checkRunsComplete,
       sourceAvailability: options?.sourceAvailability,
     }),

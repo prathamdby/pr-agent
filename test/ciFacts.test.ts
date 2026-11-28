@@ -5,6 +5,7 @@ import {
   summarizeCiSnapshot,
   applyCiCheckFact,
   classifySnapshot,
+  mergeGithubSnapshotIntoChecks,
   hashCiFacts,
   parseCiAuthoredCache,
   ciSummaryFromFacts,
@@ -316,6 +317,16 @@ describe("classifySnapshot and applyCiCheckFact", () => {
     expect(classifySnapshot([checkFact("lint", "completed", "cancelled")])).toBe("failing");
   });
 
+  it("names the failing namespace for a same-named collision", () => {
+    const summary = summarizeCiFacts({
+      check: checkFact("lint", "completed", "success"),
+      status: statusFact("lint", "failure"),
+    });
+    expect(summary.status).toBe("failing");
+    expect(summary.headline).toContain("lint (commit status)");
+    expect(summary.headline).not.toContain("check_run");
+  });
+
   it("summarizes stored facts as incomplete when the listing is truncated", () => {
     const summary = summarizeCiFacts(
       {
@@ -341,7 +352,107 @@ describe("classifySnapshot and applyCiCheckFact", () => {
       200,
     );
     expect(result.accepted).toBe(false);
-    expect(result.checks.lint?.conclusion).toBe("failure");
+    expect(Object.values(result.checks).find((fact) => fact.name === "lint")?.conclusion).toBe(
+      "failure",
+    );
+  });
+
+  it("retains same-named facts from both CI namespaces", () => {
+    const first = applyCiCheckFact(
+      {},
+      checkFact("lint", "completed", "success", "2026-01-01T00:00:01.000Z"),
+      200,
+    );
+    const merged = applyCiCheckFact(
+      first.checks,
+      statusFact("lint", "failure", "2026-01-01T00:00:01.000Z"),
+      200,
+    );
+    const facts = Object.values(merged.checks);
+    expect(merged.accepted).toBe(true);
+    expect(facts).toHaveLength(2);
+    expect(facts.map((fact) => fact.source).toSorted()).toEqual(["check_run", "status"]);
+    expect(classifySnapshot(facts)).toBe("failing");
+  });
+
+  it("orders equal timestamps only within one CI namespace", () => {
+    const first = applyCiCheckFact(
+      {},
+      checkFact("lint", "completed", "success", "2026-01-01T00:00:02.000Z"),
+      200,
+    );
+    const merged = applyCiCheckFact(
+      first.checks,
+      statusFact("lint", "failure", "2026-01-01T00:00:01.000Z"),
+      200,
+    );
+    expect(merged.accepted).toBe(true);
+    expect(Object.values(merged.checks)).toHaveLength(2);
+  });
+
+  it("pending-refreshes same-named check runs and legacy statuses independently", () => {
+    const result = mergeGithubSnapshotIntoChecks({
+      stored: {
+        lint: checkFact("lint", "in_progress", null, "2026-01-01T00:00:02.000Z"),
+      },
+      storedTruncated: false,
+      checkRuns: [
+        {
+          id: 1,
+          name: "lint",
+          status: "completed",
+          conclusion: "success",
+          htmlUrl: null,
+          outputTitle: null,
+          outputSummary: null,
+          outputText: null,
+          startedAt: "2026-01-01T00:00:01.000Z",
+          completedAt: "2026-01-01T00:00:10.000Z",
+        },
+      ],
+      legacyStatuses: [
+        {
+          context: "lint",
+          state: "failure",
+          description: null,
+          targetUrl: null,
+          updatedAt: "2026-01-01T00:00:09.000Z",
+        },
+      ],
+      identity: { githubAppId: "99" },
+      checkRunsComplete: true,
+      maxChecks: 200,
+      mode: "pending-refresh",
+    });
+    const facts = Object.values(result.checks);
+    expect(facts).toHaveLength(2);
+    expect(facts.find((fact) => fact.source === "check_run")?.conclusion).toBe("success");
+    expect(facts.find((fact) => fact.source === "status")?.status).toBe("failure");
+    expect(result.rollup).toBe("failing");
+  });
+
+  it("keeps the incoming and newest colliding namespaces when evicting overflow", () => {
+    const result = applyCiCheckFact(
+      {
+        filler: checkFact("filler", "completed", "success", "2026-01-01T00:00:01.000Z"),
+        check: checkFact("lint", "completed", "success", "2026-01-01T00:00:03.000Z"),
+        status: statusFact("lint", "pending", "2026-01-01T00:00:04.000Z"),
+      },
+      checkFact("test", "completed", "failure", "2026-01-01T00:00:05.000Z"),
+      3,
+    );
+    const facts = Object.values(result.checks);
+    expect(result.accepted).toBe(true);
+    expect(result.truncated).toBe(true);
+    expect(facts).toHaveLength(3);
+    expect(facts.find((fact) => fact.name === "test")?.conclusion).toBe("failure");
+    expect(
+      facts.find((fact) => fact.name === "lint" && fact.source === "check_run")?.conclusion,
+    ).toBe("success");
+    expect(facts.find((fact) => fact.name === "lint" && fact.source === "status")?.status).toBe(
+      "pending",
+    );
+    expect(facts.find((fact) => fact.name === "filler")).toBeUndefined();
   });
 
   it("accepts a newer observation and evicts the oldest other name on overflow", () => {
@@ -353,7 +464,11 @@ describe("classifySnapshot and applyCiCheckFact", () => {
     const result = applyCiCheckFact(current, incoming, 2);
     expect(result.accepted).toBe(true);
     expect(result.truncated).toBe(true);
-    expect(Object.keys(result.checks).toSorted()).toEqual(["mid", "new"]);
+    expect(
+      Object.values(result.checks)
+        .map((fact) => fact.name)
+        .toSorted(),
+    ).toEqual(["mid", "new"]);
   });
 });
 

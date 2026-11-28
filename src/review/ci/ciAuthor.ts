@@ -19,6 +19,8 @@ import { logDebug, logWarn } from "../../evlog.ts";
 import type { PrSurface } from "../../github/prSurface.ts";
 import { redactReviewText } from "../findings/reviewPublicOutput.ts";
 import {
+  ciCheckFactDisplayNames,
+  ciCheckFactStorageKey,
   isCheckFactFailing,
   type CiCheckFact,
   type CiFailureDetail,
@@ -282,11 +284,16 @@ export function selectEffectiveCiContext(params: {
   );
 }
 
+export type CiAuthorCheck = {
+  readonly key: string;
+  readonly name: string;
+  readonly failing: boolean;
+  readonly url?: string;
+};
+
 export type CiAuthorInput = {
   readonly status: Extract<CiSummaryStatus, "passing" | "failing" | "pending" | "none">;
-  readonly checkNames: readonly string[];
-  readonly failingNames: readonly string[];
-  readonly failingUrls: ReadonlyMap<string, string | undefined>;
+  readonly checks: readonly CiAuthorCheck[];
   readonly condensedLogs: string;
 };
 
@@ -310,23 +317,23 @@ export function parseCiSummaryLlmText(text: string) {
 }
 
 export function mergeCiSummaryWithFacts(input: CiAuthorInput, llm: CiSummaryLlmFields) {
-  const byName = new Map(llm.failures.map((f) => [f.name.toLowerCase(), f]));
+  const byName = new Map(llm.failures.map((failure) => [failure.name, failure]));
   const failures: CiFailureDetail[] = [];
 
   if (input.status === "failing") {
-    for (const name of input.failingNames) {
-      const match = byName.get(name.toLowerCase());
+    for (const check of input.checks.filter((candidate) => candidate.failing)) {
+      const match = byName.get(check.name);
       const reason = redactReviewText(
         match?.reason ?? "Check failed; see the linked job logs for details.",
       );
       const fixHint = redactReviewText(
-        match?.fixHint ?? `Inspect the failing “${name}” check, fix the error, and re-push.`,
+        match?.fixHint ?? `Inspect the failing “${check.name}” check, fix the error, and re-push.`,
       );
       failures.push({
-        name,
+        name: check.name,
         reason,
         fixHint,
-        url: input.failingUrls.get(name),
+        url: check.url,
       });
     }
   }
@@ -369,7 +376,12 @@ export function createAgentCiSummaryAuthor(cfg: Config) {
       executors: {},
     });
     try {
-      const prompt = buildCiContextUserMessage(input);
+      const prompt = buildCiContextUserMessage({
+        status: input.status,
+        checkNames: input.checks.map((check) => check.name),
+        failingNames: input.checks.filter((check) => check.failing).map((check) => check.name),
+        condensedLogs: input.condensedLogs,
+      });
       const turn = await session.send(prompt, {
         maxToolRounds: 0,
         phase: "ci_summary",
@@ -393,16 +405,20 @@ export function createAgentCiSummaryAuthor(cfg: Config) {
 }
 
 export function factsOnlyFailingSummary(input: CiAuthorInput) {
-  const nameList = input.failingNames.slice(0, 3).join(", ");
-  const more = input.failingNames.length > 3 ? ` (+${input.failingNames.length - 3} more)` : "";
+  const failing = input.checks.filter((check) => check.failing);
+  const nameList = failing
+    .slice(0, 3)
+    .map((check) => check.name)
+    .join(", ");
+  const more = failing.length > 3 ? ` (+${failing.length - 3} more)` : "";
   return ((pinnedReturn: CiSummary) => pinnedReturn)({
     status: "failing",
     headline: `❌ CI failing — ${nameList}${more}`,
-    failures: input.failingNames.map((name) => ({
-      name,
+    failures: failing.map((check) => ({
+      name: check.name,
       reason: "Check failed; CI log summary was unavailable.",
-      fixHint: `Inspect the failing “${name}” check, fix the error, and re-push.`,
-      url: input.failingUrls.get(name),
+      fixHint: `Inspect the failing “${check.name}” check, fix the error, and re-push.`,
+      url: check.url,
     })),
   });
 }
@@ -417,12 +433,15 @@ export function ciAuthorInputFromFacts(
   condensedLogs: string,
 ) {
   const facts = Object.values(checks);
-  const failing = facts.filter(isCheckFactFailing);
+  const displayNames = ciCheckFactDisplayNames(facts);
   return ((pinnedReturn: CiAuthorInput) => pinnedReturn)({
     status: "failing",
-    checkNames: facts.map((fact) => fact.name),
-    failingNames: failing.map((fact) => fact.name),
-    failingUrls: new Map(failing.map((fact) => [fact.name, fact.url ?? undefined])),
+    checks: facts.map((fact) => ({
+      key: ciCheckFactStorageKey(fact),
+      name: displayNames.get(fact) ?? fact.name,
+      failing: isCheckFactFailing(fact),
+      ...(fact.url != null ? { url: fact.url } : {}),
+    })),
     condensedLogs,
   });
 }
@@ -432,7 +451,9 @@ export async function fetchCiAuthorContext(params: {
   readonly headSha: string;
   readonly checks: Readonly<Record<string, CiCheckFact>>;
 }) {
-  const failing = Object.values(params.checks).filter(isCheckFactFailing);
+  const facts = Object.values(params.checks);
+  const displayNames = ciCheckFactDisplayNames(facts);
+  const failing = facts.filter(isCheckFactFailing);
   const jobs: CondensedJobLog[] = [];
   let actionsPermissionMissing = false;
 
@@ -445,7 +466,7 @@ export async function fetchCiAuthorContext(params: {
     }
     if (!downloaded.ok) continue;
     jobs.push({
-      name: fact.name,
+      name: displayNames.get(fact) ?? fact.name,
       ...(fact.url != null ? { url: fact.url } : {}),
       text: condenseJobLogText(downloaded.text),
     });

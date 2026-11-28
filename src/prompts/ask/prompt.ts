@@ -66,7 +66,7 @@ export function formatAskCiState(state: AskCiState) {
   const lines = [`rollup: ${state.rollup}`, `version: ${state.version}`];
   for (const check of state.checks) {
     const conclusion = check.conclusion != null ? `/${check.conclusion}` : "";
-    lines.push(`- ${check.name}: ${check.status}${conclusion}`);
+    lines.push(`- ${check.name} [${check.source}]: ${check.status}${conclusion}`);
   }
   return ((pinnedReturn: string) => pinnedReturn)(lines.join("\n"));
 }
